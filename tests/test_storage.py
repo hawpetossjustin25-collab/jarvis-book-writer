@@ -17,7 +17,7 @@ def test_book_chapter_revision_roundtrip(library):
     revs = library.revisions(ch.id)
     assert len(revs) == 2
     assert library.get_chapter(book.id, 1).word_count == 4
-    restored = library.restore_revision(min(revs, key=lambda r: r.created_at).id)
+    restored = library.restore_revision(min(r.id for r in revs))  # ids are ordered; Windows clock ticks can tie
     assert "\r" not in restored.text and restored.text.startswith("First draft.")
     assert len(library.revisions(ch.id)) == 3  # restoring keeps history
 
