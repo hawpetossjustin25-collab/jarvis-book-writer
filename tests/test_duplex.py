@@ -97,3 +97,29 @@ def test_loud_speakers_echo_is_learned_from_what_jarvis_plays():
     assert 0.4 < gate.coupling < 0.6 and gate.threshold() > 6000
     out, barged = feed(gate, tone(900, 25000, freq=180), playing_amp=12000)  # the user talks over him
     assert barged
+
+
+def test_echo_canceller_removes_jarvis_from_the_mic():
+    import random
+
+    import pytest
+    pytest.importorskip("livekit.rtc")
+    from jarvis_books.voice.duplex import EchoCanceller
+    aec = EchoCanceller(16000, 24000)
+    rnd = random.Random(1)
+
+    def voice(n, rate, t0):
+        return [(0.5 + 0.5 * math.sin(6 * math.pi * (t0 + i) / rate)) *
+                (math.sin(2 * math.pi * 180 * (t0 + i) / rate) + 0.6 * math.sin(2 * math.pi * 410 * (t0 + i) / rate)
+                 + 0.3 * rnd.uniform(-1, 1)) for i in range(n)]
+    history = [0.0] * 960  # 60 ms speaker-to-mic delay
+    before = after = 0.0
+    for k in range(500):
+        aec.played(array.array("h", (int(8000 * x) for x in voice(240, 24000, k * 240))).tobytes())
+        history += voice(160, 16000, k * 160)
+        mic = array.array("h", (int(2800 * x) for x in history[:160])).tobytes()
+        history = history[160:]
+        cleaned = aec.process(mic, delay_ms=60)
+        if k > 250:
+            before, after = before + rms(mic), after + rms(cleaned)
+    assert after < before / 5  # at least 14 dB less echo, before any gating

@@ -106,3 +106,46 @@ class DuplexGate:
                 self._release()
                 return said, True
         return b"", False
+
+
+class EchoCanceller:
+    """WebRTC acoustic echo cancellation (the same engine browsers use for calls), via LiveKit's
+    AudioProcessingModule. It subtracts what Jarvis is playing from the microphone signal."""
+
+    def __init__(self, in_rate: int = 16000, out_rate: int = 24000):
+        from livekit.rtc import AudioFrame, AudioProcessingModule
+        self._frame = AudioFrame
+        self.apm = AudioProcessingModule(echo_cancellation=True, noise_suppression=True, high_pass_filter=True)
+        self.in_rate, self.out_rate = in_rate, out_rate
+        self.in_bytes, self.out_bytes = in_rate // 100 * 2, out_rate // 100 * 2  # 10 ms frames
+        self._mic = b""
+        self._ref = b""
+
+    @classmethod
+    def create(cls, in_rate: int = 16000, out_rate: int = 24000) -> "EchoCanceller | None":
+        try:
+            return cls(in_rate, out_rate)
+        except Exception:  # optional: without it the gate alone still prevents self-interruption
+            return None
+
+    def played(self, pcm16: bytes) -> None:
+        data = self._ref + pcm16
+        cut = len(data) - len(data) % self.out_bytes
+        self._ref = data[cut:]
+        for i in range(0, cut, self.out_bytes):
+            self.apm.process_reverse_stream(self._frame(data[i:i + self.out_bytes], self.out_rate, 1,
+                                                        self.out_bytes // 2))
+
+    def process(self, pcm16: bytes, delay_ms: int = 0) -> bytes:
+        """Echo-cancelled microphone audio (whole 10 ms frames; the remainder waits for the next call)."""
+        data = self._mic + pcm16
+        cut = len(data) - len(data) % self.in_bytes
+        self._mic = data[cut:]
+        if delay_ms:
+            self.apm.set_stream_delay_ms(max(0, min(500, int(delay_ms))))
+        out = bytearray()
+        for i in range(0, cut, self.in_bytes):
+            frame = self._frame(data[i:i + self.in_bytes], self.in_rate, 1, self.in_bytes // 2)
+            self.apm.process_stream(frame)
+            out += memoryview(frame.data).cast("B")
+        return bytes(out)

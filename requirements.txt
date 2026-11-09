@@ -8,3 +8,4 @@ numpy>=1.26
 openwakeword>=0.6
 onnxruntime>=1.17
 certifi
+livekit>=1.0  # WebRTC echo cancellation for Jarvis voice

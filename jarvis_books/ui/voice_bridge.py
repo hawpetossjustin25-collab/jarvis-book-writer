@@ -9,7 +9,7 @@ from typing import Optional
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtMultimedia import QAudioFormat, QAudioSink, QAudioSource, QMediaDevices
 
-from jarvis_books.voice.duplex import DuplexGate
+from jarvis_books.voice.duplex import DuplexGate, EchoCanceller
 from jarvis_books.voice.live import IN_RATE, OUT_RATE, LiveSession
 
 log = logging.getLogger(__name__)
@@ -102,6 +102,7 @@ class VoiceBridge(QObject):
         self.wake_error = ""
         self.muted = False
         self.gate = DuplexGate(IN_RATE)
+        self.aec = EchoCanceller.create(IN_RATE, OUT_RATE)
         self._turn_open = False  # Jarvis audio for the current answer is still arriving
         self._drop_turn = False  # the user barged in: discard the rest of the answer Jarvis was giving
         self._audio_in.connect(self._queue_audio)
@@ -224,6 +225,11 @@ class VoiceBridge(QObject):
         data = bytes(self.mic_io.readAll())
         if not data:
             return
+        if self.aec is not None and self.session is not None:
+            queued = self.sink.bufferSize() - self.sink.bytesFree() if self.sink is not None else 0
+            data = self.aec.process(data, delay_ms=queued // (OUT_RATE * 2 // 1000) + 30)
+            if not data:
+                return
         if len(data) >= 2:
             import array
             samples = array.array("h", data[: len(data) - len(data) % 2])
@@ -266,5 +272,8 @@ class VoiceBridge(QObject):
         if n > 0:
             written = self.sink_io.write(bytes(self._out[:n]))
             if written and written > 0:
-                self.gate.played(bytes(self._out[:written]))
+                chunk = bytes(self._out[:written])
+                self.gate.played(chunk)
+                if self.aec is not None:
+                    self.aec.played(chunk)
                 del self._out[:written]
