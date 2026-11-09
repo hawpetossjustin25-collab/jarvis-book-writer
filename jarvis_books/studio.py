@@ -70,6 +70,7 @@ class Studio:
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
         self.director = VoiceDirector(self.library, self.engine, self.settings)
         self.tools.director = self.war_tools.director = self.director
+        self.narrator.director = self.director
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
         self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")

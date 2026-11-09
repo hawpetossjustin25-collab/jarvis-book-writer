@@ -444,6 +444,13 @@ class AdaptiveLLMEngine:
         return model, vectors
 
     def tts(self, text: str, voice: str, style: str = "") -> bytes:
+        return self._speech(lambda model: self.client.tts(model, text, voice, style))
+
+    def tts_multi(self, transcript: str, speakers: list[tuple[str, str]], direction: str = "") -> bytes:
+        """Two voices (for example the narrator and a character) in one speech request."""
+        return self._speech(lambda model: self.client.tts_multi(model, transcript, speakers, direction))
+
+    def _speech(self, call) -> bytes:
         config = self.get_runtime_configuration()
         reasons = []
         for model in config.routes.get("tts", ()):
@@ -455,7 +462,7 @@ class AdaptiveLLMEngine:
                 continue
             start = time.perf_counter()
             try:
-                audio = self.client.tts(model, text, voice, style)
+                audio = call(model)
             except LLMError as exc:
                 self.record_result(model_id=model, role="tts", ok=0, error_kind=exc.kind,
                                    latency_s=time.perf_counter() - start, config_version=config.version)

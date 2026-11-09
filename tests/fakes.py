@@ -42,6 +42,8 @@ class FakeGemini:
         self.errors: list[LLMError] = []  # raised (FIFO) before answering
         self.embed_calls = 0
         self.tts_calls = 0
+        self.tts_log: list[tuple] = []
+        self.multi_log: list[tuple] = []
 
     def list_models(self):
         return self.models
@@ -62,8 +64,15 @@ class FakeGemini:
 
     def tts(self, model_id, text, voice="Kore", style=""):
         self.tts_calls += 1
+        self.tts_log.append((text, voice, style))
         from jarvis_books.llm.gemini import pcm_to_wav
         return pcm_to_wav(b"\x00\x00" * 2400)
+
+    def tts_multi(self, model_id, transcript, speakers, direction=""):
+        self.tts_calls += 1
+        self.multi_log.append((transcript, list(speakers), direction))
+        from jarvis_books.llm.gemini import pcm_to_wav
+        return pcm_to_wav(b"\x00\x00" * 4800)
 
     @staticmethod
     def default(model_id: str, payload: dict) -> dict:

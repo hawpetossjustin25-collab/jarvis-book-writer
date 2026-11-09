@@ -238,8 +238,14 @@ class VoiceDirector:
         return None
 
     # ---- lines ----------------------------------------------------------------------
-    def script(self, book_id: str, text: str, before: str = "") -> list[Line]:
-        """Narrator and character lines for one passage, word for word as written."""
+    def has_characters(self, book_id: str) -> bool:
+        return any(m["voice"] for m in self.characters(book_id))
+
+    def script(self, book_id: str, text: str, before: str = "", offline: bool = False) -> Optional[list[Line]]:
+        """Narrator and character lines for one passage, word for word as written.
+
+        offline=True never calls Gemini: it returns None when the passage's dialogue is not labelled yet.
+        """
         spans = split_spans(text)
         quotes = [t for kind, t in spans if kind == "quote"]
         if not quotes or self.engine is None:
@@ -247,6 +253,8 @@ class VoiceDirector:
         key = text_hash(text)
         labels = self.library.get_voice_script(book_id, key)
         if labels is None:
+            if offline:
+                return None
             try:
                 labels = self._label(book_id, spans, before)
             except (LLMError, JarvisError) as exc:  # no speech labels right now: the narrator reads it, try again next time
@@ -264,6 +272,17 @@ class VoiceDirector:
             return max(0, int(self.settings().get("dialogue_tags", 3)))
         except (TypeError, ValueError):
             return 3
+
+    def lines_for(self, book_id: str, passages: list[str], index: int, offline: bool = False) -> Optional[list[Line]]:
+        """Lines of passage `index` of a chapter, with 'said Tom' counted from the chapter's start."""
+        scripted, before = [], ""
+        for text in passages[:index + 1]:
+            lines = self.script(book_id, text, before, offline=offline)
+            if lines is None:
+                return None
+            scripted.append(lines)
+            before = text
+        return trim_tags(scripted, self.tag_limit())[-1] if scripted else []
 
     def chapter_lines(self, book_id: str, passages: list[str]) -> list[list[Line]]:
         """Lines for every passage of one chapter, with repeated 'said Tom' tags left to the voices."""

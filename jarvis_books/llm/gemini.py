@@ -141,10 +141,21 @@ class GeminiClient:
     def tts(self, model_id: str, text: str, voice: str = "Kore", style: str = "") -> bytes:
         """Synthesize speech. Returns WAV bytes (wraps raw PCM if the API returns PCM)."""
         prompt = f"{style.strip()}: {text}" if style.strip() else text
+        return self._speak(model_id, prompt, {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}})
+
+    def tts_multi(self, model_id: str, transcript: str, speakers: list[tuple[str, str]], direction: str = "") -> bytes:
+        """Two voices in one request. `transcript` has lines like 'Lily: text'; speakers is [(name, voice)] x 2."""
+        if len(speakers) != 2 or speakers[0][0] == speakers[1][0]:
+            raise ValueError("multi-speaker speech needs exactly two different speakers")
+        prompt = f"{direction.strip()}\n\n{transcript}" if direction.strip() else transcript
+        configs = [{"speaker": name, "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
+                   for name, voice in speakers]
+        return self._speak(model_id, prompt, {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": configs}})
+
+    def _speak(self, model_id: str, prompt: str, speech_config: dict) -> bytes:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseModalities": ["AUDIO"],
-                                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}},
+            "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": speech_config},
         }
         body = self.generate(model_id, payload)
         try:
