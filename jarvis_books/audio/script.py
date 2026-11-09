@@ -55,8 +55,8 @@ CASTING_DIRECTOR = (
 DIALOGUE_LABELER = (
     "You label dialogue for a multi-voice audiobook. Each quote in the passage is marked [Q1], [Q2]... For every "
     "quote give the speaker's name exactly as written in the cast list, and a short delivery direction of at most "
-    "six words taken from the scene (whispering, shouting, frightened, teasing, flat and tired...), or an empty "
-    "string when it is plain speech. Use dialogue tags, turn-taking and context to decide who speaks. If a quote "
+    "six words for how the line is said, judged from the scene and the line itself (whispering, shouting, "
+    "frightened, teasing, cheerful and loud, flat and tired...), or an empty string when it is plain speech. Use dialogue tags, turn-taking and context to decide who speaks. If a quote "
     "is not speech (a sign, a title, a thought read aloud by the narrator) use Narrator. If someone not in the "
     "cast speaks, use a short name for them and add them to new_characters with gender and age group.")
 
@@ -126,14 +126,16 @@ class VoiceDirector:
         return member
 
     def cast(self, book_id: str) -> list[dict]:
+        """The narrator first, then the characters (main characters first)."""
         self.narrator(book_id)
-        return self.library.list_cast(book_id)
+        return sorted(self.library.list_cast(book_id), key=lambda m: m["name"].lower() != NARRATOR.lower())
 
     def characters(self, book_id: str) -> list[dict]:
         return [m for m in self.cast(book_id) if m["name"].lower() != NARRATOR.lower()]
 
     def build_cast(self, book_id: str) -> list[dict]:
         """Ask Gemini how every story-bible character should sound, then give each one a fitting voice."""
+        self.narrator(book_id)
         entries = self.library.list_bible(book_id, "character")
         if entries:
             book = self.library.get_book(book_id)

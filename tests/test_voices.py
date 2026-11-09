@@ -88,7 +88,9 @@ def test_every_book_has_its_own_narrator(library, make_engine):
 
 def test_build_cast_profiles_bible_characters_only(library, make_engine):
     d, book, _ = make(library, make_engine, profiles=PROFILES)
-    cast = {m["name"]: m for m in d.build_cast(book.id)}
+    ordered = d.build_cast(book.id)
+    assert ordered[0]["name"] == NARRATOR
+    cast = {m["name"]: m for m in ordered}
     assert set(cast) == {NARRATOR, "Lily", "Captain Reyes"}  # Gemini cannot invent cast members here
     assert cast["Lily"]["age"] == "child" and cast["Lily"]["voice"] and cast["Lily"]["edge_voice"]
     assert "Reyes" in cast["Captain Reyes"]["aliases"]
