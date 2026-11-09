@@ -19,6 +19,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -288,7 +289,12 @@ class Narrator:
         gemini_key, *rest = plan["keys"]
         lines, cast = plan["lines"], plan["cast"]
         try:
-            data = join_wavs([self._gemini_chunk(chunk, cast) for chunk in chunk_lines(lines)])
+            chunks = chunk_lines(lines)
+            if len(chunks) == 1:
+                data = join_wavs([self._gemini_chunk(chunks[0], cast)])
+            else:  # the pieces are independent, so record them side by side and join them in order
+                with ThreadPoolExecutor(max_workers=min(3, len(chunks)), thread_name_prefix="cast-tts") as pool:
+                    data = join_wavs(list(pool.map(lambda c: self._gemini_chunk(c, cast), chunks)))
             self.last_backend = "gemini"
             return data, gemini_key, "wav"
         except LLMError as exc:
