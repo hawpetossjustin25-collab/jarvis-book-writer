@@ -19,6 +19,8 @@ from jarvis_books.writer.pipeline import BookWriter
 
 log = logging.getLogger(__name__)
 
+# In the War Room canon changes go through proposals, so the direct-edit tools are withheld.
+WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline")
 S = {"type": "STRING"}
 I = {"type": "INTEGER"}
 
@@ -67,6 +69,21 @@ DECLARATIONS = [
     _decl("stop_audiobook", "Pause the audiobook."),
     _decl("export_book", "Export a book as a manuscript file.",
           {"book": BOOK, "format": {"type": "STRING", "enum": ["docx", "epub", "markdown", "mp3", "m4b"]}}),
+    _decl("war_briefing", "War Room: brief the author on a book - what is written vs only planned, open threads, "
+          "undecided points and last session's decisions.", {"book": BOOK, "focus": S}),
+    _decl("find_gaps", "War Room: list what the story has not decided yet, with options for each.",
+          {"book": BOOK, "focus": S}),
+    _decl("propose_idea", "War Room: pitch an idea. It is NOT canon until the author accepts it. kind=bible needs "
+          "target 'character:Name' (or location/item/rule/thread/theme/event); kind=outline needs target chapter "
+          "number (0 = new chapter); kind=note for anything else.",
+          {"book": BOOK, "kind": {"type": "STRING", "enum": ["bible", "outline", "note"]}, "title": S, "content": S,
+           "target": S, "rationale": S}, ["kind", "title", "content"]),
+    _decl("list_proposals", "War Room: list ideas and decisions (proposed, accepted, rejected, undone).",
+          {"book": BOOK, "status": {"type": "STRING", "enum": ["proposed", "accepted", "rejected", "undone", "all"]}}),
+    _decl("decide_proposal", "War Room: apply the author's decision on a proposal. Only when the author says so.",
+          {"proposal_id": I, "decision": {"type": "STRING", "enum": ["accept", "reject", "undo"]},
+           "content": {"type": "STRING", "description": "Edited wording, if the author changed it"}},
+          ["proposal_id", "decision"]),
 ]
 
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
@@ -81,9 +98,12 @@ class ToolBox:
         self.current_book_id: Optional[str] = None
         self.audio_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (play/stop/export audio)
         self.export_handler: Optional[Callable[[str, str], dict]] = None
+        self.warroom = None  # set by the Studio
+        self.war_session_id: Optional[int] = None  # set while a War Room session is open
 
     def declarations(self, names: Optional[list[str]] = None) -> list[dict]:
-        return [d for d in DECLARATIONS if names is None or d["name"] in names]
+        blocked = WAR_ROOM_BLOCKED if self.war_session_id is not None else ()
+        return [d for d in DECLARATIONS if (names is None or d["name"] in names) and d["name"] not in blocked]
 
     def select(self, user_text: str) -> list[dict]:
         """Adaptive tool selection: always the core tools, plus the rest only when the request needs them."""
@@ -100,8 +120,18 @@ class ToolBox:
             "play_audiobook": ("play", "listen", "audio", "read me", "narrat"),
             "stop_audiobook": ("stop", "pause", "audio"),
             "export_book": ("export", "docx", "epub", "word", "file", "mp3", "m4b", "audiobook"),
+            "war_briefing": ("brief", "fill me in", "catch me up", "where are we", "war room", "status"),
+            "find_gaps": ("gap", "undecided", "missing", "hole", "not decided", "what if", "unexplained"),
+            "propose_idea": ("idea", "what if", "suggest", "pitch", "propose", "should"),
+            "list_proposals": ("proposal", "decision", "idea", "decided", "pending"),
+            "decide_proposal": ("accept", "reject", "undo", "yes", "approve", "keep", "go with"),
         }
-        names = core + [n for n, words in extra.items() if any(w in t for w in words)]
+        if self.war_session_id is not None:  # in the War Room every War Room tool is always available
+            core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
+                           "story_bible"]
+        names = list(dict.fromkeys(core + [n for n, words in extra.items() if any(w in t for w in words)]))
+        if self.war_session_id is not None:
+            names = [n for n in names if n not in WAR_ROOM_BLOCKED]
         return self.declarations(names)
 
     # ---- dispatch -----------------------------------------------------------------
@@ -260,3 +290,31 @@ class ToolBox:
         if self.export_handler is None:
             return {"error": "export is not available"}
         return self.export_handler(b.id, format)
+
+    # ---- war room -------------------------------------------------------------------
+    def _wr(self):
+        if self.warroom is None:
+            raise NotFound("the War Room is not available")
+        return self.warroom
+
+    def _t_war_briefing(self, book: str = "", focus: str = "") -> dict:
+        return self._wr().briefing(self._book(book).id, focus)
+
+    def _t_find_gaps(self, book: str = "", focus: str = "") -> dict:
+        return {"gaps": self._wr().find_gaps(self._book(book).id, focus)}
+
+    def _t_propose_idea(self, kind: str, title: str, content: str, target: str = "", rationale: str = "",
+                        book: str = "") -> dict:
+        p = self._wr().propose(self._book(book).id, kind, title, content, target, rationale, self.war_session_id)
+        return {"proposal_id": p.id, "status": p.status, "note": "Shown to the author to accept, edit or reject."}
+
+    def _t_list_proposals(self, book: str = "", status: str = "all") -> dict:
+        props = self.library.list_proposals(self._book(book).id, None if status == "all" else status)
+        return {"proposals": [{"id": p.id, "kind": p.kind, "target": p.target, "title": p.title,
+                               "content": truncate_words(p.content, 120), "status": p.status} for p in props[:40]]}
+
+    def _t_decide_proposal(self, proposal_id: int, decision: str, content: str = "") -> dict:
+        wr = self._wr()
+        p = {"accept": lambda: wr.accept(proposal_id, content or None), "reject": lambda: wr.reject(proposal_id),
+             "undo": lambda: wr.undo(proposal_id)}[decision]()
+        return {"proposal_id": p.id, "status": p.status}

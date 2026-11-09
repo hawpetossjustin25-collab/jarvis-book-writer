@@ -12,7 +12,8 @@ from typing import Any, Callable, Iterable
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.models import (
-    BIBLE_KINDS, BOOK_STATUSES, CHAPTER_STATUSES, BibleEntry, Book, Chapter, Message, Note, Playback, Revision,
+    BIBLE_KINDS, BOOK_STATUSES, CHAPTER_STATUSES, PROPOSAL_KINDS, PROPOSAL_STATUSES, BibleEntry, Book, Chapter,
+    Message, Note, Playback, Proposal, Revision, WarSession,
 )
 from jarvis_books.text import word_count
 
@@ -310,8 +311,13 @@ class Library:
                                  (book_id, channel, role, text, time.time())).lastrowid
         return Message.from_row(self.db.query_one("SELECT * FROM messages WHERE id=?", (msg_id,)))
 
-    def recent_messages(self, channel: str, limit: int = 30) -> list[Message]:
-        rows = self.db.query("SELECT * FROM messages WHERE channel=? ORDER BY id DESC LIMIT ?", (channel, int(limit)))
+    def recent_messages(self, channel: str, limit: int = 30, book_id: str | None = None) -> list[Message]:
+        if book_id:
+            rows = self.db.query("SELECT * FROM messages WHERE channel=? AND book_id=? ORDER BY id DESC LIMIT ?",
+                                 (channel, book_id, int(limit)))
+        else:
+            rows = self.db.query("SELECT * FROM messages WHERE channel=? ORDER BY id DESC LIMIT ?",
+                                 (channel, int(limit)))
         return [Message.from_row(r) for r in reversed(rows)]
 
     # ---- audiobook playback position -----------------------------------------
@@ -325,6 +331,68 @@ class Library:
             "ON CONFLICT(book_id) DO UPDATE SET chapter_number=excluded.chapter_number, segment=excluded.segment, "
             "position_ms=excluded.position_ms, updated_at=excluded.updated_at",
             (book_id, int(chapter_number), int(segment), int(position_ms), time.time()))
+
+    # ---- war room ---------------------------------------------------------------
+    def start_war_session(self, book_id: str) -> WarSession:
+        self.get_book(book_id)
+        sid = self.db.execute("INSERT INTO war_sessions (book_id, started_at) VALUES (?,?)",
+                              (book_id, time.time())).lastrowid
+        return self.get_war_session(sid)
+
+    def get_war_session(self, session_id: int) -> WarSession:
+        row = self.db.query_one("SELECT * FROM war_sessions WHERE id=?", (session_id,))
+        if not row:
+            raise NotFound(f"war room session {session_id} not found")
+        return WarSession.from_row(row)
+
+    def end_war_session(self, session_id: int, summary: str, decisions: list, open_questions: list,
+                        next_steps: list) -> WarSession:
+        self.db.execute("UPDATE war_sessions SET ended_at=?, summary=?, decisions=?, open_questions=?, next_steps=? "
+                        "WHERE id=?", (time.time(), summary.strip(), json.dumps(decisions), json.dumps(open_questions),
+                                       json.dumps(next_steps), session_id))
+        session = self.get_war_session(session_id)
+        self._emit("war_session", session.book_id, session_id=session_id)
+        return session
+
+    def war_sessions(self, book_id: str, limit: int = 10) -> list[WarSession]:
+        rows = self.db.query("SELECT * FROM war_sessions WHERE book_id=? ORDER BY id DESC LIMIT ?", (book_id, limit))
+        return [WarSession.from_row(r) for r in rows]
+
+    def add_proposal(self, book_id: str, kind: str, title: str, content: str, target: str = "",
+                     rationale: str = "", session_id: int | None = None) -> Proposal:
+        if kind not in PROPOSAL_KINDS:
+            raise ValidationError(f"invalid proposal kind {kind!r}")
+        if not (title or "").strip() or not (content or "").strip():
+            raise ValidationError("a proposal needs a title and content")
+        self.get_book(book_id)
+        pid = self.db.execute(
+            "INSERT INTO proposals (book_id, session_id, kind, target, title, content, rationale, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (book_id, session_id, kind, (target or "").strip(), title.strip(),
+                                         content.strip(), (rationale or "").strip(), time.time())).lastrowid
+        self._emit("proposal", book_id, proposal_id=pid, action="added")
+        return self.get_proposal(pid)
+
+    def get_proposal(self, proposal_id: int) -> Proposal:
+        row = self.db.query_one("SELECT * FROM proposals WHERE id=?", (proposal_id,))
+        if not row:
+            raise NotFound(f"proposal {proposal_id} not found")
+        return Proposal.from_row(row)
+
+    def list_proposals(self, book_id: str, status: str | None = None) -> list[Proposal]:
+        if status:
+            rows = self.db.query("SELECT * FROM proposals WHERE book_id=? AND status=? ORDER BY id DESC", (book_id, status))
+        else:
+            rows = self.db.query("SELECT * FROM proposals WHERE book_id=? ORDER BY id DESC", (book_id,))
+        return [Proposal.from_row(r) for r in rows]
+
+    def set_proposal_status(self, proposal_id: int, status: str, applied: dict | None = None) -> Proposal:
+        if status not in PROPOSAL_STATUSES:
+            raise ValidationError(f"invalid proposal status {status!r}")
+        prop = self.get_proposal(proposal_id)
+        self.db.execute("UPDATE proposals SET status=?, applied=?, decided_at=? WHERE id=?",
+                        (status, json.dumps(prop.applied if applied is None else applied), time.time(), proposal_id))
+        self._emit("proposal", prop.book_id, proposal_id=proposal_id, action=status)
+        return self.get_proposal(proposal_id)
 
     # ---- meta -----------------------------------------------------------------
     def get_meta(self, key: str, default: str | None = None) -> str | None:

@@ -137,6 +137,34 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     """,
+    2: """
+    CREATE TABLE war_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        started_at REAL NOT NULL,
+        ended_at REAL,
+        summary TEXT NOT NULL DEFAULT '',
+        decisions TEXT NOT NULL DEFAULT '[]',
+        open_questions TEXT NOT NULL DEFAULT '[]',
+        next_steps TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX idx_war_sessions_book ON war_sessions(book_id, id);
+    CREATE TABLE proposals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        session_id INTEGER REFERENCES war_sessions(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL,
+        target TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        rationale TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'proposed',
+        applied TEXT NOT NULL DEFAULT '{}',
+        created_at REAL NOT NULL,
+        decided_at REAL
+    );
+    CREATE INDEX idx_proposals_book ON proposals(book_id, status, id);
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

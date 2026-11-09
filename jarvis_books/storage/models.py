@@ -7,6 +7,9 @@ from typing import Any
 BOOK_STATUSES = ("idea", "planned", "drafting", "complete", "archived")
 CHAPTER_STATUSES = ("outlined", "planned", "drafted", "accepted")
 BIBLE_KINDS = ("character", "location", "item", "rule", "theme", "thread", "event", "style")
+# A proposal changes canon only when accepted: bible entry, chapter outline, or a saved idea/note.
+PROPOSAL_KINDS = ("bible", "outline", "note")
+PROPOSAL_STATUSES = ("proposed", "accepted", "rejected", "undone")
 
 
 @dataclass
@@ -129,3 +132,44 @@ class Playback:
     segment: int
     position_ms: int
     updated_at: float
+
+
+@dataclass
+class WarSession:
+    id: int
+    book_id: str
+    started_at: float
+    ended_at: float | None
+    summary: str
+    decisions: list
+    open_questions: list
+    next_steps: list
+
+    @classmethod
+    def from_row(cls, row) -> "WarSession":
+        d = dict(row)
+        for k in ("decisions", "open_questions", "next_steps"):
+            d[k] = json.loads(d[k] or "[]")
+        return cls(**d)
+
+
+@dataclass
+class Proposal:
+    id: int
+    book_id: str
+    session_id: int | None
+    kind: str
+    target: str
+    title: str
+    content: str
+    rationale: str
+    status: str
+    applied: dict
+    created_at: float
+    decided_at: float | None
+
+    @classmethod
+    def from_row(cls, row) -> "Proposal":
+        d = dict(row)
+        d["applied"] = json.loads(d["applied"] or "{}")
+        return cls(**d)

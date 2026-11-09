@@ -15,15 +15,19 @@ MAX_TOOL_ROUNDS = 6
 
 
 class Assistant:
-    def __init__(self, engine, library: Library, tools: ToolBox, channel: str = "chat"):
+    def __init__(self, engine, library: Library, tools: ToolBox, channel: str = "chat", guide: str = "",
+                 per_book: bool = False):
         self.engine = engine
         self.library = library
         self.tools = tools
         self.channel = channel
+        self.guide = guide  # extra instructions for this room (e.g. the War Room)
+        self.per_book = per_book  # keep a separate conversation per book
 
     def _history(self) -> list[dict]:
         config = self.engine.get_runtime_configuration()
-        msgs = self.library.recent_messages(self.channel, limit=config.history_turns)
+        book_id = self.tools.current_book_id if self.per_book else None
+        msgs = self.library.recent_messages(self.channel, limit=config.history_turns, book_id=book_id)
         return [{"role": "user" if m.role == "user" else "model", "parts": [{"text": m.text}]} for m in msgs]
 
     def _situation(self) -> str:
@@ -46,7 +50,7 @@ class Assistant:
         self.library.add_message(self.channel, "user", text, self.tools.current_book_id)
         tools = self.tools.select(text)
         contents = history + [{"role": "user", "parts": [{"text": text}]}]
-        system = prompts.ASSISTANT + "\n\n" + self._situation()
+        system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "") + "\n\n" + self._situation()
         reply = ""
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,

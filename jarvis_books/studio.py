@@ -21,6 +21,7 @@ from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
 from jarvis_books.storage.mirror import BackupManager, BookMirror
+from jarvis_books.warroom import WAR_ROOM_GUIDE, WarRoom
 from jarvis_books.writer import BookWriter
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ class Studio:
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs)
         self.tools.export_handler = self.export
         self.assistant = Assistant(self.engine, self.library, self.tools)
+        self.warroom = WarRoom(self.library, self.engine, self.context)
+        self.tools.warroom = self.warroom
+        # The War Room has its own conversation (voice and text share it) and its own session state.
+        self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs)
+        self.war_tools.warroom = self.warroom
+        self.war_assistant = Assistant(self.engine, self.library, self.war_tools, channel="warroom",
+                                       guide=WAR_ROOM_GUIDE, per_book=True)
         settings = self.settings()
         self.narrator = Narrator(self.library, self.engine, self.home / "audio", voice=settings["voice"],
                                  edge_voice=settings["edge_voice"])

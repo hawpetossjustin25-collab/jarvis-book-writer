@@ -18,6 +18,7 @@ All AI runs on **Google Gemini**: writing, planning, editing, the Jarvis voice (
 | **Write** | Manuscript editor with autosave and full version history (restore any earlier version). Write or revise a chapter with AI, then *Accept* it so the story bible updates. |
 | **Listen** | Audiobook player for any book, finished or not. Passages are recorded ahead of playback and cached, so editing a paragraph only re-records that paragraph. Remembers your place. |
 | **Settings** | Gemini key (encrypted with Windows DPAPI), narrator and Jarvis voices, author name, and the adaptive engine's live status, quota and rollback. |
+| **War Room** | Go over any book with Jarvis by voice or text in one shared conversation. *Fill me in* briefings that separate what is written from what is only planned, *Find gaps* with options, and ideas Jarvis pitches that stay ideas until you Accept, Edit + accept or Reject them. Every accepted decision can be undone, and *End session + recap* saves the decisions, open questions and next steps. |
 
 ## How the writing works
 

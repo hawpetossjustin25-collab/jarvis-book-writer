@@ -48,7 +48,7 @@ def window(qapp, tmp_path):
 def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
-        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings"]
+        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
@@ -106,3 +106,56 @@ def test_closed_window_stops_timers_and_storage_access(qapp, tmp_path):
     assert not win._refresh_timer.isActive() and not win._autosave.isActive()
     win.refresh_books()  # a late timer tick must not touch the closed database
     win._load_chapters()
+
+
+def test_war_room_proposals_accept_and_undo_from_the_panel(window, qapp):
+    win, studio, book = window
+    assert win._war_book_id() == book.id and studio.war_tools.current_book_id == book.id
+    p = studio.warroom.propose(book.id, "bible", "Glass oracle", "An oracle who hears the glass sing.",
+                               target="character:Oracle")
+    assert pump(qapp, lambda: win.war_props.count() == 1)
+    assert "Jarvis's idea" in win.war_props.item(0).text()
+    assert studio.library.list_bible(book.id, "character") == []
+    win.war_props.setCurrentRow(0)
+    assert "hears the glass sing" in win.war_detail.toPlainText()
+    win._war_decide("accept")
+    assert studio.library.list_bible(book.id, "character")[0].name == "Oracle"
+    assert win.war_props.count() == 0  # filtered to "waiting for you"
+    win.war_filter.setCurrentIndex(win.war_filter.findData(""))
+    win.war_props.setCurrentRow(0)
+    win._war_decide("undo")
+    assert studio.library.list_bible(book.id, "character") == []
+    assert studio.library.get_proposal(p.id).status == "undone"
+    assert "accepted the idea" in win.war_view.toPlainText()
+
+
+def test_war_room_briefing_and_recap_share_the_conversation(window, qapp):
+    win, studio, book = window
+    win._war_briefing()
+    assert pump(qapp, lambda: win.war_state.text() == "Ready.")
+    msgs = studio.library.recent_messages("warroom", 10, book_id=book.id)
+    assert msgs and msgs[-1].role == "assistant"
+    sid = studio.war_tools.war_session_id
+    assert sid is not None
+    win._war_end()
+    assert pump(qapp, lambda: win.war_state.text() == "Session saved.")
+    assert studio.library.get_war_session(sid).ended_at and win.war_recap.toPlainText().strip()
+    assert studio.war_tools.war_session_id is None
+
+
+def test_war_room_voice_uses_war_tools_and_shared_history(window, qapp):
+    win, studio, book = window
+    from jarvis_books.llm.gemini import GeminiClient
+    real = GeminiClient("test-key")
+    studio.client.live_url = real.live_url
+    studio.client.live_headers = real.live_headers
+    studio.library.add_message("warroom", "user", "Should the oracle be blind?", book.id)
+    session = win._make_war_live_session()
+    names = {d["name"] for d in session.tools}
+    assert {"war_briefing", "find_gaps", "propose_idea", "decide_proposal"} <= names
+    assert not names & {"update_story_bible", "change_outline"}
+    assert "Glass City" in session.system and "Should the oracle be blind?" in session.system
+    win._war_line = {"user": "make the oracle blind", "jarvis": "Pitched it."}
+    win._on_war_transcript("turn", "")
+    roles = [(m.role, m.text) for m in studio.library.recent_messages("warroom", 5, book_id=book.id)]
+    assert roles[-2:] == [("user", "make the oracle blind"), ("assistant", "Pitched it.")]

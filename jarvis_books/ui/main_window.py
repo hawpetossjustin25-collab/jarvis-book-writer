@@ -16,12 +16,15 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
 
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.craft import GENRES
+from jarvis_books.assistant.tools import WAR_ROOM_BLOCKED
+from jarvis_books.errors import JarvisError
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
 from jarvis_books.voice.live import LiveSession
+from jarvis_books.warroom import WAR_ROOM_GUIDE
 from jarvis_books.writer import prompts
 
 log = logging.getLogger(__name__)
@@ -86,6 +89,8 @@ class MainWindow(QMainWindow):
         studio.tools.audio_handler = self._audio_tool
         self.player = AudiobookPlayer(studio.narrator, self)
         self.voice = VoiceBridge(self._make_live_session, self)
+        self.war_voice = VoiceBridge(self._make_war_live_session, self)
+        self._war_loaded: Optional[str] = None
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
         self.tabs.addTab(self._jarvis_tab(), "Jarvis")
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._write_tab(), "Write")
         self.tabs.addTab(self._listen_tab(), "Listen")
         self.tabs.addTab(self._settings_tab(), "Settings")
+        self.tabs.addTab(self._war_tab(), "War Room")
         self.job_bar = QProgressBar()
         self.job_bar.setMaximumWidth(380)
         self.job_bar.hide()
@@ -194,6 +200,8 @@ class MainWindow(QMainWindow):
             self.voice.stop()
             self.talk_btn.setText("Talk to Jarvis")
             return
+        if self.war_voice.active:
+            self._war_toggle_talk()
         self.talk_btn.setEnabled(False)
         self.voice_state.setText("Connecting...")
         try:
@@ -286,6 +294,325 @@ class MainWindow(QMainWindow):
             self._chat_append("Jarvis", f"Sorry, that failed: {err}")
         run_async(lambda: self.studio.assistant.send(text), done, fail)
 
+    # ---- War Room -----------------------------------------------------------------------------
+    WAR_LABELS = {"proposed": "Jarvis's idea", "accepted": "Canon", "rejected": "Rejected", "undone": "Undone"}
+
+    def _war_tab(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Book:"))
+        self.war_book = QComboBox()
+        self.war_book.currentIndexChanged.connect(self._war_book_changed)
+        top.addWidget(self.war_book, 1)
+        for label, slot in (("Fill me in", self._war_briefing), ("Find gaps", self._war_gaps),
+                            ("End session + recap", self._war_end)):
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            top.addWidget(b)
+        self.war_talk = QPushButton("Talk to Jarvis")
+        self.war_talk.clicked.connect(self._war_toggle_talk)
+        self.war_mute = QCheckBox("Mute mic")
+        self.war_mute.toggled.connect(lambda on: setattr(self.war_voice, "muted", on))
+        top.addWidget(self.war_talk)
+        top.addWidget(self.war_mute)
+        lay.addLayout(top)
+        split = QSplitter()
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        self.war_state = QLabel("Talk or text with Jarvis about this book. Ideas stay ideas until you accept them.")
+        ll.addWidget(self.war_state)
+        self.war_view = QTextBrowser()
+        ll.addWidget(self.war_view, 1)
+        row = QHBoxLayout()
+        self.war_input = QLineEdit()
+        self.war_input.setPlaceholderText("Ask about any detail, pitch a twist, or say 'fill me in'...")
+        self.war_input.returnPressed.connect(self._war_send)
+        self.war_send_btn = QPushButton("Send")
+        self.war_send_btn.clicked.connect(self._war_send)
+        row.addWidget(self.war_input, 1)
+        row.addWidget(self.war_send_btn)
+        ll.addLayout(row)
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        head = QHBoxLayout()
+        head.addWidget(QLabel("<b>Ideas and decisions</b>"))
+        self.war_filter = QComboBox()
+        for label, status in (("Waiting for you", "proposed"), ("Canon", "accepted"), ("All", "")):
+            self.war_filter.addItem(label, status)
+        self.war_filter.currentIndexChanged.connect(self._war_refresh_props)
+        head.addWidget(self.war_filter)
+        rl.addLayout(head)
+        self.war_props = QListWidget()
+        self.war_props.currentRowChanged.connect(self._war_show_prop)
+        rl.addWidget(self.war_props, 1)
+        self.war_detail = QTextBrowser()
+        rl.addWidget(self.war_detail, 1)
+        btns = QHBoxLayout()
+        for label, action in (("Accept", "accept"), ("Edit + accept", "edit"), ("Reject", "reject"), ("Undo", "undo")):
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, a=action: self._war_decide(a))
+            btns.addWidget(b)
+        rl.addLayout(btns)
+        rl.addWidget(QLabel("<b>Last session</b>"))
+        self.war_recap = QTextBrowser()
+        self.war_recap.setMaximumHeight(170)
+        rl.addWidget(self.war_recap)
+        split.addWidget(left)
+        split.addWidget(right)
+        split.setSizes([760, 480])
+        lay.addWidget(split, 1)
+        self.war_voice.state.connect(self._on_war_state)
+        self.war_voice.transcript.connect(self._on_war_transcript)
+        self.war_voice.tool_used.connect(lambda n, r: self.war_view.append(f"<i style='color:#90cdf4'>[{n}]</i>"))
+        self._war_line = {"user": "", "jarvis": ""}
+        return w
+
+    def _war_book_id(self) -> Optional[str]:
+        return self.war_book.currentData() if hasattr(self, "war_book") else None
+
+    def _war_append(self, who: str, text: str) -> None:
+        color = "#90cdf4" if who == "Jarvis" else "#fbd38d"
+        self.war_view.append(f"<p><b style='color:{color}'>{who}:</b> {html.escape(text).replace(chr(10), '<br>')}</p>")
+
+    def _war_book_changed(self) -> None:
+        bid = self._war_book_id()
+        if self._closed or bid == self._war_loaded:
+            return
+        if self.war_voice.active:
+            self._war_toggle_talk()
+        self._war_loaded = bid
+        tools = self.studio.war_tools
+        tools.current_book_id = bid
+        tools.war_session_id = None
+        self.war_view.clear()
+        if bid:
+            for m in self.studio.library.recent_messages("warroom", 60, book_id=bid):
+                self._war_append("You" if m.role == "user" else "Jarvis", m.text)
+        self._war_refresh_props()
+        self._war_show_recap()
+
+    def _war_session(self) -> Optional[int]:
+        """The open War Room session for the selected book, started on first use."""
+        bid = self._war_book_id()
+        tools = self.studio.war_tools
+        if bid and tools.war_session_id is None:
+            tools.war_session_id = self.studio.library.start_war_session(bid).id
+        return tools.war_session_id
+
+    def _war_ready(self) -> bool:
+        if self.studio.engine is None:
+            QMessageBox.warning(self, "Gemini", "Add your Gemini API key in Settings first.")
+            return False
+        if not self._war_book_id():
+            QMessageBox.information(self, "War Room", "Create or pick a book first.")
+            return False
+        self._war_session()
+        return True
+
+    def _war_send(self) -> None:
+        text = self.war_input.text().strip()
+        if not text or not self._war_ready():
+            return
+        self.war_input.clear()
+        self._war_append("You", text)
+        if self.war_voice.active:  # keep one conversation: typed lines go into the live voice session
+            self.studio.library.add_message("warroom", "user", text, self._war_book_id())
+            self.war_voice.send_text(text)
+            return
+        self.war_send_btn.setEnabled(False)
+
+        def done(reply):
+            self.war_send_btn.setEnabled(True)
+            self._war_append("Jarvis", reply or "(done)")
+
+        def fail(err):
+            self.war_send_btn.setEnabled(True)
+            self._war_append("Jarvis", f"Sorry, that failed: {err}")
+        run_async(lambda: self.studio.war_assistant.send(text), done, fail)
+
+    def _war_run(self, label: str, fn) -> None:
+        """Run a War Room analysis in the background and post the result into the shared conversation."""
+        if not self._war_ready():
+            return
+        bid = self._war_book_id()
+        self.war_state.setText(f"{label}...")
+
+        def work():
+            text = fn(bid)
+            self.studio.library.add_message("warroom", "assistant", text, bid)
+            return text
+
+        def done(text):
+            self.war_state.setText("Ready.")
+            self._war_append("Jarvis", text)
+            if self.war_voice.active:
+                self.war_voice.send_text(f"(System note: this was just shown to the author, summarize it aloud: "
+                                         f"{text[:3000]})")
+
+        run_async(work, done, lambda err: self.war_state.setText(f"{label} failed: {err}"))
+
+    def _war_briefing(self) -> None:
+        self._war_run("Getting you up to speed", lambda bid: self.studio.warroom.briefing(bid)["briefing"])
+
+    def _war_gaps(self) -> None:
+        def gaps(bid):
+            found = self.studio.warroom.find_gaps(bid)
+            if not found:
+                return "I couldn't find anything undecided."
+            return "Still undecided:\n" + "\n".join(
+                f"{i}. {g['question']} ({g['why_it_matters']})\n   Options: " + " / ".join(g.get("options", []))
+                for i, g in enumerate(found, 1))
+        self._war_run("Looking for gaps", gaps)
+
+    def _war_end(self) -> None:
+        sid = self.studio.war_tools.war_session_id
+        if sid is None or self.studio.engine is None:
+            self.war_state.setText("No session to wrap up yet.")
+            return
+        if self.war_voice.active:
+            self._war_toggle_talk()
+        bid = self._war_book_id()
+        started = self.studio.library.get_war_session(sid).started_at
+        lines = [f"{m.role}: {m.text}" for m in self.studio.library.recent_messages("warroom", 200, book_id=bid)
+                 if m.created_at >= started]
+        self.studio.war_tools.war_session_id = None
+        self.war_state.setText("Writing the session recap...")
+        run_async(lambda: self.studio.warroom.recap(sid, "\n".join(lines)),
+                  lambda s: (self.war_state.setText("Session saved."), self._war_show_recap()),
+                  lambda err: self.war_state.setText(f"Recap failed: {err}"))
+
+    def _war_refresh_props(self) -> None:
+        if self._closed:
+            return
+        bid = self._war_book_id()
+        keep = self.war_props.currentItem().data(Qt.ItemDataRole.UserRole) if self.war_props.currentItem() else None
+        self.war_props.blockSignals(True)
+        self.war_props.clear()
+        if bid:
+            for p in self.studio.library.list_proposals(bid, self.war_filter.currentData() or None):
+                where = f" -> {p.target}" if p.target else ""
+                item = QListWidgetItem(f"[{self.WAR_LABELS[p.status]}] {p.title}{where}")
+                item.setData(Qt.ItemDataRole.UserRole, p.id)
+                self.war_props.addItem(item)
+                if p.id == keep:
+                    self.war_props.setCurrentItem(item)
+        self.war_props.blockSignals(False)
+        self._war_show_prop()
+
+    def _war_current(self):
+        item = self.war_props.currentItem()
+        return self.studio.library.get_proposal(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def _war_show_prop(self, *_):
+        p = self._war_current()
+        if p is None:
+            self.war_detail.setHtml("<i>Pick an idea to see it in full.</i>")
+            return
+        kind = {"bible": "Story bible", "outline": "Outline", "note": "Notebook"}[p.kind]
+        self.war_detail.setHtml(
+            f"<h3>{html.escape(p.title)}</h3><p><b>{self.WAR_LABELS[p.status]}</b> - {kind} "
+            f"{html.escape(p.target)}</p><p>{html.escape(p.content).replace(chr(10), '<br>')}</p>"
+            + (f"<p><i>Why: {html.escape(p.rationale)}</i></p>" if p.rationale else ""))
+
+    def _war_decide(self, action: str) -> None:
+        p = self._war_current()
+        if p is None:
+            return
+        wr = self.studio.warroom
+        try:
+            if action == "edit":
+                text, ok = QInputDialog.getMultiLineText(self, "Edit before accepting", p.title, p.content)
+                if not ok or not text.strip():
+                    return
+                result = wr.accept(p.id, text)
+            else:
+                result = {"accept": wr.accept, "reject": wr.reject, "undo": wr.undo}[action](p.id)
+        except JarvisError as exc:
+            QMessageBox.information(self, "War Room", str(exc))
+            return
+        note = f"(I {'accepted' if result.status == 'accepted' else result.status} the idea #{p.id}: {p.title})"
+        self.studio.library.add_message("warroom", "user", note, p.book_id)
+        self._war_append("You", note)
+        if self.war_voice.active:
+            self.war_voice.send_text(f"(System note: {note[1:-1]})")
+        self._war_refresh_props()
+
+    def _war_show_recap(self) -> None:
+        bid = self._war_book_id()
+        last = next((s for s in self.studio.library.war_sessions(bid, 10) if s.ended_at), None) if bid else None
+        if last is None:
+            self.war_recap.setHtml("<i>No sessions yet. Press End session + recap when you finish.</i>")
+            return
+
+        def items(title, xs):
+            return f"<b>{title}</b><ul>" + "".join(f"<li>{html.escape(x)}</li>" for x in xs) + "</ul>" if xs else ""
+        self.war_recap.setHtml(f"<p>{html.escape(last.summary)}</p>" + items("Decided", last.decisions)
+                               + items("Open questions", last.open_questions) + items("Next", last.next_steps))
+
+    def _make_war_live_session(self, **callbacks) -> LiveSession:
+        engine = self.studio.engine
+        if engine is None:
+            raise RuntimeError("Add your Gemini API key in Settings first")
+        model = engine.live_model()
+        if not model:
+            raise RuntimeError("Your Gemini key has no live voice model available")
+        bid = self._war_book_id()
+        if not bid:
+            raise RuntimeError("Pick a book first")
+        self._war_session()
+        book = self.studio.library.get_book(bid)
+        recent = self.studio.library.recent_messages("warroom", 16, book_id=bid)
+        system = (prompts.ASSISTANT + "\n\n" + WAR_ROOM_GUIDE + "\n\nYou are speaking out loud; keep it "
+                  "conversational and short unless asked for detail.\nThe book on the table: '" + book.title + "'."
+                  + ("\nThe conversation so far (text and voice):\n" + "\n".join(
+                      f"{m.role}: {m.text[:600]}" for m in recent) if recent else ""))
+        tools = self.studio.war_tools
+        profile = engine.profile(model)
+        return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
+                           tools.declarations(), tools.call, voice=self.studio.settings()["jarvis_voice"],
+                           context_tokens=profile.context_window if profile else None, **callbacks)
+
+    def _war_toggle_talk(self) -> None:
+        if self.war_voice.active:
+            self.war_voice.stop()
+            self.war_talk.setText("Talk to Jarvis")
+            if self.wake_box.isChecked():
+                self.voice.enable_wake_word(True)
+            return
+        if self.voice.active:  # one microphone conversation at a time
+            self.voice.stop()
+            self.talk_btn.setText("Talk to Jarvis")
+        self.voice.enable_wake_word(False)
+        self.war_state.setText("Connecting...")
+        try:
+            self.war_voice.start()
+            self.war_talk.setText("Stop talking")
+        except Exception as exc:
+            self.war_state.setText(f"Voice error: {exc}")
+            if self.wake_box.isChecked():
+                self.voice.enable_wake_word(True)
+
+    def _on_war_state(self, state: str) -> None:
+        self.war_state.setText(state.capitalize())
+        if state in ("idle", "offline"):
+            self.war_talk.setText("Talk to Jarvis")
+            if self.war_voice.session is not None and state == "offline":
+                self.war_voice.stop()
+
+    def _on_war_transcript(self, role: str, text: str) -> None:
+        if role != "turn":
+            self._war_line[role] = self._war_line.get(role, "") + text
+            return
+        bid = self._war_book_id()
+        for who, label, stored in (("user", "You", "user"), ("jarvis", "Jarvis", "assistant")):
+            line = self._war_line[who].strip()
+            if line:
+                self._war_append(label, line)
+                if bid:  # voice turns join the same War Room conversation the text chat reads
+                    self.studio.library.add_message("warroom", stored, line, bid)
+            self._war_line[who] = ""
+
     # ---- Library ----------------------------------------------------------------------------
     def _library_tab(self) -> QWidget:
         w = QWidget()
@@ -334,7 +661,8 @@ class MainWindow(QMainWindow):
             return
         current = self.selected_book_id()
         books = self.studio.library.list_books()
-        for combo in (getattr(self, "write_book", None), getattr(self, "listen_book", None)):
+        for combo in (getattr(self, "write_book", None), getattr(self, "listen_book", None),
+                      getattr(self, "war_book", None)):
             if combo is None:
                 continue
             keep = combo.currentData()
@@ -345,6 +673,7 @@ class MainWindow(QMainWindow):
             idx = combo.findData(keep)
             combo.setCurrentIndex(idx if idx >= 0 else 0)
             combo.blockSignals(False)
+        self._war_book_changed()
         self.book_list.blockSignals(True)
         self.book_list.clear()
         for b in books:
@@ -773,6 +1102,9 @@ class MainWindow(QMainWindow):
     # ---- events -------------------------------------------------------------------------------------
     def _on_library_changed(self, event: str, book_id: str) -> None:
         self._refresh_timer.start()
+        if event in ("proposal", "war_session") and book_id == self._war_book_id():
+            self._war_refresh_props()
+            self._war_show_recap()
         if event in ("chapter_text", "chapter", "outline") and book_id == self.write_book.currentData() \
                 and not self.editor.hasFocus():
             QTimer.singleShot(450, self._load_chapters)
@@ -806,6 +1138,7 @@ class MainWindow(QMainWindow):
         self.player.stop()
         self.voice.enable_wake_word(False)
         self.voice.stop()
+        self.war_voice.stop()
         wait_for_tasks()
         self.studio.close()
         super().closeEvent(event)
