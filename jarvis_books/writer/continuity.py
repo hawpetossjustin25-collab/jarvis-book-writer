@@ -43,7 +43,7 @@ def unknown_names(text: str, bible: list[BibleEntry], min_count: int = 2) -> lis
             if i == 0 and first and first.group(1) == tok:
                 continue  # sentence-initial capital is not evidence of a name
             if tok not in _COMMON and tok not in known:
-                counts[tok.rstrip("'s")] += 1
+                counts[tok.removesuffix("'s")] += 1
     return [name for name, n in counts.most_common() if n >= min_count]
 
 
