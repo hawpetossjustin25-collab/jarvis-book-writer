@@ -83,10 +83,12 @@ def test_listen_loads_unfinished_book(window, qapp):
 
 def test_voice_session_is_built_from_live_model(window, qapp):
     win, studio, book = window
-    studio.client.live_url = lambda: "wss://example/live"
-    studio.client.live_headers = lambda: {"x-goog-api-key": "k"}
+    from jarvis_books.llm.gemini import LIVE_URL, GeminiClient
+    real = GeminiClient("test-key")  # the real client's interface, not a stand-in
+    studio.client.live_url = real.live_url
+    studio.client.live_headers = real.live_headers
     session = win._make_live_session()
-    assert session.url == "wss://example/live" and isinstance(session.headers, dict)
+    assert session.url == LIVE_URL and session.headers == {"x-goog-api-key": "test-key"}
     assert session.model == studio.engine.live_model()
     assert {d["name"] for d in session.tools} >= {"list_books", "read_chapter", "write_chapters"}
 
