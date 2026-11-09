@@ -41,7 +41,7 @@ class Studio:
             key = api_key or load_key(self.home)
             client = GeminiClient(key) if key else None
         self.client = client
-        self.engine = AdaptiveLLMEngine(client, EngineStore(self.home / "engine.db"), **(engine_kwargs or {})) \
+        self.engine = AdaptiveLLMEngine(client, EngineStore(self.home / "adaptive_llm.db"), **(engine_kwargs or {})) \
             if client else None
         self.index = StoryIndex(self.library, self.engine)
         self.context = ContextBuilder(self.library, self.index)
@@ -98,7 +98,7 @@ class Studio:
         from jarvis_books.keystore import save_key
         save_key(key, self.home)
         self.client = GeminiClient(key)
-        self.engine = AdaptiveLLMEngine(self.client, EngineStore(self.home / "engine.db"))
+        self.engine = AdaptiveLLMEngine(self.client, EngineStore(self.home / "adaptive_llm.db"))
         for obj in (self.index, self.writer, self.assistant, self.narrator):
             obj.engine = self.engine
         self.start_error = None
