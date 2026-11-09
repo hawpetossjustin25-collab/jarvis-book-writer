@@ -438,6 +438,34 @@ class Library:
             rows = self.db.query("SELECT * FROM publish_posts ORDER BY id DESC LIMIT ?", (limit,))
         return [Post.from_row(r) for r in rows]
 
+    # ---- permission log ------------------------------------------------------------
+    PERMISSION_STATUSES = ("pending", "approved", "denied", "expired", "replaced", "auto")
+
+    def log_permission(self, tool: str, level: str, summary: str, args: dict, source: str, status: str) -> int:
+        if status not in self.PERMISSION_STATUSES:
+            raise ValidationError(f"invalid permission status {status!r}")
+        now = time.time()
+        return self.db.execute(
+            "INSERT INTO permission_log (tool, level, summary, args, source, status, created_at, decided_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (tool, level, summary, json.dumps(args, ensure_ascii=False), source, status,
+                                         now, None if status == "pending" else now)).lastrowid
+
+    def settle_permission(self, log_id: int, status: str, via: str = "", result: str = "") -> None:
+        if status not in self.PERMISSION_STATUSES:
+            raise ValidationError(f"invalid permission status {status!r}")
+        self.db.execute("UPDATE permission_log SET status=?, via=?, result=?, decided_at=? WHERE id=?",
+                        (status, via, result, time.time(), log_id))
+
+    def list_permissions(self, limit: int = 50) -> list[dict]:
+        rows = self.db.query("SELECT id, tool, level, summary, args, source, status, via, result, created_at, "
+                             "decided_at FROM permission_log ORDER BY id DESC LIMIT ?", (limit,))
+        keys = ("id", "tool", "level", "summary", "args", "source", "status", "via", "result", "created_at",
+                "decided_at")
+        out = [dict(zip(keys, r)) for r in rows]
+        for r in out:
+            r["args"] = json.loads(r["args"] or "{}")
+        return out
+
     # ---- meta -----------------------------------------------------------------
     def get_meta(self, key: str, default: str | None = None) -> str | None:
         row = self.db.query_one("SELECT value FROM meta WHERE key=?", (key,))

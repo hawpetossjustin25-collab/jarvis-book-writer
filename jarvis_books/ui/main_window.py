@@ -7,18 +7,20 @@ import os
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
                              QTextBrowser, QVBoxLayout, QWidget)
 
+from jarvis_books.assistant.permissions import LEVEL_LABELS, outcome_note
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
+from jarvis_books.ui.approval import ApprovalBar
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
@@ -74,9 +76,12 @@ class NewBookDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    _perm_event = pyqtSignal(str, object)
+
     def __init__(self, studio: Studio):
         super().__init__()
         self.studio = studio
+        self.approval_bars: list[ApprovalBar] = []
         self.setWindowTitle("Jarvis Book Writer")
         self.resize(1280, 820)
         self.setStyleSheet(STYLE)
@@ -106,6 +111,12 @@ class MainWindow(QMainWindow):
         self.job_bar.hide()
         self.statusBar().addPermanentWidget(self.job_bar)
         self._closed = False
+        self._perm_event.connect(self._on_permission)
+        studio.gate.subscribe(lambda event, info: self._perm_event.emit(event, info))
+        self._expire_timer = QTimer(self)
+        self._expire_timer.setInterval(5000)
+        self._expire_timer.timeout.connect(studio.gate.expire_stale)
+        self._expire_timer.start()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(400)
@@ -154,6 +165,7 @@ class MainWindow(QMainWindow):
         self.mic_level.setTextVisible(False)
         self.mic_level.setMaximumHeight(8)
         lay.addWidget(self.mic_level)
+        lay.addWidget(self._approval_bar())
         row = QHBoxLayout()
         self.talk_btn = QPushButton("Talk to Jarvis")
         self.talk_btn.setMinimumHeight(48)
@@ -200,7 +212,8 @@ class MainWindow(QMainWindow):
             "reading a book aloud. When reading, read the text exactly as written.\nBooks: " + \
             ", ".join(f"'{b.title}'" for b in books[:30])
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
-                           self.studio.tools.declarations(), self.studio.tools.call,
+                           self.studio.tools.declarations(),
+                           lambda name, args: self.studio.tools.call(name, args, source="voice"),
                            voice=self.studio.settings()["jarvis_voice"],
                            context_tokens=profile.context_window if profile else None, **callbacks)
 
@@ -240,6 +253,7 @@ class MainWindow(QMainWindow):
     def _voice_type(self) -> None:
         text = self.voice_input.text().strip()
         if text and self.voice.active:
+            self.studio.gate.hear(text)
             self.voice.send_text(text)
             self.voice_log.append(f"<b>You:</b> {html.escape(text)}")
             self.voice_input.clear()
@@ -255,6 +269,7 @@ class MainWindow(QMainWindow):
                 self.voice.stop()
 
     def _on_voice_transcript(self, role: str, text: str) -> None:
+        self._hear_voice(role, text)
         if role == "turn":
             for who, label in (("user", "You"), ("jarvis", "Jarvis")):
                 if self._voice_line[who].strip():
@@ -263,6 +278,51 @@ class MainWindow(QMainWindow):
             return
         self._voice_line[role] = self._voice_line.get(role, "") + text
 
+    # ---- yes/no permissions ----------------------------------------------------------------
+    def _approval_bar(self) -> ApprovalBar:
+        bar = ApprovalBar(lambda yes, rid, session: self.studio.gate.answer(yes, rid, allow_session=session))
+        self.approval_bars.append(bar)
+        return bar
+
+    def _hear_voice(self, role: str, text: str) -> None:
+        """The author's spoken words can answer Jarvis's yes/no question; it opens once he has finished asking."""
+        if role == "user":
+            self.studio.gate.hear(text)
+        elif role == "turn":
+            self.studio.gate.arm()
+
+    def _on_permission(self, event: str, info: dict) -> None:
+        if self._closed:
+            return
+        if event == "asking":
+            for bar in self.approval_bars:
+                bar.ask(info["request"])
+            return
+        for bar in self.approval_bars:
+            if bar.request_id == info["request"].id:
+                bar.close_request()
+        if info["status"] == "replaced":
+            return
+        note = outcome_note(info)
+        word = {"approved": "Approved", "denied": "Declined", "expired": "No answer, skipped"}[info["status"]]
+        line = f"<i style='color:#fbd38d'>[{word}: {html.escape(info['request'].summary)}]</i>"
+        for view in (self.voice_log, self.chat_view, self.war_view):
+            view.append(line)
+        for bridge in (self.voice, self.war_voice):
+            if bridge.active:
+                bridge.send_text(note + " Tell the author briefly.")
+        self._refresh_permissions()
+
+    def _refresh_permissions(self) -> None:
+        if not hasattr(self, "perm_list"):
+            return
+        self.perm_list.clear()
+        words = {"approved": "Yes", "denied": "No", "expired": "Timed out", "replaced": "Replaced",
+                 "auto": "Allowed (session)", "pending": "Waiting"}
+        for r in self.studio.library.list_permissions(40):
+            self.perm_list.addItem(f"{words.get(r['status'], r['status'])} - {r['summary']} "
+                                   f"[{LEVEL_LABELS.get(r['level'], r['level'])}]")
+
     # ---- Chat -----------------------------------------------------------------------------
     def _chat_tab(self) -> QWidget:
         w = QWidget()
@@ -270,6 +330,7 @@ class MainWindow(QMainWindow):
         self.chat_view = QTextBrowser()
         self.chat_view.setOpenExternalLinks(False)
         lay.addWidget(self.chat_view, 1)
+        lay.addWidget(self._approval_bar())
         row = QHBoxLayout()
         self.chat_input = QLineEdit()
         self.chat_input.setPlaceholderText("Ask Jarvis to plan, write, revise, read or brainstorm...")
@@ -339,6 +400,7 @@ class MainWindow(QMainWindow):
         ll.addWidget(self.war_state)
         self.war_view = QTextBrowser()
         ll.addWidget(self.war_view, 1)
+        ll.addWidget(self._approval_bar())
         row = QHBoxLayout()
         self.war_input = QLineEdit()
         self.war_input.setPlaceholderText("Ask about any detail, pitch a twist, or say 'fill me in'...")
@@ -433,6 +495,7 @@ class MainWindow(QMainWindow):
         self._war_append("You", text)
         if self.war_voice.active:  # keep one conversation: typed lines go into the live voice session
             self.studio.library.add_message("warroom", "user", text, self._war_book_id())
+            self.studio.gate.hear(text)
             self.war_voice.send_text(text)
             return
         self.war_send_btn.setEnabled(False)
@@ -585,7 +648,8 @@ class MainWindow(QMainWindow):
         tools = self.studio.war_tools
         profile = engine.profile(model)
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
-                           tools.declarations(), tools.call, voice=self.studio.settings()["jarvis_voice"],
+                           tools.declarations(), lambda name, args: tools.call(name, args, source="voice"),
+                           voice=self.studio.settings()["jarvis_voice"],
                            context_tokens=profile.context_window if profile else None, **callbacks)
 
     def _war_toggle_talk(self) -> None:
@@ -616,6 +680,7 @@ class MainWindow(QMainWindow):
                 self.war_voice.stop()
 
     def _on_war_transcript(self, role: str, text: str) -> None:
+        self._hear_voice(role, text)
         if role != "turn":
             self._war_line[role] = self._war_line.get(role, "") + text
             return
@@ -894,7 +959,7 @@ class MainWindow(QMainWindow):
         dlg = NewBookDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.idea.toPlainText().strip():
             return
-        result = self.studio.tools.call("create_book", {"idea": dlg.idea.toPlainText().strip(),
+        result = self.studio.tools.run("create_book", {"idea": dlg.idea.toPlainText().strip(),
                                                         "title": dlg.title.text().strip(),
                                                         "genre": dlg.genre.currentData() or "",
                                                         "chapters": dlg.chapters.value()})
@@ -903,7 +968,7 @@ class MainWindow(QMainWindow):
     def _write_next(self, count: int) -> None:
         book_id = self.selected_book_id()
         if book_id:
-            self._report(self.studio.tools.call("write_chapters", {"book": book_id, "count": count}))
+            self._report(self.studio.tools.run("write_chapters", {"book": book_id, "count": count}))
 
     def _open_in_editor(self) -> None:
         book_id = self.selected_book_id()
@@ -1046,7 +1111,7 @@ class MainWindow(QMainWindow):
         if book_id:
             title, ok = QInputDialog.getText(self, "Add chapter", "Chapter title")
             if ok:
-                self.studio.tools.call("change_outline", {"book": book_id, "chapter": 0, "title": title})
+                self.studio.tools.run("change_outline", {"book": book_id, "chapter": 0, "title": title})
 
     def _ai_write(self) -> None:
         ch = self._chapter()
@@ -1067,7 +1132,7 @@ class MainWindow(QMainWindow):
         notes, ok = QInputDialog.getMultiLineText(self, "Revise", "What should change? (e.g. more tension, "
                                                   "cut the flashback, write it my way: ...)")
         if ok and notes.strip():
-            self._report(self.studio.tools.call("rewrite_chapter", {"book": ch.book_id, "chapter": ch.number,
+            self._report(self.studio.tools.run("rewrite_chapter", {"book": ch.book_id, "chapter": ch.number,
                                                                     "instructions": notes}))
 
     def _accept(self) -> None:
@@ -1236,6 +1301,15 @@ class MainWindow(QMainWindow):
         row.addWidget(rb)
         row.addWidget(ref)
         lay.addLayout(row)
+        lay.addWidget(QLabel("<b>What Jarvis asked to do</b> (changes wait for your yes)"))
+        self.perm_list = QListWidget()
+        self.perm_list.setMaximumHeight(160)
+        lay.addWidget(self.perm_list)
+        forget = QPushButton("Ask me again for everything")
+        forget.setToolTip("Clears every 'Don't ask again this session' choice")
+        forget.clicked.connect(self.studio.gate.forget_allowances)
+        lay.addWidget(forget)
+        self._refresh_permissions()
         return w
 
     def _save_key(self) -> None:
@@ -1315,6 +1389,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._autosave.stop()
+        self._expire_timer.stop()
         self._refresh_timer.stop()
         self._save_editor()
         self._closed = True

@@ -5,6 +5,7 @@ import json
 import logging
 from typing import Callable, Optional
 
+from jarvis_books.assistant.permissions import outcome_note
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.llm.models import LLMRequest, PromptSection
 from jarvis_books.storage.library import Library
@@ -49,7 +50,9 @@ class Assistant:
         history = self._history()
         self.library.add_message(self.channel, "user", text, self.tools.current_book_id)
         tools = self.tools.select(text)
-        contents = history + [{"role": "user", "parts": [{"text": text}]}]
+        answered = self.tools.gate.hear(text)  # "yes"/"no" to an open question is settled by the app itself
+        model_text = text + ("\n\n" + outcome_note(answered) if answered else "")
+        contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
         system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "") + "\n\n" + self._situation()
         reply = ""
         for _ in range(MAX_TOOL_ROUNDS):
@@ -61,7 +64,7 @@ class Assistant:
             contents.append(resp.content or {"role": "model", "parts": [{"functionCall": c} for c in resp.function_calls]})
             parts = []
             for call in resp.function_calls:
-                result = self.tools.call(call.get("name", ""), call.get("args") or {})
+                result = self.tools.call(call.get("name", ""), call.get("args") or {}, source="chat")
                 if on_tool:
                     on_tool(call.get("name", ""), call.get("args") or {}, result)
                 parts.append({"functionResponse": {"name": call.get("name", ""), "response": _clip(result)}})

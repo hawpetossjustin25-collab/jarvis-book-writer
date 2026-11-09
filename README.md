@@ -102,3 +102,12 @@ jarvis_books/
   ui/         PyQt6 window, audiobook player, mic/speaker bridge
   studio.py   wires everything together
 ```
+
+## Permissions (yes/no)
+
+Every Jarvis tool has a level in `jarvis_books/assistant/permissions.py`: **Read** and **Safe change** run straight
+away; **Change** (writing, rewriting, story bible, outline, exports, accepting ideas), **Outside world**
+(YouTube) and **System** wait for the author's yes. The check is in code, not in Jarvis's prompt: the app stores
+the exact action, shows a yes/no card in the Jarvis, Chat and War Room tabs, and runs it only on the author's own
+typed or spoken yes (or the Yes button). A yes is single-use and expires after 2 minutes. "Don't ask again this
+session" exists for Change-level tools only. Every request and answer is logged in Settings.

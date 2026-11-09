@@ -206,3 +206,35 @@ def test_both_jarvis_voices_follow_the_auto_mute_setting(window):
     win.auto_mute_box.setChecked(False)
     assert not win.voice.auto_mute and not win.war_voice.auto_mute
     assert studio.settings()["auto_mute"] == "0"
+
+
+def test_approval_card_shows_everywhere_and_the_yes_button_runs_the_action(qapp, tmp_path):
+    from conftest import hardware
+    from jarvis_books.ui.main_window import MainWindow
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=FakeGemini(),
+                    engine_kwargs={"hardware_probe": hardware, "sleep": lambda s: None})
+    studio.start(probe=False)
+    win = MainWindow(studio)
+    try:
+        lib = studio.library
+        b = lib.create_book("Glass City", "mystery", "x")
+        lib.set_outline(b.id, [{"number": 1, "title": "Shards", "outline": "x"}])
+        asked = studio.tools.call("change_outline", {"book": "Glass", "chapter": 1, "title": "Bells"}, source="voice")
+        qapp.processEvents()
+        assert asked["needs_approval"] and len(win.approval_bars) == 3
+        assert all(bar.request_id == asked["request_id"] for bar in win.approval_bars)
+        win._hear_voice("user", " yes")  # Jarvis hasn't finished asking yet
+        assert lib.get_chapter(b.id, 1).title == "Shards"
+        win._hear_voice("turn", "")
+        win._hear_voice("user", " yes please")
+        qapp.processEvents()
+        assert lib.get_chapter(b.id, 1).title == "Bells"
+        assert all(bar.request_id is None for bar in win.approval_bars)
+        studio.tools.call("change_outline", {"book": "Glass", "chapter": 1, "title": "Towers"})
+        qapp.processEvents()
+        win.approval_bars[1].yes_btn.click()
+        qapp.processEvents()
+        assert lib.get_chapter(b.id, 1).title == "Towers"
+        assert win.perm_list.count() == 2 and win.perm_list.item(0).text().startswith("Yes")
+    finally:
+        win.close()

@@ -253,8 +253,12 @@ def test_jarvis_asks_before_posting_and_then_posts(studio, tmp_path):
     names = [d["name"] for d in tools.select("post it to youtube as unlisted")]
     assert "publish_audiobook" in names and "list_posts" in names
     ask = tools.call("publish_audiobook", {"book": "Glass", "privacy": "public"})
-    assert ask["needs_confirmation"] and lib.list_posts(b.id) == []
-    done = tools.call("publish_audiobook", {"book": "Glass", "privacy": "unlisted", "confirmed": True})
+    assert ask["needs_approval"] and lib.list_posts(b.id) == []
+    assert "invalid" in tools.call("publish_audiobook", {"book": "Glass", "privacy": "public",
+                                                         "confirmed": True})["error"]  # Gemini can't say yes for you
+    assert studio.gate.answer(False)["status"] == "denied" and lib.list_posts(b.id) == []
+    tools.call("publish_audiobook", {"book": "Glass", "privacy": "unlisted"})
+    done = studio.gate.answer(True, via="button")["result"]
     assert done["started"], done
     studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
     [post] = tools.call("list_posts", {"book": "Glass"})["posts"]

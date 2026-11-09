@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from jarvis_books.assistant import Assistant, ToolBox
+from jarvis_books.assistant.permissions import PermissionGate
 from jarvis_books.audio import Narrator
 from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
@@ -49,13 +50,14 @@ class Studio:
         self.context = ContextBuilder(self.library, self.index)
         self.writer = BookWriter(self.library, self.engine, self.index, self.context)
         self.jobs = JobManager(self.library, workers=2)
-        self.tools = ToolBox(self.library, self.writer, self.index, self.jobs)
+        self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
+        self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate)
         self.tools.export_handler = self.export
         self.assistant = Assistant(self.engine, self.library, self.tools)
         self.warroom = WarRoom(self.library, self.engine, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
-        self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs)
+        self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate)
         self.war_tools.warroom = self.warroom
         self.war_assistant = Assistant(self.engine, self.library, self.war_tools, channel="warroom",
                                        guide=WAR_ROOM_GUIDE, per_book=True)

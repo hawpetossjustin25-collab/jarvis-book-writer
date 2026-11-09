@@ -136,7 +136,9 @@ def test_war_room_chat_proposes_through_tools_without_touching_canon(tmp_path):
         assert studio.library.list_bible(b.id, "character") == []
         assert [m.role for m in studio.library.recent_messages("warroom")] == ["user", "assistant"]
         assert studio.library.recent_messages("chat") == []
-        assert wt.call("decide_proposal", {"proposal_id": p.id, "decision": "accept"})["status"] == "accepted"
+        assert wt.call("decide_proposal", {"proposal_id": p.id, "decision": "accept"})["needs_approval"]
+        assert studio.library.list_bible(b.id, "character") == []  # canon waits for the author's yes
+        assert studio.gate.answer(True)["result"]["status"] == "accepted"
         assert studio.library.list_bible(b.id, "character")[0].name == "Vey"
     finally:
         studio.close()

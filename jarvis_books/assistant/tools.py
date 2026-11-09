@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Optional
 
+from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.errors import NotFound
 from jarvis_books.jobs import JobManager
@@ -85,20 +86,29 @@ DECLARATIONS = [
            "content": {"type": "STRING", "description": "Edited wording, if the author changed it"}},
           ["proposal_id", "decision"]),
     _decl("publish_audiobook", "Post a book (or chosen chapters) to YouTube as an audiobook video in the background. "
-          "Before posting, repeat the book, chapters and privacy back to the author; set confirmed=true only after "
-          "they say yes.",
+          "The app asks the author yes or no before anything is posted.",
           {"book": BOOK, "chapters": {"type": "ARRAY", "items": I}, "title": S, "description": S,
            "privacy": {"type": "STRING", "enum": ["private", "unlisted", "public"]},
-           "per_chapter": {"type": "BOOLEAN"}, "confirmed": {"type": "BOOLEAN"}}, ["privacy"]),
+           "per_chapter": {"type": "BOOLEAN"}}, ["privacy"]),
     _decl("list_posts", "List the book's YouTube posts with their status and links.", {"book": BOOK}),
 ]
 
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
+def _check(decl: Optional[dict], name: str, args: dict) -> str:
+    if decl is None:
+        return f"unknown tool {name}"
+    unknown = sorted(set(args) - set(decl["parameters"].get("properties", {})))
+    errors = validate(args, decl["parameters"]) + [f"unknown argument {k!r}" for k in unknown]
+    return "invalid arguments: " + "; ".join(errors) if errors else ""
+
+
 class ToolBox:
-    def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager):
+    def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
+                 gate: Optional[PermissionGate] = None):
         self.library = library
+        self.gate = gate or PermissionGate()
         self.writer = writer
         self.index = index
         self.jobs = jobs
@@ -145,14 +155,37 @@ class ToolBox:
         return self.declarations(names)
 
     # ---- dispatch -----------------------------------------------------------------
-    def call(self, name: str, args: Optional[dict] = None) -> dict:
+    def call(self, name: str, args: Optional[dict] = None, source: str = "ai") -> dict:
+        """A call from Jarvis (Gemini). Anything that changes something waits for the author's yes."""
         args = dict(args or {})
         decl = _BY_NAME.get(name)
-        if decl is None:
-            return {"error": f"unknown tool {name}"}
-        errors = validate(args, decl["parameters"])
-        if errors:
-            return {"error": "invalid arguments: " + "; ".join(errors)}
+        error = _check(decl, name, args)
+        if error:
+            return {"error": error}
+        mode = self.gate.decide(name)
+        if mode == "free":
+            return self._dispatch(name, args)
+        try:
+            args = self._pin(decl, args)
+            summary = self.describe(name, args)
+        except NotFound as exc:
+            return {"error": str(exc)}
+        if mode == "auto":
+            self.gate.record_auto(name, args, summary, source)
+            return self._dispatch(name, args)
+        req = self.gate.request(name, args, summary, lambda: self._dispatch(name, args), source=source)
+        return {"needs_approval": True, "request_id": req.id, "asking": summary, "note": ASKING_NOTE}
+
+    def run(self, name: str, args: Optional[dict] = None) -> dict:
+        """A call the author made directly (a button in the app): no question needed."""
+        args = dict(args or {})
+        decl = _BY_NAME.get(name)
+        error = _check(decl, name, args)
+        if error:
+            return {"error": error}
+        return self._dispatch(name, args)
+
+    def _dispatch(self, name: str, args: dict) -> dict:
         try:
             return getattr(self, f"_t_{name}")(**args)
         except NotFound as exc:
@@ -160,6 +193,41 @@ class ToolBox:
         except Exception as exc:
             log.exception("tool %s failed", name)
             return {"error": f"{type(exc).__name__}: {exc}"}
+
+    def _pin(self, decl: dict, args: dict) -> dict:
+        """Fix 'the open book' to a named book now, so a later yes runs exactly what was asked about."""
+        if "book" in decl["parameters"].get("properties", {}):
+            args["book"] = self._book(args.get("book")).title
+        return args
+
+    def describe(self, name: str, args: dict) -> str:
+        """The plain-words question the author is asked."""
+        book = args.get("book", "")
+        extra = (args.get("instructions") or "").strip()
+        extra = f" ({truncate_words(extra, 25)})" if extra else ""
+        if name == "create_book":
+            return f"Start a new book: {truncate_words(args.get('idea', ''), 25)}"
+        if name == "write_chapters":
+            n = max(1, int(args.get("count") or 1))
+            return f"Write the next {n} chapter{'s' if n > 1 else ''} of '{book}'{extra}"
+        if name == "rewrite_chapter":
+            return f"Rewrite chapter {args.get('chapter')} of '{book}'{extra}"
+        if name == "update_story_bible":
+            return f"Change the story bible of '{book}': {args.get('kind')} '{args.get('name')}'"
+        if name == "change_outline":
+            if not args.get("chapter"):
+                return f"Add a new chapter to '{book}'" + (f": {args['title']}" if args.get("title") else "")
+            return f"Change the title/outline of chapter {args.get('chapter')} of '{book}'"
+        if name == "export_book":
+            return f"Export '{book}' as {args.get('format') or 'docx'}"
+        if name == "decide_proposal":
+            p = self.library.get_proposal(int(args["proposal_id"]))
+            return f"{args['decision'].capitalize()} the idea '{p.title}'"
+        if name == "publish_audiobook":
+            chapters = args.get("chapters") or []
+            which = f"chapters {', '.join(str(c) for c in chapters)}" if chapters else "all written chapters"
+            return f"Post '{book}' ({which}) to YouTube as {args.get('privacy')}"
+        return f"{name.replace('_', ' ')} {args}"
 
     def _book(self, book: Optional[str]):
         if book:
@@ -308,11 +376,8 @@ class ToolBox:
         return self.publisher
 
     def _t_publish_audiobook(self, privacy: str, book: str = "", chapters: Optional[list] = None, title: str = "",
-                             description: str = "", per_chapter: bool = False, confirmed: bool = False) -> dict:
+                             description: str = "", per_chapter: bool = False) -> dict:
         b = self._book(book)
-        if not confirmed:
-            return {"needs_confirmation": True, "book": b.title, "chapters": chapters or "all written",
-                    "privacy": privacy, "note": "Ask the author to confirm, then call again with confirmed=true."}
         posts = self._pub().publish_youtube(b.id, [int(c) for c in chapters or []] or None, title, description,
                                             privacy=privacy, per_chapter=per_chapter)
         return {"started": True, "posts": [{"id": p.id, "title": p.title, "privacy": p.privacy} for p in posts],

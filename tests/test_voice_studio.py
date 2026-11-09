@@ -119,7 +119,7 @@ def test_studio_wires_everything(tmp_path, monkeypatch):
     while time.time() < deadline and not studio.index.search("dragon gold", book.id):
         time.sleep(0.05)
     assert studio.index.search("dragon gold", book.id)  # chapter text is indexed automatically
-    result = studio.tools.call("export_book", {"book": "wired", "format": "epub"})
+    result = studio.tools.run("export_book", {"book": "wired", "format": "epub"})
     assert result.get("saved", "").endswith(".epub")
     studio.close()
 

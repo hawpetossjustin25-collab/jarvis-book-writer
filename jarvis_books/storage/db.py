@@ -187,6 +187,21 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX idx_publish_posts_book ON publish_posts(book_id, id);
     """,
+    4: """
+    CREATE TABLE permission_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tool TEXT NOT NULL,
+        level TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        args TEXT NOT NULL DEFAULT '{}',
+        source TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        via TEXT NOT NULL DEFAULT '',
+        result TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        decided_at REAL
+    );
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)
