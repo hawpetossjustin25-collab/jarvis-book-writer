@@ -121,6 +121,8 @@ class MainWindow(QMainWindow):
 
     # ---- startup -----------------------------------------------------------------------
     def _on_started(self, error) -> None:
+        if self._closed:  # startup finished after the window closed: don't open the mic or touch storage
+            return
         if error or self.studio.engine is None or self.studio.engine._config is None:
             self.statusBar().showMessage(error or self.studio.start_error or "Gemini is not connected")
             self.tabs.setCurrentIndex(5)
