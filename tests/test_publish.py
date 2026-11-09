@@ -235,3 +235,27 @@ def test_publish_requires_a_connected_account(studio):
     b = studio.library.create_book("Untitled", "fantasy", "x")
     with pytest.raises(PublishError, match="Connect"):
         studio.publisher.publish_youtube(b.id)
+
+
+def test_jarvis_asks_before_posting_and_then_posts(studio, tmp_path):
+    google = FakeGoogle()
+    pub = studio.publisher
+    pub.http, pub.sleep, pub.open_browser = google, (lambda s: None), browser_that_approves
+    client = tmp_path / "client_secret.json"
+    client.write_text(json.dumps({"installed": {"client_id": "cid", "client_secret": "s"}}))
+    pub.import_google_client(client)
+    pub.connect_youtube()
+    lib = studio.library
+    b = lib.create_book("Glass City", "mystery", "A detective in a city of glass.")
+    lib.set_outline(b.id, [{"number": 1, "title": "Shards", "outline": "x"}])
+    lib.save_chapter_text(lib.get_chapter(b.id, 1).id, "The towers rang like bells.")
+    tools = studio.tools
+    names = [d["name"] for d in tools.select("post it to youtube as unlisted")]
+    assert "publish_audiobook" in names and "list_posts" in names
+    ask = tools.call("publish_audiobook", {"book": "Glass", "privacy": "public"})
+    assert ask["needs_confirmation"] and lib.list_posts(b.id) == []
+    done = tools.call("publish_audiobook", {"book": "Glass", "privacy": "unlisted", "confirmed": True})
+    assert done["started"], done
+    studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
+    [post] = tools.call("list_posts", {"book": "Glass"})["posts"]
+    assert post["status"] == "published" and post["url"] == "https://youtu.be/vid123"

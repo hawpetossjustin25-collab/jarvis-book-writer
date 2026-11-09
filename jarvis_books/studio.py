@@ -63,6 +63,7 @@ class Studio:
         self.narrator = Narrator(self.library, self.engine, self.home / "audio", voice=settings["voice"],
                                  edge_voice=settings["edge_voice"])
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
+        self.tools.publisher = self.war_tools.publisher = self.publisher
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

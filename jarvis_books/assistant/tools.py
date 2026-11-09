@@ -84,6 +84,13 @@ DECLARATIONS = [
           {"proposal_id": I, "decision": {"type": "STRING", "enum": ["accept", "reject", "undo"]},
            "content": {"type": "STRING", "description": "Edited wording, if the author changed it"}},
           ["proposal_id", "decision"]),
+    _decl("publish_audiobook", "Post a book (or chosen chapters) to YouTube as an audiobook video in the background. "
+          "Before posting, repeat the book, chapters and privacy back to the author; set confirmed=true only after "
+          "they say yes.",
+          {"book": BOOK, "chapters": {"type": "ARRAY", "items": I}, "title": S, "description": S,
+           "privacy": {"type": "STRING", "enum": ["private", "unlisted", "public"]},
+           "per_chapter": {"type": "BOOLEAN"}, "confirmed": {"type": "BOOLEAN"}}, ["privacy"]),
+    _decl("list_posts", "List the book's YouTube posts with their status and links.", {"book": BOOK}),
 ]
 
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
@@ -99,6 +106,7 @@ class ToolBox:
         self.audio_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (play/stop/export audio)
         self.export_handler: Optional[Callable[[str, str], dict]] = None
         self.warroom = None  # set by the Studio
+        self.publisher = None  # set by the Studio
         self.war_session_id: Optional[int] = None  # set while a War Room session is open
 
     def declarations(self, names: Optional[list[str]] = None) -> list[dict]:
@@ -125,6 +133,8 @@ class ToolBox:
             "propose_idea": ("idea", "what if", "suggest", "pitch", "propose", "should"),
             "list_proposals": ("proposal", "decision", "idea", "decided", "pending"),
             "decide_proposal": ("accept", "reject", "undo", "yes", "approve", "keep", "go with"),
+            "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
+            "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -290,6 +300,30 @@ class ToolBox:
         if self.export_handler is None:
             return {"error": "export is not available"}
         return self.export_handler(b.id, format)
+
+    # ---- publishing -----------------------------------------------------------------
+    def _pub(self):
+        if self.publisher is None:
+            raise NotFound("publishing is not available")
+        return self.publisher
+
+    def _t_publish_audiobook(self, privacy: str, book: str = "", chapters: Optional[list] = None, title: str = "",
+                             description: str = "", per_chapter: bool = False, confirmed: bool = False) -> dict:
+        b = self._book(book)
+        if not confirmed:
+            return {"needs_confirmation": True, "book": b.title, "chapters": chapters or "all written",
+                    "privacy": privacy, "note": "Ask the author to confirm, then call again with confirmed=true."}
+        posts = self._pub().publish_youtube(b.id, [int(c) for c in chapters or []] or None, title, description,
+                                            privacy=privacy, per_chapter=per_chapter)
+        return {"started": True, "posts": [{"id": p.id, "title": p.title, "privacy": p.privacy} for p in posts],
+                "note": "Uploading in the background; the Publish tab shows progress and the link."}
+
+    def _t_list_posts(self, book: str = "") -> dict:
+        b = self._book(book)
+        pub = self._pub()
+        return {"posts": [{"id": p.id, "title": p.title, "privacy": p.privacy, "status": p.status, "url": p.url,
+                           "progress": round(p.progress, 2), "error": p.error, "edited_since": pub.is_stale(p)}
+                          for p in self.library.list_posts(b.id, limit=20)]}
 
     # ---- war room -------------------------------------------------------------------
     def _wr(self):
