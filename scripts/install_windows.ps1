@@ -35,7 +35,9 @@ $ErrorActionPreference = 'Continue'
 & $py -c "import PyQt6.QtWidgets, PyQt6.QtMultimedia, docx, websockets, edge_tts, imageio_ffmpeg"
 if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
 # Download the 'Hey Jarvis' wake-word model once (runs on the laptop; optional).
-& $py -c "import openwakeword.utils as u; u.download_models(['hey_jarvis'])" 2>&1 | Out-Null
+Push-Location $app
+& $py -c "from jarvis_books.ui.voice_bridge import ensure_wake_model; ensure_wake_model()" 2>&1 | Select-Object -Last 2
+Pop-Location
 
 if (-not $SkipTests) {
     Push-Location $app

@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
         system = prompts.ASSISTANT + "\n\nYou are speaking out loud. Keep answers to a few sentences unless " \
             "reading a book aloud. When reading, read the text exactly as written.\nBooks: " + \
             ", ".join(f"'{b.title}'" for b in books[:30])
-        return LiveSession(self.studio.client.live_url, self.studio.client.live_headers, model, system,
+        return LiveSession(self.studio.client.live_url(), self.studio.client.live_headers(), model, system,
                            self.studio.tools.declarations(), self.studio.tools.call,
                            voice=self.studio.settings()["jarvis_voice"],
                            context_tokens=profile.context_window if profile else None, **callbacks)

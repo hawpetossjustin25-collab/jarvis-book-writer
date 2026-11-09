@@ -21,6 +21,31 @@ def _format(rate: int) -> QAudioFormat:
     return fmt
 
 
+def _onnx_runtime_dlls() -> None:
+    """onnxruntime needs the MSVC C++ runtime. PyQt6 ships those DLLs, so laptops without the
+    Visual C++ redistributable can still load it (no admin install needed)."""
+    import os
+    import sys
+    if sys.platform != "win32":
+        return
+    import PyQt6
+    qt_bin = os.path.join(os.path.dirname(PyQt6.__file__), "Qt6", "bin")
+    if os.path.isdir(qt_bin):
+        os.add_dll_directory(qt_bin)
+
+
+def ensure_wake_model() -> str:
+    """Make sure the 'hey_jarvis' model files are present (downloads them once)."""
+    import os
+    _onnx_runtime_dlls()
+    import openwakeword
+    import openwakeword.utils
+    folder = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+    if not os.path.exists(os.path.join(folder, "hey_jarvis_v0.1.onnx")):
+        openwakeword.utils.download_models(model_names=["hey_jarvis"])
+    return folder
+
+
 class WakeWord:
     """openWakeWord 'hey_jarvis' detector (runs locally, nothing leaves the laptop)."""
 
@@ -28,6 +53,7 @@ class WakeWord:
 
     def __init__(self, threshold: float = 0.5):
         import numpy as np
+        ensure_wake_model()
         from openwakeword.model import Model
         self._np = np
         try:
