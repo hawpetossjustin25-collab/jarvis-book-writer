@@ -25,8 +25,9 @@ RECAP_SCHEMA = {"type": "OBJECT", "properties": {"summary": STR, "decisions": LI
                 "required": ["summary", "decisions", "open_questions", "next_steps"]}
 
 ANALYST = ("You are Jarvis in the War Room, a story development partner. Ground every statement in the "
-           "material given. Label each detail as WRITTEN (in the manuscript, cite the chapter), PLANNED "
-           "(outline or story bible, not written yet) or IDEA (your own suggestion, not canon).")
+           "material given. Label each detail as WRITTEN (only text in written chapters, cite the chapter), "
+           "PLANNED (premise, synopsis, outline or story bible: decided but not written yet) or IDEA (your own "
+           "suggestion, not canon).")
 
 WAR_ROOM_GUIDE = (
     "You are in the War Room with the author, working through the book together like a writers' room. You can "
@@ -77,6 +78,9 @@ class WarRoom:
         facts = self.facts(book_id)
         ask = ("Give the author a spoken-style briefing on this book: what it is about, where it stands, what "
                "is written versus only planned, open plot threads, and what is still undecided.")
+        written = [str(c["chapter"]) for c in facts["written"]]
+        ask += (" Chapters actually written: " + ", ".join(written) + "." if written else
+                " No chapters are written yet, so nothing is WRITTEN; everything decided so far is PLANNED.")
         if focus:
             ask += f" Focus on: {focus}."
         if facts["last_session"]:

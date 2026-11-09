@@ -34,7 +34,11 @@ def book(studio):
 
 
 def test_briefing_separates_written_from_planned(studio, book):
+    sent = []
+    original = studio.engine.generate
+    studio.engine.generate = lambda req: (sent.append(req.instruction), original(req))[1]
     out = studio.warroom.briefing(book.id)
+    assert "Chapters actually written: 1." in sent[0]
     assert out["briefing"]
     assert [c["chapter"] for c in out["written"]] == [1]
     assert [c["chapter"] for c in out["planned"]] == [2]
