@@ -9,8 +9,8 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QFont
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
-                             QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+                             QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
                              QTextBrowser, QVBoxLayout, QWidget)
 
@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._listen_tab(), "Listen")
         self.tabs.addTab(self._settings_tab(), "Settings")
         self.tabs.addTab(self._war_tab(), "War Room")
+        self.tabs.addTab(self._publish_tab(), "Publish")
         self.job_bar = QProgressBar()
         self.job_bar.setMaximumWidth(380)
         self.job_bar.hide()
@@ -615,6 +616,172 @@ class MainWindow(QMainWindow):
                     self.studio.library.add_message("warroom", stored, line, bid)
             self._war_line[who] = ""
 
+    # ---- Publish ---------------------------------------------------------------------------
+    def _publish_tab(self) -> QWidget:
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        left = QWidget()
+        form_lay = QVBoxLayout(left)
+        acct = QHBoxLayout()
+        self.pub_account = QLabel()
+        self.pub_client_btn = QPushButton("Load Google client file...")
+        self.pub_client_btn.clicked.connect(self._pub_load_client)
+        self.pub_connect_btn = QPushButton("Connect YouTube")
+        self.pub_connect_btn.clicked.connect(self._pub_connect)
+        acct.addWidget(self.pub_account, 1)
+        acct.addWidget(self.pub_client_btn)
+        acct.addWidget(self.pub_connect_btn)
+        form_lay.addLayout(acct)
+        form = QFormLayout()
+        self.pub_book = QComboBox()
+        self.pub_book.currentIndexChanged.connect(self._pub_book_changed)
+        self.pub_chapters = QLineEdit()
+        self.pub_chapters.setPlaceholderText("All written chapters (or e.g. 1-3, 5)")
+        self.pub_title = QLineEdit()
+        self.pub_title.setPlaceholderText("Book title")
+        self.pub_desc = QPlainTextEdit()
+        self.pub_desc.setMaximumHeight(110)
+        self.pub_tags = QLineEdit()
+        self.pub_tags.setPlaceholderText("audiobook, fantasy, ...")
+        self.pub_privacy = QComboBox()
+        for label, value in (("Private", "private"), ("Unlisted", "unlisted"), ("Public", "public")):
+            self.pub_privacy.addItem(label, value)
+        self.pub_schedule = QLineEdit()
+        self.pub_schedule.setPlaceholderText("Optional, e.g. 2026-12-01T18:00:00Z (goes public then)")
+        self.pub_per_chapter = QCheckBox("One video per chapter")
+        self.pub_playlist = QCheckBox("Add to the book's playlist")
+        self.pub_playlist.setChecked(True)
+        self.pub_cover = QLineEdit()
+        self.pub_cover.setPlaceholderText("Optional cover image (PNG/JPG)")
+        for label, widget in (("Book", self.pub_book), ("Chapters", self.pub_chapters), ("Title", self.pub_title),
+                              ("Description", self.pub_desc), ("Tags", self.pub_tags), ("Privacy", self.pub_privacy),
+                              ("Schedule", self.pub_schedule), ("", self.pub_per_chapter), ("", self.pub_playlist),
+                              ("Cover", self.pub_cover)):
+            form.addRow(label, widget)
+        form_lay.addLayout(form)
+        self.pub_post_btn = QPushButton("Post to YouTube")
+        self.pub_post_btn.setMinimumHeight(40)
+        self.pub_post_btn.clicked.connect(self._pub_post)
+        form_lay.addWidget(self.pub_post_btn)
+        form_lay.addWidget(QLabel("<small>Facebook Pages, Instagram, TikTok and Snapchat are coming next. "
+                                  "Videos are marked as AI-narrated, as YouTube requires.</small>"))
+        form_lay.addStretch()
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.addWidget(QLabel("<b>Posts</b>"))
+        self.pub_posts = QListWidget()
+        rl.addWidget(self.pub_posts, 1)
+        row = QHBoxLayout()
+        for label, slot in (("Open link", self._pub_open), ("Retry", self._pub_retry)):
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+        rl.addLayout(row)
+        lay.addWidget(left, 3)
+        lay.addWidget(right, 2)
+        self._pub_refresh_account()
+        return w
+
+    def _pub_book_changed(self) -> None:
+        self._pub_refresh_posts()
+
+    def _pub_refresh_account(self) -> None:
+        pub = self.studio.publisher
+        yt = pub.connected().get("youtube")
+        if yt:
+            self.pub_account.setText(f"YouTube: <b>{html.escape(yt['account'])}</b>")
+            self.pub_connect_btn.setText("Disconnect YouTube")
+        else:
+            self.pub_account.setText("YouTube: not connected" if pub.has_google_client() else
+                                     "YouTube: load the Google client file first")
+            self.pub_connect_btn.setText("Connect YouTube")
+        self.pub_connect_btn.setEnabled(pub.has_google_client() or bool(yt))
+
+    def _pub_load_client(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Google OAuth client (Desktop app)", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            self.studio.publisher.import_google_client(path)
+        except JarvisError as exc:
+            QMessageBox.warning(self, "Publish", str(exc))
+        self._pub_refresh_account()
+
+    def _pub_connect(self) -> None:
+        pub = self.studio.publisher
+        if pub.connected().get("youtube"):
+            pub.disconnect("youtube")
+            self._pub_refresh_account()
+            return
+        self.pub_connect_btn.setEnabled(False)
+        self.pub_account.setText("Finish signing in in your browser...")
+        run_async(pub.connect_youtube, lambda name: self._pub_refresh_account(),
+                  lambda err: (QMessageBox.warning(self, "YouTube", str(err)), self._pub_refresh_account()))
+
+    @staticmethod
+    def _parse_chapters(text: str) -> list[int]:
+        out: list[int] = []
+        for part in filter(None, (x.strip() for x in text.split(","))):
+            lo, _, hi = part.partition("-")
+            out += list(range(int(lo), int(hi or lo) + 1))
+        return out
+
+    def _pub_post(self) -> None:
+        bid = self.pub_book.currentData()
+        if not bid:
+            return
+        try:
+            chapters = self._parse_chapters(self.pub_chapters.text())
+        except ValueError:
+            QMessageBox.warning(self, "Publish", "Chapters should look like 1-3, 5")
+            return
+        try:
+            posts = self.studio.publisher.publish_youtube(
+                bid, chapters or None, self.pub_title.text().strip(), self.pub_desc.toPlainText().strip(),
+                tuple(t.strip() for t in self.pub_tags.text().split(",") if t.strip()), self.pub_privacy.currentData(),
+                self.pub_schedule.text().strip(), self.pub_per_chapter.isChecked(), self.pub_playlist.isChecked(),
+                self.pub_cover.text().strip())
+        except JarvisError as exc:
+            QMessageBox.warning(self, "Publish", str(exc))
+            return
+        self.statusBar().showMessage(f"Posting {len(posts)} video(s) to YouTube in the background", 8000)
+        self._pub_refresh_posts()
+
+    def _pub_refresh_posts(self) -> None:
+        if self._closed or not hasattr(self, "pub_posts"):
+            return
+        pub = self.studio.publisher
+        keep = self.pub_posts.currentRow()
+        self.pub_posts.clear()
+        for post in self.studio.library.list_posts(self.pub_book.currentData()):
+            state = post.status + (f" {round(post.progress * 100)}%" if post.status == "uploading" else "")
+            stale = " - chapter edited since" if post.status == "published" and pub.is_stale(post) else ""
+            note = f"\n   {post.error}" if post.error else ""
+            item = QListWidgetItem(f"{post.title} [{post.privacy}] - {state}{stale}\n   {post.url or ''}{note}")
+            item.setData(Qt.ItemDataRole.UserRole, post.id)
+            self.pub_posts.addItem(item)
+        if 0 <= keep < self.pub_posts.count():
+            self.pub_posts.setCurrentRow(keep)
+
+    def _pub_selected(self):
+        item = self.pub_posts.currentItem()
+        return self.studio.library.get_post(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def _pub_open(self) -> None:
+        post = self._pub_selected()
+        if post and post.url:
+            import webbrowser
+            webbrowser.open(post.url)
+
+    def _pub_retry(self) -> None:
+        post = self._pub_selected()
+        if post is None:
+            return
+        try:
+            self.studio.publisher.retry(post.id)
+        except JarvisError as exc:
+            QMessageBox.information(self, "Publish", str(exc))
+
     # ---- Library ----------------------------------------------------------------------------
     def _library_tab(self) -> QWidget:
         w = QWidget()
@@ -664,7 +831,7 @@ class MainWindow(QMainWindow):
         current = self.selected_book_id()
         books = self.studio.library.list_books()
         for combo in (getattr(self, "write_book", None), getattr(self, "listen_book", None),
-                      getattr(self, "war_book", None)):
+                      getattr(self, "war_book", None), getattr(self, "pub_book", None)):
             if combo is None:
                 continue
             keep = combo.currentData()
@@ -1104,6 +1271,8 @@ class MainWindow(QMainWindow):
     # ---- events -------------------------------------------------------------------------------------
     def _on_library_changed(self, event: str, book_id: str) -> None:
         self._refresh_timer.start()
+        if event == "post":
+            self._pub_refresh_posts()
         if event in ("proposal", "war_session") and book_id == self._war_book_id():
             self._war_refresh_props()
             self._war_show_recap()

@@ -19,6 +19,7 @@ All AI runs on **Google Gemini**: writing, planning, editing, the Jarvis voice (
 | **Listen** | Audiobook player for any book, finished or not. Passages are recorded ahead of playback and cached, so editing a paragraph only re-records that paragraph. Remembers your place. |
 | **Settings** | Gemini key (encrypted with Windows DPAPI), narrator and Jarvis voices, author name, and the adaptive engine's live status, quota and rollback. |
 | **War Room** | Go over any book with Jarvis by voice or text in one shared conversation. *Fill me in* briefings that separate what is written from what is only planned, *Find gaps* with options, and ideas Jarvis pitches that stay ideas until you Accept, Edit + accept or Reject them. Every accepted decision can be undone, and *End session + recap* saves the decisions, open questions and next steps. |
+| **Publish** | Sign in to YouTube in your browser (no password is given to the app; tokens are encrypted on this PC), then post any book or chapters as a video with the cover, title and a moving waveform. Uploads run in the background, resume after a dropped connection, add chapter timestamps and a per-book playlist, and are marked as AI-narrated. Post history shows links and flags videos whose chapters were edited since. |
 
 ## How the writing works
 

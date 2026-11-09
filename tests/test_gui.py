@@ -48,7 +48,7 @@ def window(qapp, tmp_path):
 def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
-        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room"]
+        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
@@ -161,3 +161,18 @@ def test_war_room_voice_uses_war_tools_and_shared_history(window, qapp):
     win._on_war_transcript("turn", "")
     roles = [(m.role, m.text) for m in studio.library.recent_messages("warroom", 5, book_id=book.id)]
     assert roles[-2:] == [("user", "make the oracle blind"), ("assistant", "Pitched it.")]
+
+
+def test_publish_tab_validates_and_lists_posts(window, qapp, monkeypatch):
+    win, studio, book = window
+    from PyQt6.QtWidgets import QMessageBox
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: warnings.append(a[2]))
+    assert "client file" in win.pub_account.text() and not win.pub_connect_btn.isEnabled()
+    assert win._parse_chapters("1-3, 5") == [1, 2, 3, 5]
+    win.pub_book.setCurrentIndex(win.pub_book.findData(book.id))
+    win._pub_post()
+    assert warnings and "Connect" in warnings[-1]
+    studio.library.add_post(book.id, "youtube", "Glass City", "unlisted", [1], {})
+    win._pub_refresh_posts()
+    assert win.pub_posts.count() == 1 and "unlisted" in win.pub_posts.item(0).text()
