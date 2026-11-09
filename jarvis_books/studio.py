@@ -77,6 +77,9 @@ class Studio:
         self.memory = JarvisMemory(self.library, self.engine, self.settings)
         self.tools.memory = self.war_tools.memory = self.memory
         self.assistant.memory = self.war_assistant.memory = self.memory
+        self.writer.guidance = self.memory.writing_guidance
+        self.warroom.memory = self.memory
+        self.gate.subscribe(self.memory.on_permission)
         self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.ready = threading.Event()

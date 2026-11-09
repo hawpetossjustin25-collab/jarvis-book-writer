@@ -331,16 +331,22 @@ class Library:
                                             "IS NOT NULL", (channel,))]
 
     # ---- Jarvis's long-term memory -----------------------------------------------
-    MEMORY_COLUMNS = "id, book_id, kind, text, source, importance, pinned, created_at, updated_at"
+    MEMORY_COLUMNS = ("id, book_id, kind, text, source, importance, pinned, created_at, updated_at, strength, uses, "
+                      "last_used_at, archived_at, archive_reason, evidence")
 
     @staticmethod
     def _memory(row) -> dict:
         d = dict(row)
         d["pinned"] = bool(d["pinned"])
+        try:
+            d["evidence"] = [int(i) for i in json.loads(d.get("evidence") or "[]")]
+        except (TypeError, ValueError):
+            d["evidence"] = []
         return d
 
     def add_memory(self, text: str, kind: str = "fact", book_id: str | None = None, source: str = "jarvis",
-                   importance: int = 2, pinned: bool = False) -> dict:
+                   importance: int = 2, pinned: bool = False, evidence: list | None = None,
+                   strength: float = 1.0) -> dict:
         text = " ".join(str(text or "").split())
         if not text:
             raise ValidationError("a memory needs some text")
@@ -350,9 +356,10 @@ class Library:
             self.get_book(book_id)
         now = time.time()
         memory_id = self.db.execute(
-            "INSERT INTO memories (book_id, kind, text, source, importance, pinned, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?)", (book_id or None, kind, text, source, max(1, min(3, int(importance))),
-                                         int(bool(pinned)), now, now)).lastrowid
+            "INSERT INTO memories (book_id, kind, text, source, importance, pinned, created_at, updated_at, evidence, "
+            "strength) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (book_id or None, kind, text, source, max(1, min(3, int(importance))), int(bool(pinned)), now, now,
+             json.dumps([int(i) for i in evidence or []]), float(strength))).lastrowid
         return self.get_memory(memory_id)
 
     def get_memory(self, memory_id: int) -> dict:
@@ -362,19 +369,48 @@ class Library:
         return self._memory(row)
 
     def list_memories(self, book_id: str | None = None, only_scope: bool = False) -> list[dict]:
-        """Every memory (book_id None), or the all-books memories plus one book's. only_scope: just that scope."""
+        """Every active memory (book_id None), or the all-books memories plus one book's. only_scope: just that
+        scope. Archived (retired) memories are left out; see archived_memories."""
         if only_scope:
             where, params = ("book_id=?", (book_id,)) if book_id else ("book_id IS NULL", ())
         elif book_id:
-            where, params = "book_id IS NULL OR book_id=?", (book_id,)
+            where, params = "(book_id IS NULL OR book_id=?)", (book_id,)
         else:
             where, params = "1", ()
-        rows = self.db.query(f"SELECT {self.MEMORY_COLUMNS} FROM memories WHERE {where} "
+        rows = self.db.query(f"SELECT {self.MEMORY_COLUMNS} FROM memories WHERE {where} AND archived_at IS NULL "
                              "ORDER BY pinned DESC, updated_at DESC, id DESC", params)
         return [self._memory(r) for r in rows]
 
+    def archived_memories(self, limit: int = 200) -> list[dict]:
+        rows = self.db.query(f"SELECT {self.MEMORY_COLUMNS} FROM memories WHERE archived_at IS NOT NULL "
+                             "ORDER BY archived_at DESC, id DESC LIMIT ?", (int(limit),))
+        return [self._memory(r) for r in rows]
+
+    def archive_memory(self, memory_id: int, reason: str) -> dict:
+        """Retire a memory without losing it: it stops being recalled and can be brought back."""
+        self.get_memory(memory_id)
+        self.db.execute("UPDATE memories SET archived_at=?, archive_reason=? WHERE id=?",
+                        (time.time(), str(reason)[:300], int(memory_id)))
+        return self.get_memory(memory_id)
+
+    def unarchive_memory(self, memory_id: int) -> dict:
+        self.get_memory(memory_id)
+        self.db.execute("UPDATE memories SET archived_at=NULL, archive_reason='', updated_at=? WHERE id=?",
+                        (time.time(), int(memory_id)))
+        return self.get_memory(memory_id)
+
+    def touch_memories(self, ids: list[int]) -> None:
+        """Jarvis just used these memories (recency of use, not of the memory itself)."""
+        if ids:
+            self.db.execute(f"UPDATE memories SET uses=uses+1, last_used_at=? WHERE id IN ({','.join('?' * len(ids))})",
+                            (time.time(), *[int(i) for i in ids]))
+
+    def set_memory_strength(self, memory_id: int, strength: float) -> None:
+        self.db.execute("UPDATE memories SET strength=? WHERE id=?", (max(0.1, min(5.0, float(strength))),
+                                                                      int(memory_id)))
+
     def update_memory(self, memory_id: int, **fields: Any) -> dict:
-        allowed = {"text", "kind", "importance", "pinned", "source"}
+        allowed = {"text", "kind", "importance", "pinned", "source", "evidence"}
         bad = set(fields) - allowed
         if bad:
             raise ValidationError(f"cannot change {', '.join(sorted(bad))} of a memory")
@@ -387,6 +423,8 @@ class Library:
             fields["importance"] = max(1, min(3, int(fields["importance"])))
         if "pinned" in fields:
             fields["pinned"] = int(bool(fields["pinned"]))
+        if "evidence" in fields:
+            fields["evidence"] = json.dumps([int(i) for i in fields["evidence"] or []])
         sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=?" + (", embedding=NULL, embed_model=NULL"
                                                                           if "text" in fields else "")
         self.db.execute(f"UPDATE memories SET {sets} WHERE id=?", (*fields.values(), time.time(), int(memory_id)))
@@ -399,7 +437,7 @@ class Library:
 
     def memory_embeddings(self, ids: list[int] | None = None) -> list:
         if ids is None:
-            return self.db.query("SELECT id, text, embedding, embed_model FROM memories")
+            return self.db.query("SELECT id, text, embedding, embed_model FROM memories WHERE archived_at IS NULL")
         if not ids:
             return []
         return self.db.query(f"SELECT id, text, embedding, embed_model FROM memories WHERE id IN "
@@ -410,21 +448,106 @@ class Library:
             for memory_id, blob in pairs:
                 conn.execute("UPDATE memories SET embedding=?, embed_model=? WHERE id=?", (blob, model, memory_id))
 
-    def prune_memories(self, keep: int) -> int:
-        """Keep at most `keep` unpinned memories, dropping the least important and oldest."""
-        extra = self.db.query_one("SELECT COUNT(*) FROM memories WHERE pinned=0")[0] - int(keep)
-        if extra <= 0:
-            return 0
-        self.db.execute("DELETE FROM memories WHERE id IN (SELECT id FROM memories WHERE pinned=0 "
-                        "ORDER BY importance, updated_at LIMIT ?)", (extra,))
-        return extra
+    def prune_memories(self, keep: int, keep_archived: int = 1000) -> int:
+        """Keep at most `keep` active unpinned memories (the least important, weakest, oldest go to the archive)
+        and at most `keep_archived` archived ones."""
+        extra = self.db.query_one("SELECT COUNT(*) FROM memories WHERE pinned=0 AND archived_at IS NULL")[0] - int(keep)
+        if extra > 0:
+            self.db.execute("UPDATE memories SET archived_at=?, archive_reason='made room for newer memories' "
+                            "WHERE id IN (SELECT id FROM memories WHERE pinned=0 AND archived_at IS NULL "
+                            "ORDER BY importance, strength, updated_at LIMIT ?)", (time.time(), extra))
+        self.db.execute("DELETE FROM memories WHERE id IN (SELECT id FROM memories WHERE archived_at IS NOT NULL "
+                        "ORDER BY archived_at DESC LIMIT -1 OFFSET ?)", (int(keep_archived),))
+        return max(0, extra)
 
     def add_conversation_summary(self, channel: str, book_id: str | None, first_id: int, last_id: int,
-                                 summary: str) -> int:
+                                 summary: str, level: int = 0) -> int:
         return self.db.execute(
             "INSERT INTO conversation_summaries (channel, book_id, first_message_id, last_message_id, summary, "
-            "created_at) VALUES (?,?,?,?,?,?)", (channel, book_id, int(first_id), int(last_id), summary,
-                                                 time.time())).lastrowid
+            "created_at, level) VALUES (?,?,?,?,?,?,?)", (channel, book_id, int(first_id), int(last_id), summary,
+                                                          time.time(), int(level))).lastrowid
+
+    def unrolled_summaries(self, book_id: str | None, level: int) -> list[dict]:
+        """Summaries at one level, in one scope exactly, not yet folded into a bigger summary (oldest first)."""
+        where, params = ("book_id=?", (book_id,)) if book_id else ("book_id IS NULL", ())
+        rows = self.db.query(f"SELECT * FROM conversation_summaries WHERE {where} AND level=? AND rolled_into IS NULL "
+                             "AND summary<>'' ORDER BY id", (*params, int(level)))
+        return [dict(r) for r in rows]
+
+    def roll_up_summaries(self, ids: list[int], book_id: str | None, level: int, summary: str) -> int:
+        """Fold summaries into one at the next level up."""
+        with self.db.transaction() as conn:
+            marks = ",".join("?" * len(ids))
+            first, last = conn.execute(f"SELECT MIN(first_message_id), MAX(last_message_id) FROM "
+                                       f"conversation_summaries WHERE id IN ({marks})", tuple(ids)).fetchone()
+            new_id = conn.execute(
+                "INSERT INTO conversation_summaries (channel, book_id, first_message_id, last_message_id, summary, "
+                "created_at, level) VALUES ('rollup',?,?,?,?,?,?)",
+                (book_id, int(first or 0), int(last or 0), summary, time.time(), int(level))).lastrowid
+            conn.execute(f"UPDATE conversation_summaries SET rolled_into=? WHERE id IN ({marks})", (new_id, *ids))
+        return new_id
+
+    def big_picture_summaries(self, book_id: str | None = None, limit: int = 2) -> list[dict]:
+        """The newest rolled-up summaries that are still at the top (not folded further), highest level first."""
+        where, params = ("AND (book_id IS NULL OR book_id=?)", (book_id,)) if book_id else ("", ())
+        rows = self.db.query(f"SELECT * FROM conversation_summaries WHERE level>0 AND rolled_into IS NULL "
+                             f"AND summary<>'' {where} ORDER BY level DESC, id DESC LIMIT ?", (*params, int(limit)))
+        return [dict(r) for r in rows]
+
+    # ---- what Jarvis learns from (reactions) and what he did about it ------------------
+    def add_learning_event(self, kind: str, detail: str, book_id: str | None = None) -> int:
+        if book_id:
+            self.get_book(book_id)
+        return self.db.execute("INSERT INTO learning_events (book_id, kind, detail, created_at) VALUES (?,?,?,?)",
+                               (book_id or None, kind, " ".join(str(detail).split())[:1500], time.time())).lastrowid
+
+    def learning_events(self, book_id: str | None = None, since: float = 0.0, limit: int = 60,
+                        only_scope: bool = True) -> list[dict]:
+        if only_scope:
+            where, params = ("book_id=?", (book_id,)) if book_id else ("book_id IS NULL", ())
+        else:
+            where, params = ("(book_id IS NULL OR book_id=?)", (book_id,)) if book_id else ("1", ())
+        rows = self.db.query(f"SELECT * FROM learning_events WHERE {where} AND created_at>? ORDER BY id DESC LIMIT ?",
+                             (*params, float(since), int(limit)))
+        return [dict(r) for r in reversed(rows)]
+
+    def learning_events_by_id(self, ids: list[int]) -> dict[int, dict]:
+        if not ids:
+            return {}
+        rows = self.db.query(f"SELECT * FROM learning_events WHERE id IN ({','.join('?' * len(ids))})",
+                             tuple(int(i) for i in ids))
+        return {r["id"]: dict(r) for r in rows}
+
+    def learning_scopes(self) -> list[str | None]:
+        """Every scope with something to learn from: all books (None) plus each book with memories or events."""
+        rows = self.db.query("SELECT book_id FROM memories WHERE book_id IS NOT NULL AND archived_at IS NULL UNION "
+                             "SELECT book_id FROM learning_events WHERE book_id IS NOT NULL")
+        return [None] + sorted({r[0] for r in rows})
+
+    def prune_learning_events(self, keep: int = 2000) -> None:
+        self.db.execute("DELETE FROM learning_events WHERE id IN (SELECT id FROM learning_events ORDER BY id DESC "
+                        "LIMIT -1 OFFSET ?)", (int(keep),))
+
+    def log_learning(self, action: str, detail: str, book_id: str | None = None) -> int:
+        return self.db.execute("INSERT INTO learning_log (book_id, action, detail, created_at) VALUES (?,?,?,?)",
+                               (book_id or None, action, str(detail)[:1500], time.time())).lastrowid
+
+    def learning_log(self, limit: int = 100) -> list[dict]:
+        return [dict(r) for r in self.db.query("SELECT * FROM learning_log ORDER BY id DESC LIMIT ?", (int(limit),))]
+
+    def author_rewrites(self, book_id: str, since: float = 0.0, limit: int = 5) -> list[dict]:
+        """Chapters where the author rewrote text Jarvis wrote: the newest revision is the author's (saved after
+        `since`) and an earlier one came from Jarvis. Gives Jarvis's version and the author's current text."""
+        rows = self.db.query(
+            "SELECT c.id, c.number, c.title, c.text, "
+            "(SELECT r.text FROM revisions r WHERE r.chapter_id=c.id AND r.source<>'user' ORDER BY r.id DESC LIMIT 1) "
+            "AS jarvis_text, "
+            "(SELECT r.created_at FROM revisions r WHERE r.chapter_id=c.id ORDER BY r.id DESC LIMIT 1) AS last_at, "
+            "(SELECT r.source FROM revisions r WHERE r.chapter_id=c.id ORDER BY r.id DESC LIMIT 1) AS last_source "
+            "FROM chapters c WHERE c.book_id=? ORDER BY c.number", (book_id,))
+        out = [dict(r) for r in rows if r["last_source"] == "user" and r["jarvis_text"] and r["last_at"] > since
+               and r["jarvis_text"] != r["text"]]
+        return out[:int(limit)]
 
     def last_summarized_id(self, channel: str, book_id: str | None = None) -> int:
         where, params = ("AND book_id=?", (book_id,)) if book_id else ("", ())
@@ -434,7 +557,7 @@ class Library:
 
     def conversation_summaries(self, book_id: str | None = None, limit: int = 4) -> list[dict]:
         where, params = ("AND (book_id IS NULL OR book_id=?)", (book_id,)) if book_id else ("", ())
-        rows = self.db.query(f"SELECT * FROM conversation_summaries WHERE summary<>'' {where} "
+        rows = self.db.query(f"SELECT * FROM conversation_summaries WHERE summary<>'' AND level=0 {where} "
                              "ORDER BY id DESC LIMIT ?", (*params, int(limit)))
         return [dict(r) for r in rows]
 

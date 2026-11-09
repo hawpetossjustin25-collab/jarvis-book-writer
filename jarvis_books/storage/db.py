@@ -267,6 +267,32 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX idx_summaries_channel ON conversation_summaries(channel, last_message_id);
     """,
+    8: """
+    ALTER TABLE memories ADD COLUMN strength REAL NOT NULL DEFAULT 1.0;
+    ALTER TABLE memories ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE memories ADD COLUMN last_used_at REAL;
+    ALTER TABLE memories ADD COLUMN archived_at REAL;
+    ALTER TABLE memories ADD COLUMN archive_reason TEXT NOT NULL DEFAULT '';
+    ALTER TABLE memories ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE conversation_summaries ADD COLUMN level INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE conversation_summaries ADD COLUMN rolled_into INTEGER;
+    CREATE INDEX idx_summaries_rollup ON conversation_summaries(level, rolled_into);
+    CREATE TABLE learning_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX idx_learning_events_book ON learning_events(book_id, created_at);
+    CREATE TABLE learning_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

@@ -36,6 +36,17 @@ class BookWriter:
         self.engine = engine
         self.index = index
         self.context = context or ContextBuilder(library, index)
+        self.guidance: Optional[Callable[[Optional[str]], str]] = None  # Jarvis's lessons about the author's taste
+
+    def _system(self, base: str, book_id: Optional[str]) -> str:
+        if self.guidance is None:
+            return base
+        try:
+            extra = self.guidance(book_id)
+        except Exception:
+            log.exception("writing guidance unavailable")
+            extra = ""
+        return base + ("\n\n" + extra if extra else "")
 
     # ---- helpers ----------------------------------------------------------------
     @staticmethod
@@ -58,7 +69,7 @@ class BookWriter:
         brief.append(f"Genre guidance: {profile.guidance()}")
         brief.append("Structures to choose from: " + ", ".join(f"{k} ({s.name})" for k, s in STRUCTURES.items()))
         plan = self.engine.generate(LLMRequest(
-            role="planner", system=prompts.ARCHITECT, json_schema=schemas.BOOK_PLAN, purpose="book plan",
+            role="planner", system=self._system(prompts.ARCHITECT, None), json_schema=schemas.BOOK_PLAN, purpose="book plan",
             instruction="Design this book. Return the full plan as JSON. Use 4-8 main characters, 3-6 key "
                         "locations, and 3-6 plot threads.", sections=[PromptSection("Brief", "\n".join(brief), 100, True)],
         )).data
@@ -92,7 +103,7 @@ class BookWriter:
         structure = get_structure(book.structure)
         target = (book.chapter_words_min + book.chapter_words_max) // 2 or 2500
         result = self.engine.generate(LLMRequest(
-            role="planner", system=prompts.OUTLINER, json_schema=schemas.OUTLINE, purpose="outline",
+            role="planner", system=self._system(prompts.OUTLINER, book_id), json_schema=schemas.OUTLINE, purpose="outline",
             sections=[PromptSection("Book", self.context.book_brief(book_id), 100, True),
                       PromptSection("Story bible", self.context.bible_text(book_id), 80),
                       PromptSection("Structure", structure.outline_guide(chapters), 90, True)],
@@ -115,7 +126,7 @@ class BookWriter:
         chapter = self.library.get_chapter(book_id, number)
         target = chapter.target_words or 2500
         data = self.engine.generate(LLMRequest(
-            role="planner", system=prompts.SCENE_PLANNER, json_schema=schemas.CHAPTER_PLAN, purpose="scene plan",
+            role="planner", system=self._system(prompts.SCENE_PLANNER, book_id), json_schema=schemas.CHAPTER_PLAN, purpose="scene plan",
             sections=self.context.chapter_sections(book_id, number),
             instruction=f"Plan the scenes for {chapter.heading}. Outline: {chapter.outline}\n"
                         f"Use 2-5 scenes whose target_words add up to about {target}. Give the closing hook.",
@@ -174,7 +185,7 @@ class BookWriter:
                    + ("" if last else "Stop at the end of the last listed scene. ")
                    + (f"Author's instructions: {instructions}" if instructions else ""))
             tokens = int(target * 1.35 * 1.6) + 512
-            resp = self.engine.generate(LLMRequest(role="writer", system=prompts.WRITER, sections=sections,
+            resp = self.engine.generate(LLMRequest(role="writer", system=self._system(prompts.WRITER, book_id), sections=sections,
                                                    instruction=ask, max_output_tokens=tokens, temperature=0.9,
                                                    purpose="draft"))
             parts.append(resp.text.strip())
@@ -190,7 +201,7 @@ class BookWriter:
         bible = self.library.list_bible(book_id)
         findings = [f.__dict__ for f in check_chapter(chapter.text, bible, chapter.target_words, book.tense)]
         review = self.engine.generate(LLMRequest(
-            role="editor", system=prompts.EDITOR, json_schema=schemas.REVIEW, purpose="review",
+            role="editor", system=self._system(prompts.EDITOR, book_id), json_schema=schemas.REVIEW, purpose="review",
             sections=[PromptSection("Book", self.context.book_brief(book_id), 100, True),
                       PromptSection("Story bible", self.context.bible_text(book_id, chapter.text[:2000]), 70),
                       PromptSection("Story so far", self.context.story_so_far(book_id, number), 60, trim_from="start"),
@@ -215,7 +226,7 @@ class BookWriter:
         sections = self.context.chapter_sections(book_id, number) + [
             PromptSection(f"Current {chapter.heading}", chapter.text, 99, True)]
         tokens = int(max(word_count(chapter.text), chapter.target_words) * 1.35 * 1.5) + 512
-        resp = self.engine.generate(LLMRequest(role="writer", system=prompts.REVISER, sections=sections,
+        resp = self.engine.generate(LLMRequest(role="writer", system=self._system(prompts.REVISER, book_id), sections=sections,
                                                instruction=f"Revise the chapter. Notes:\n{instructions}",
                                                max_output_tokens=tokens, temperature=0.8, purpose="revision"))
         text = resp.text.strip()

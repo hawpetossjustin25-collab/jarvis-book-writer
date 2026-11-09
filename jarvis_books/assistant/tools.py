@@ -497,8 +497,13 @@ class ToolBox:
     def _t_recall_memories(self, about: str = "") -> dict:
         memory = self._memory()
         found = memory.recall(about, None, k=25) if about.strip() else memory.all()[:40]
-        return {"memories": [{"id": m["id"], "text": m["text"], "scope": m["scope"], "pinned": m["pinned"]}
-                             for m in found], "total": len(self.library.list_memories())}
+        out = []
+        for m in found:
+            item = {"id": m["id"], "text": m["text"], "scope": m["scope"], "pinned": m["pinned"], "kind": m["kind"]}
+            if m["kind"] == "lesson":
+                item["because"] = [e["text"] for e in memory.explain(m["id"])["evidence"][:6]]
+            out.append(item)
+        return {"memories": out, "total": len(self.library.list_memories())}
 
     def _t_forget_memory(self, memory_id: int) -> dict:
         memory = self._memory()

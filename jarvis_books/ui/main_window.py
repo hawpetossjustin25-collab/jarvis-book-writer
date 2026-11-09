@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Optional
 
 from PyQt6.QtCore import QThread, Qt, QTimer, QUrl, pyqtSignal
@@ -1551,12 +1552,28 @@ class MainWindow(QMainWindow):
         self.memory_buttons = {}
         for label, fn in (("Add...", self._memory_add), ("Edit...", self._memory_edit),
                           ("Pin / unpin", self._memory_pin), ("Forget", self._memory_forget),
-                          ("Refresh", self._refresh_memories)):
+                          ("Reflect now", self._memory_reflect), ("Refresh", self._refresh_memories)):
             b = QPushButton(label)
             b.clicked.connect(lambda _=False, f=fn: f())
             mrow.addWidget(b)
             self.memory_buttons[label] = b
         lay.addLayout(mrow)
+        self.memory_detail = QLabel("Pick a memory to see why Jarvis believes it.")
+        self.memory_detail.setWordWrap(True)
+        self.memory_list.currentItemChanged.connect(lambda *_: self._show_memory_detail())
+        lay.addWidget(self.memory_detail)
+        lay.addWidget(QLabel("Retired memories (merged, out of date or faded; nothing is lost):"))
+        self.memory_archive = QListWidget()
+        self.memory_archive.setMaximumHeight(100)
+        lay.addWidget(self.memory_archive)
+        back = QPushButton("Bring back")
+        back.clicked.connect(lambda: self._memory_bring_back())
+        self.memory_buttons["Bring back"] = back
+        lay.addWidget(back)
+        lay.addWidget(QLabel("What Jarvis learned lately:"))
+        self.learning_log_list = QListWidget()
+        self.learning_log_list.setMaximumHeight(100)
+        lay.addWidget(self.learning_log_list)
         self._refresh_memories()
         lay.addWidget(QLabel("<b>App upgrades</b> (ask Jarvis, e.g. \"add a word-count goal\"; each is built "
                              "and tested on a copy first)"))
@@ -1639,11 +1656,46 @@ class MainWindow(QMainWindow):
         current = self._selected_memory()
         self.memory_list.clear()
         for m in self.studio.memory.all():
-            item = QListWidgetItem(("[pinned] " if m["pinned"] else "") + f"[{m['scope']}] {m['text']}")
+            item = QListWidgetItem(("[pinned] " if m["pinned"] else "") + ("[lesson] " if m["kind"] == "lesson" else "")
+                                   + f"[{m['scope']}] {m['text']}")
             item.setData(Qt.ItemDataRole.UserRole, m["id"])
             self.memory_list.addItem(item)
             if m["id"] == current:
                 self.memory_list.setCurrentItem(item)
+        self.memory_archive.clear()
+        for m in self.studio.memory.archived():
+            item = QListWidgetItem(f"[{m['scope']}] {m['text']}  ({m['why']})")
+            item.setData(Qt.ItemDataRole.UserRole, m["id"])
+            self.memory_archive.addItem(item)
+        self.learning_log_list.clear()
+        for e in self.studio.memory.log(50):
+            when = time.strftime("%b %d %H:%M", time.localtime(e["created_at"]))
+            self.learning_log_list.addItem(f"{when}  {e['action']}: {e['detail']}")
+        self._show_memory_detail()
+
+    def _show_memory_detail(self) -> None:
+        mid = self._selected_memory()
+        if mid is None:
+            self.memory_detail.setText("Pick a memory to see why Jarvis believes it.")
+            return
+        try:
+            m = self.studio.memory.explain(mid)
+        except Exception:
+            return
+        lines = [f"Strength {m['strength']:.2f}, used {m['uses']} times, from {m['source']}."]
+        if m["evidence"]:
+            lines.append("Because: " + " | ".join(e["text"][:160] for e in m["evidence"][:6]))
+        self.memory_detail.setText("\n".join(lines))
+
+    def _memory_reflect(self) -> None:
+        self.studio.memory.reflect_now()
+        self._refresh_memories()
+
+    def _memory_bring_back(self) -> None:
+        item = self.memory_archive.currentItem()
+        if item is not None:
+            self.studio.memory.bring_back(item.data(Qt.ItemDataRole.UserRole))
+            self._refresh_memories()
 
     def _selected_memory(self):
         item = self.memory_list.currentItem() if hasattr(self, "memory_list") else None

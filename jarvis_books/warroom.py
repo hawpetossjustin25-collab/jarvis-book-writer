@@ -44,6 +44,14 @@ class WarRoom:
         self.library = library
         self.engine = engine
         self.context = context
+        self.memory = None  # Jarvis learns from what the author accepts, edits and rejects
+
+    def _feedback(self, kind: str, detail: str, book_id: str) -> None:
+        if self.memory is not None:
+            try:
+                self.memory.note(kind, detail, book_id)
+            except Exception:
+                log.exception("could not note War Room feedback")
 
     # ---- material -------------------------------------------------------------------
     def _sections(self, book_id: str) -> list[PromptSection]:
@@ -133,13 +141,25 @@ class WarRoom:
             note = self.library.add_note(prop.book_id, f"{prop.title}: {text}", source="war-room")
             applied = {"note_id": note.id}
         applied["content"] = text
-        return self.library.set_proposal_status(proposal_id, "accepted", applied)
+        accepted = self.library.set_proposal_status(proposal_id, "accepted", applied)
+        if content is not None and content.strip() != prop.content.strip():
+            self._feedback("idea_edited", f"The author accepted Jarvis's {prop.kind} idea '{prop.title}' after "
+                           f"editing it. Jarvis pitched: {prop.content[:400]} | The author's version: {text[:400]}",
+                           prop.book_id)
+        else:
+            self._feedback("idea_accepted", f"The author accepted Jarvis's {prop.kind} idea '{prop.title}': "
+                           f"{text[:400]}", prop.book_id)
+        return accepted
 
     def reject(self, proposal_id: int) -> Proposal:
         prop = self.library.get_proposal(proposal_id)
         if prop.status != "proposed":
             raise ValidationError(f"proposal {proposal_id} is already {prop.status}")
-        return self.library.set_proposal_status(proposal_id, "rejected")
+        rejected = self.library.set_proposal_status(proposal_id, "rejected")
+        self._feedback("idea_rejected", f"The author rejected Jarvis's {prop.kind} idea '{prop.title}': "
+                       f"{prop.content[:400]}" + (f" (Jarvis's reason: {prop.rationale[:200]})" if prop.rationale else ""),
+                       prop.book_id)
+        return rejected
 
     def undo(self, proposal_id: int) -> Proposal:
         """Roll back an accepted proposal to exactly what was there before."""
