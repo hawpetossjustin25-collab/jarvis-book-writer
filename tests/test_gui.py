@@ -106,6 +106,8 @@ def test_closed_window_stops_timers_and_storage_access(qapp, tmp_path):
     assert not win._refresh_timer.isActive() and not win._autosave.isActive()
     win.refresh_books()  # a late timer tick must not touch the closed database
     win._load_chapters()
+    win._on_started(None)  # a late startup callback must not switch on the wake word (real mic on a laptop)
+    assert win.voice.wake is None and not win.wake_box.isChecked()
 
 
 def test_war_room_proposals_accept_and_undo_from_the_panel(window, qapp):
