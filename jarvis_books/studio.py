@@ -9,6 +9,7 @@ from typing import Optional
 from jarvis_books.assistant import Assistant, ToolBox
 from jarvis_books.assistant.permissions import PermissionGate
 from jarvis_books.audio import Narrator
+from jarvis_books.audio.script import VoiceDirector
 from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
@@ -67,6 +68,8 @@ class Studio:
         self.narrator = Narrator(self.library, self.engine, self.home / "audio", voice=settings["voice"],
                                  edge_voice=settings["edge_voice"])
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
+        self.director = VoiceDirector(self.library, self.engine, self.settings)
+        self.tools.director = self.war_tools.director = self.director
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
         self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")
@@ -118,7 +121,7 @@ class Studio:
         save_key(key, self.home)
         self.client = GeminiClient(key)
         self.engine = AdaptiveLLMEngine(self.client, EngineStore(self.home / "adaptive_llm.db"))
-        for obj in (self.index, self.writer, self.assistant, self.narrator):
+        for obj in (self.index, self.writer, self.assistant, self.narrator, self.director):
             obj.engine = self.engine
         self.start_error = None
         self.engine.initialize(probe=False)

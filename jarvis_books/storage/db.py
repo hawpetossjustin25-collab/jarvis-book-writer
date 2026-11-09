@@ -217,6 +217,30 @@ MIGRATIONS: dict[int, str] = {
         updated_at REAL NOT NULL
     );
     """,
+    6: """
+    CREATE TABLE voice_cast (
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        name TEXT NOT NULL COLLATE NOCASE,
+        gender TEXT NOT NULL DEFAULT 'unknown',
+        age TEXT NOT NULL DEFAULT 'adult',
+        description TEXT NOT NULL DEFAULT '',
+        aliases TEXT NOT NULL DEFAULT '[]',
+        voice TEXT NOT NULL DEFAULT '',
+        edge_voice TEXT NOT NULL DEFAULT '',
+        style TEXT NOT NULL DEFAULT '',
+        locked INTEGER NOT NULL DEFAULT 0,
+        ord INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (book_id, name)
+    );
+    CREATE TABLE voice_scripts (
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        text_hash TEXT NOT NULL,
+        labels TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        PRIMARY KEY (book_id, text_hash)
+    );
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

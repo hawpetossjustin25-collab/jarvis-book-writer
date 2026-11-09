@@ -268,3 +268,20 @@ def test_jarvis_controls_the_window_from_a_worker_thread(window, qapp):
     studio.gate.answer(True)
     qapp.processEvents()
     assert win.auto_mute_box.isChecked() and studio.settings()["auto_mute"] == "1"
+
+
+def test_listen_tab_cast_table_changes_a_voice(window, qapp):
+    win, studio, book = window
+    win.listen_book.setCurrentIndex(win.listen_book.findData(book.id))
+    win._refresh_cast()
+    assert win.cast_table.rowCount() == 1 and win.cast_table.item(0, 0).text() == "Narrator"
+    studio.library.upsert_cast_member(book.id, "Mara", gender="female", age="child", voice="Leda",
+                                      edge_voice="en-US-AnaNeural")
+    win._refresh_cast()
+    assert win.cast_table.rowCount() == 2
+    assert win.cast_table.cellWidget(1, 1).currentText() == "Girl"
+    voice_box = win.cast_table.cellWidget(1, 2)
+    voice_box.setCurrentIndex(voice_box.findData("Kore"))
+    assert pump(qapp, lambda: studio.library.get_cast_member(book.id, "Mara")["voice"] == "Kore")
+    mara = studio.library.get_cast_member(book.id, "Mara")
+    assert mara["locked"] and mara["age"] == "child"

@@ -503,6 +503,81 @@ class Library:
         return [self.get_upgrade(r[0]) for r in rows]
 
     # ---- meta -----------------------------------------------------------------
+    # ---- voice cast (narrator + one voice per character) -----------------------------
+    CAST_FIELDS = ("gender", "age", "description", "aliases", "voice", "edge_voice", "style", "locked", "ord")
+
+    @staticmethod
+    def _cast_row(row) -> dict:
+        out = dict(row)
+        out["aliases"] = json.loads(out.get("aliases") or "[]")
+        out["locked"] = bool(out.get("locked"))
+        return out
+
+    def list_cast(self, book_id: str) -> list[dict]:
+        rows = self.db.query("SELECT * FROM voice_cast WHERE book_id=? ORDER BY ord, name", (book_id,))
+        return [self._cast_row(r) for r in rows]
+
+    def get_cast_member(self, book_id: str, name: str) -> dict | None:
+        row = self.db.query_one("SELECT * FROM voice_cast WHERE book_id=? AND name=?", (book_id, name.strip()))
+        return self._cast_row(row) if row else None
+
+    def upsert_cast_member(self, book_id: str, name: str, **fields: Any) -> dict:
+        name = (name or "").strip()
+        if not name:
+            raise ValidationError("cast members need a name")
+        bad = set(fields) - set(self.CAST_FIELDS)
+        if bad:
+            raise ValidationError(f"unknown cast fields {sorted(bad)}")
+        self.get_book(book_id)
+        values = dict(fields)
+        if "aliases" in values:
+            values["aliases"] = json.dumps(list(values["aliases"] or []))
+        if "locked" in values:
+            values["locked"] = int(bool(values["locked"]))
+        with self.db.transaction() as conn:
+            exists = conn.execute("SELECT 1 FROM voice_cast WHERE book_id=? AND name=?", (book_id, name)).fetchone()
+            if exists:
+                if values:
+                    sets = ", ".join(f"{k}=?" for k in values)
+                    conn.execute(f"UPDATE voice_cast SET {sets}, updated_at=? WHERE book_id=? AND name=?",
+                                 (*values.values(), time.time(), book_id, name))
+            else:
+                if "ord" not in values:
+                    values["ord"] = conn.execute("SELECT COALESCE(MAX(ord), -1) + 1 FROM voice_cast WHERE book_id=?",
+                                                 (book_id,)).fetchone()[0]
+                cols = ", ".join(["book_id", "name", *values, "updated_at"])
+                marks = ", ".join("?" * (len(values) + 3))
+                conn.execute(f"INSERT INTO voice_cast ({cols}) VALUES ({marks})",
+                             (book_id, name, *values.values(), time.time()))
+        self._emit("cast", book_id, name=name)
+        return self.get_cast_member(book_id, name)
+
+    def replace_cast(self, book_id: str, members: list[dict]) -> None:
+        """Put a whole saved cast back (used by undo)."""
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM voice_cast WHERE book_id=?", (book_id,))
+            for m in members:
+                conn.execute(
+                    "INSERT INTO voice_cast (book_id, name, gender, age, description, aliases, voice, edge_voice, "
+                    "style, locked, ord, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (book_id, m["name"], m.get("gender", "unknown"), m.get("age", "adult"), m.get("description", ""),
+                     json.dumps(list(m.get("aliases") or [])), m.get("voice", ""), m.get("edge_voice", ""),
+                     m.get("style", ""), int(bool(m.get("locked"))), int(m.get("ord", 0)), time.time()))
+            conn.execute("DELETE FROM voice_scripts WHERE book_id=?", (book_id,))
+        self._emit("cast", book_id)
+
+    def get_voice_script(self, book_id: str, text_hash_: str) -> list | None:
+        row = self.db.query_one("SELECT labels FROM voice_scripts WHERE book_id=? AND text_hash=?",
+                                (book_id, text_hash_))
+        return json.loads(row[0]) if row else None
+
+    def save_voice_script(self, book_id: str, text_hash_: str, labels: list) -> None:
+        self.db.execute("INSERT OR REPLACE INTO voice_scripts (book_id, text_hash, labels, created_at) "
+                        "VALUES (?,?,?,?)", (book_id, text_hash_, json.dumps(labels), time.time()))
+
+    def clear_voice_scripts(self, book_id: str) -> None:
+        self.db.execute("DELETE FROM voice_scripts WHERE book_id=?", (book_id,))
+
     def get_meta(self, key: str, default: str | None = None) -> str | None:
         row = self.db.query_one("SELECT value FROM meta WHERE key=?", (key,))
         return row[0] if row else default

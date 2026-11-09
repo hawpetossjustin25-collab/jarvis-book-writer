@@ -11,13 +11,14 @@ from typing import Optional
 
 from PyQt6.QtCore import QThread, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QFont
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+from PyQt6.QtWidgets import (QTableWidgetItem, QTableWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
                              QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis_books.assistant.permissions import LEVEL_LABELS, outcome_note
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
+from jarvis_books.audio.voices import GEMINI_CATALOG, NARRATOR, describe_voice, who
 from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
 from jarvis_books.studio import Studio
@@ -1303,11 +1304,83 @@ class MainWindow(QMainWindow):
         self.player.set_volume(0.8)
         row2.addWidget(vol, 1)
         lay.addLayout(row2)
-        lay.addStretch()
+        vrow = QHBoxLayout()
+        vrow.addWidget(QLabel("<b>Voices</b> (the narrator reads the story, each character speaks their own lines)"), 1)
+        self.cast_button = QPushButton("Find characters and give them voices")
+        self.cast_button.clicked.connect(self._cast_voices)
+        vrow.addWidget(self.cast_button)
+        lay.addLayout(vrow)
+        self.cast_table = QTableWidget(0, 4)
+        self.cast_table.setHorizontalHeaderLabels(["Character", "Who", "Voice", "Backup voice"])
+        self.cast_table.horizontalHeader().setStretchLastSection(True)
+        self.cast_table.verticalHeader().setVisible(False)
+        self.cast_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        lay.addWidget(self.cast_table, 1)
+        self.listen_book.currentIndexChanged.connect(lambda _i: self._refresh_cast())
         self.player.position_changed.connect(self._on_play_position)
         self.player.state_changed.connect(lambda s: self.statusBar().showMessage(f"Audiobook: {s}", 4000))
         self.player.error.connect(lambda e: self.now_playing.setText(e))
         return w
+
+    WHO_CHOICES = (("Man", "male", "adult"), ("Woman", "female", "adult"), ("Boy", "male", "child"),
+                   ("Girl", "female", "child"), ("Teen boy", "male", "teen"), ("Teen girl", "female", "teen"),
+                   ("Older man", "male", "elder"), ("Older woman", "female", "elder"))
+
+    def _refresh_cast(self) -> None:
+        book_id = self.listen_book.currentData()
+        self.cast_table.setRowCount(0)
+        if not book_id or getattr(self.studio, "director", None) is None:
+            return
+        try:
+            cast = self.studio.director.cast(book_id)
+        except JarvisError as exc:
+            self.statusBar().showMessage(str(exc), 6000)
+            return
+        self.cast_table.setRowCount(len(cast))
+        for row, m in enumerate(cast):
+            self.cast_table.setItem(row, 0, QTableWidgetItem(m["name"] + (" (your pick)" if m["locked"] else "")))
+            if m["name"] == NARRATOR:
+                self.cast_table.setItem(row, 1, QTableWidgetItem("Narrator"))
+            else:
+                who_box = QComboBox()
+                for label, gender, age in self.WHO_CHOICES:
+                    who_box.addItem(label, (gender, age))
+                current = who(m["gender"], m["age"])
+                if who_box.findText(current) < 0:
+                    who_box.addItem(current, (m["gender"], m["age"]))
+                who_box.setCurrentText(current)
+                who_box.currentIndexChanged.connect(
+                    lambda _i, box=who_box, name=m["name"]: self._set_voice(name, gender=box.currentData()[0],
+                                                                         age=box.currentData()[1]))
+                self.cast_table.setCellWidget(row, 1, who_box)
+            voice_box = QComboBox()
+            for v in GEMINI_CATALOG:
+                voice_box.addItem(describe_voice(v), v)
+            voice_box.setCurrentIndex(max(0, voice_box.findData(m["voice"])))
+            voice_box.currentIndexChanged.connect(
+                lambda _i, box=voice_box, name=m["name"]: self._set_voice(name, voice=box.currentData()))
+            self.cast_table.setCellWidget(row, 2, voice_box)
+            self.cast_table.setItem(row, 3, QTableWidgetItem(m["edge_voice"].replace("Neural", "")))
+        self.cast_table.resizeColumnsToContents()
+
+    def _set_voice(self, name: str, **change) -> None:
+        book_id = self.listen_book.currentData()
+        if not book_id:
+            return
+        book = self.studio.library.get_book(book_id)
+        result = self.studio.tools.run("set_voice", {"book": book.title, "character": name, **change})
+        if "error" in result:
+            self.statusBar().showMessage(result["error"], 6000)
+        QTimer.singleShot(0, self._refresh_cast)
+
+    def _cast_voices(self) -> None:
+        book_id = self.listen_book.currentData()
+        if not book_id:
+            return
+        title = self.studio.library.get_book(book_id).title
+        self.cast_button.setEnabled(False)
+        self.studio.jobs.submit("cast", f"Giving the characters of {title} their voices",
+                                lambda p, c: self.studio.tools.run("cast_voices", {"book": title}), book_id=book_id)
 
     def _speed_changed(self) -> None:
         rate = self.speed.currentData()
@@ -1517,6 +1590,9 @@ class MainWindow(QMainWindow):
         self._refresh_timer.start()
         if event == "post":
             self._pub_refresh_posts()
+        if event == "cast" and book_id == self.listen_book.currentData():
+            self.cast_button.setEnabled(True)
+            QTimer.singleShot(200, self._refresh_cast)
         if event in ("proposal", "war_session") and book_id == self._war_book_id():
             self._war_refresh_props()
             self._war_show_recap()
@@ -1535,6 +1611,9 @@ class MainWindow(QMainWindow):
             self.job_bar.hide()
         if job.status in ("done", "failed", "cancelled") and job.kind == "upgrade":
             self._refresh_upgrades()
+        if job.status in ("done", "failed", "cancelled") and job.kind == "cast":
+            self.cast_button.setEnabled(True)
+            self._refresh_cast()
         if job.status in ("done", "failed", "cancelled"):
             msg = {"done": f"Finished: {job.title}", "failed": f"Failed: {job.title} - {job.error}",
                    "cancelled": f"Stopped: {job.title}"}[job.status]

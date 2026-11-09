@@ -34,6 +34,7 @@ TOOL_LEVELS: dict[str, str] = {
     "change_setting": CHANGE, "undo_last_change": CHANGE,
     "publish_audiobook": OUTSIDE,
     "list_upgrades": READ,
+    "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE,
     "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
 }
 

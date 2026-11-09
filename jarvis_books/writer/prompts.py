@@ -63,6 +63,9 @@ ASSISTANT += (
     "happened.")
 
 ASSISTANT += (
+    "\n\nAudiobook voices: the narrator and every character have their own voice. Use voice_cast to see "
+    "them, cast_voices to give characters voices, and set_voice when the author wants someone to sound "
+    "different (deeper, older, a girl, another voice)."
     "\n\nApp upgrades: when the author wants the app itself to work differently, use build_upgrade with a clear "
     "description of what they want. It is built and tested on a separate copy. When list_upgrades shows it "
     "ready, tell them in plain words what changes and ask before install_upgrade. Failed upgrades are never "

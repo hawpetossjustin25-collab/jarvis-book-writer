@@ -11,6 +11,8 @@ from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
+from jarvis_books.audio.voices import AGES, GEMINI_CATALOG, GENDERS, NARRATOR, default_style, describe_voice, \
+    edge_matching, who
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.errors import NotFound
 from jarvis_books.jobs import JobManager
@@ -122,7 +124,17 @@ DECLARATIONS = [
     _decl("undo_upgrade", "Put the app back the way it was before an installed upgrade (latest if omitted). The "
           "app restarts.", {"upgrade_id": I}),
     _decl("undo_last_change", "Undo the most recent change: a chapter rewrite, outline or title change, new "
-          "chapter, story bible entry, accepted War Room idea or setting."),
+          "chapter, story bible entry, accepted War Room idea, setting or voice."),
+    _decl("voice_cast", "Audiobook voices of a book: the narrator and the voice each character speaks in "
+          "(man, woman, boy, girl, older...).", {"book": BOOK}),
+    _decl("cast_voices", "Find every character in the story bible and give each a fitting voice for the "
+          "audiobook (voices the author picked are kept).", {"book": BOOK}),
+    _decl("set_voice", "Change how the narrator or a character sounds in the audiobook. character: a name, or "
+          "'narrator'. voice: one of " + ", ".join(describe_voice(v) for v in GEMINI_CATALOG) + ". gender: male, "
+          "female or unknown. age: child, teen, adult or elder. style: a short direction like 'deep and slow' or "
+          "'a shy girl about ten'.",
+          {"book": BOOK, "character": S, "voice": S, "gender": {"type": "STRING", "enum": list(GENDERS)},
+           "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
 ]
 
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
@@ -153,6 +165,7 @@ class ToolBox:
         self.app_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (tabs, buttons, status)
         self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
         self.upgrader = None  # set by the Studio
+        self.director = None  # set by the Studio (voice cast)
         self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
         self._undo_ids = itertools.count(1)
 
@@ -194,6 +207,9 @@ class ToolBox:
             "list_upgrades": ("upgrade", "feature", "install", "tests pass", "code"),
             "install_upgrade": ("upgrade", "install"),
             "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
+            "voice_cast": ("voice", "cast", "narrator", "sound", "who reads"),
+            "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
+            "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -253,6 +269,8 @@ class ToolBox:
             if not self.undo:
                 raise NotFound("there is nothing to undo")
             args["expect"] = self.undo[-1]["id"]
+        if decl["name"] == "set_voice":
+            args.update(self._voice_change(args))
         if decl["name"] == "undo_upgrade" and not args.get("upgrade_id"):
             args["upgrade_id"] = self._upgrader().last_installed()["id"]
         return args
@@ -290,6 +308,13 @@ class ToolBox:
             return f"Change the setting '{args['key']}' from '{old}' to '{args['value']}'"
         if name == "undo_last_change":
             return f"Undo the last change: {self.undo[-1]['summary']}"
+        if name == "cast_voices":
+            return f"Find the characters of '{book}' and give each one an audiobook voice"
+        if name == "set_voice":
+            bits = [describe_voice(args["voice"]) if args.get("voice") else "",
+                    who(args["gender"], args["age"]).lower() if args.get("gender") and args.get("age") else "",
+                    f"'{args['style']}'" if args.get("style") else ""]
+            return f"Change the voice of {args['character']} in '{book}' to " + ", ".join(b for b in bits if b)
         if name == "build_upgrade":
             return ("Build an app upgrade in a separate test copy (the running app is not touched): "
                     + truncate_words(args.get("request", ""), 30))
@@ -615,6 +640,79 @@ class ToolBox:
         up = self._upgrader().undo(upgrade_id)
         restarting = self.app_handler is not None and "error" not in self._ui("restart")
         return {"undone": up["id"], "restarting": restarting}
+
+    # ---- audiobook voices ---------------------------------------------------------------
+    def _director(self):
+        if self.director is None:
+            raise NotFound("audiobook voices are not available")
+        return self.director
+
+    @staticmethod
+    def _cast_view(m: dict) -> dict:
+        role = "narrator" if m["name"] == NARRATOR else who(m["gender"], m["age"])
+        return {"name": m["name"], "who": role, "voice": describe_voice(m["voice"]), "backup_voice": m["edge_voice"],
+                "style": m["style"], "chosen_by_author": m["locked"], "description": m["description"]}
+
+    def _t_voice_cast(self, book: str = "") -> dict:
+        b = self._book(book)
+        cast = self._director().cast(b.id)
+        note = "" if len(cast) > 1 else "No character voices yet: use cast_voices to give each character a voice."
+        return {"book": b.title, "cast": [self._cast_view(m) for m in cast], **({"note": note} if note else {})}
+
+    def _t_cast_voices(self, book: str = "") -> dict:
+        b = self._book(book)
+        before = self.library.list_cast(b.id)
+        cast = self._director().build_cast(b.id)
+        self._push_undo(f"the audiobook voices of '{b.title}'", lambda: self.library.replace_cast(b.id, before))
+        return {"book": b.title, "cast": [self._cast_view(m) for m in cast]}
+
+    def _voice_change(self, args: dict) -> dict:
+        """Check a voice change and fill in what follows from it (the matching backup voice, the age style)."""
+        b = self._book(args.get("book"))
+        d = self._director()
+        name = args.get("character", "").strip()
+        resolved = NARRATOR if name.lower() in ("narrator", "the narrator") else d._resolve(b.id, name)
+        if resolved is None:
+            names = ", ".join(m["name"] for m in d.characters(b.id)) or "none yet (use cast_voices)"
+            raise NotFound(f"no character called '{name}' in '{b.title}'. Characters: {names}")
+        out = {"character": resolved}
+        if args.get("voice"):
+            match = {v.lower(): v for v in GEMINI_CATALOG}.get(str(args["voice"]).strip().lower())
+            if match is None:
+                raise ValueError("voice must be one of " + ", ".join(GEMINI_CATALOG))
+            out["voice"] = match
+        if not any(args.get(k) for k in ("voice", "gender", "age", "style")):
+            raise ValueError("say what to change: voice, gender, age or style")
+        return out
+
+    def _t_set_voice(self, character: str, book: str = "", voice: str = "", gender: str = "", age: str = "",
+                     style: str = "") -> dict:
+        b = self._book(book)
+        d = self._director()
+        current = d.narrator(b.id) if character == NARRATOR else self.library.get_cast_member(b.id, character)
+        if current is None:
+            raise NotFound(f"no character called '{character}' in '{b.title}'")
+        before = self.library.list_cast(b.id)
+        fields: dict = {"locked": True}
+        g, a = gender or current["gender"], age or current["age"]
+        if gender or age:
+            fields.update(gender=g, age=a)
+            if not style:
+                fields["style"] = default_style(g, a)
+        if style:
+            fields["style"] = style.strip()[:80]
+        if voice:
+            fields["voice"] = voice
+            fields["edge_voice"] = current["edge_voice"] if character == NARRATOR else edge_matching(voice, g, a)
+        elif gender or age:
+            fields.update(voice="", edge_voice="")
+        self.library.upsert_cast_member(b.id, character, **fields)
+        if not self.library.get_cast_member(b.id, character)["voice"]:
+            d._assign(b.id)
+        if character == NARRATOR and voice:
+            self.library.upsert_cast_member(b.id, NARRATOR, edge_voice=current["edge_voice"])
+        self._push_undo(f"the voice of {character} in '{b.title}'", lambda: self.library.replace_cast(b.id, before))
+        return {"book": b.title, "changed": self._cast_view(self.library.get_cast_member(b.id, character))}
 
     def _t_app_status(self) -> dict:
         out: dict = {"books": len(self.library.list_books()), **self._t_job_status()}
