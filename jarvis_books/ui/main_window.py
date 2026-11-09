@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
         self.player = AudiobookPlayer(studio.narrator, self)
         self.voice = VoiceBridge(self._make_live_session, self)
         self.war_voice = VoiceBridge(self._make_war_live_session, self)
+        self.voice.auto_mute = self.war_voice.auto_mute = self.studio.settings()["auto_mute"] == "1"
         self._war_loaded: Optional[str] = None
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
@@ -159,10 +160,16 @@ class MainWindow(QMainWindow):
         self.talk_btn.clicked.connect(self._toggle_talk)
         self.mute_box = QCheckBox("Mute mic")
         self.mute_box.toggled.connect(lambda on: setattr(self.voice, "muted", on))
+        self.auto_mute_box = QCheckBox("Auto-mute while Jarvis talks")
+        self.auto_mute_box.setToolTip("Keeps Jarvis from hearing himself. Talk over him for about half a sentence "
+                                      "and he stops and listens. Turn off if you use a headset.")
+        self.auto_mute_box.setChecked(self.studio.settings()["auto_mute"] == "1")
+        self.auto_mute_box.toggled.connect(self._toggle_auto_mute)
         self.wake_box = QCheckBox("Listen for \"Hey Jarvis\"")
         self.wake_box.toggled.connect(self._toggle_wake)
         row.addWidget(self.talk_btn, 2)
         row.addWidget(self.mute_box)
+        row.addWidget(self.auto_mute_box)
         row.addWidget(self.wake_box)
         lay.addLayout(row)
         self.voice_log = QTextBrowser()
@@ -213,6 +220,12 @@ class MainWindow(QMainWindow):
             self.voice_state.setText(f"Voice error: {exc}")
         finally:
             self.talk_btn.setEnabled(True)
+
+    def _toggle_auto_mute(self, on: bool) -> None:
+        self.studio.set_setting("auto_mute", "1" if on else "0")
+        for bridge in (getattr(self, "voice", None), getattr(self, "war_voice", None)):
+            if bridge is not None:
+                bridge.auto_mute = on
 
     def _toggle_wake(self, on: bool) -> None:
         self.studio.set_setting("wake_word", "1" if on else "0")

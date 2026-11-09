@@ -176,3 +176,33 @@ def test_publish_tab_validates_and_lists_posts(window, qapp, monkeypatch):
     studio.library.add_post(book.id, "youtube", "Glass City", "unlisted", [1], {})
     win._pub_refresh_posts()
     assert win.pub_posts.count() == 1 and "unlisted" in win.pub_posts.item(0).text()
+
+
+class _FakeLive:
+    def __init__(self):
+        self.sent = []
+
+    def send_audio(self, pcm):
+        self.sent.append(pcm)
+
+
+def test_voice_bridge_drops_the_rest_of_an_answer_after_barge_in(qapp):
+    from jarvis_books.ui.voice_bridge import VoiceBridge
+    bridge = VoiceBridge(lambda **kw: None)
+    bridge._queue_audio(b"\x01\x00" * 100)
+    assert bridge._turn_open and bridge._is_playing()
+    bridge._barge_in()
+    assert not bridge._out and bridge._drop_turn
+    bridge._queue_audio(b"\x01\x00" * 100)  # the old answer keeps streaming in: ignored
+    assert not bridge._out
+    bridge._on_session_state("listening")  # Gemini ended that turn
+    bridge._queue_audio(b"\x02\x00" * 10)  # the new answer plays
+    assert bytes(bridge._out) == b"\x02\x00" * 10
+
+
+def test_both_jarvis_voices_follow_the_auto_mute_setting(window):
+    win, studio, _ = window
+    assert win.voice.auto_mute and win.war_voice.auto_mute
+    win.auto_mute_box.setChecked(False)
+    assert not win.voice.auto_mute and not win.war_voice.auto_mute
+    assert studio.settings()["auto_mute"] == "0"

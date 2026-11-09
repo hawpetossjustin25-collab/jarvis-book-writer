@@ -3,11 +3,13 @@ with an optional on-device "Hey Jarvis" wake word."""
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtMultimedia import QAudioFormat, QAudioSink, QAudioSource, QMediaDevices
 
+from jarvis_books.voice.duplex import DuplexGate
 from jarvis_books.voice.live import IN_RATE, OUT_RATE, LiveSession
 
 log = logging.getLogger(__name__)
@@ -99,9 +101,12 @@ class VoiceBridge(QObject):
         self.wake: Optional[WakeWord] = None
         self.wake_error = ""
         self.muted = False
+        self.gate = DuplexGate(IN_RATE)
+        self._turn_open = False  # Jarvis audio for the current answer is still arriving
+        self._drop_turn = False  # the user barged in: discard the rest of the answer Jarvis was giving
         self._audio_in.connect(self._queue_audio)
-        self._interrupt.connect(self._clear_audio)
-        self._state_in.connect(self.state.emit)
+        self._interrupt.connect(self._on_interrupted)
+        self._state_in.connect(self._on_session_state)
         self._pump = QTimer(self)
         self._pump.setInterval(20)
         self._pump.timeout.connect(self._pump_audio)
@@ -183,6 +188,36 @@ class VoiceBridge(QObject):
         if self.session is not None:
             self.session.send_text(text)
 
+    @property
+    def auto_mute(self) -> bool:
+        return self.gate.enabled
+
+    @auto_mute.setter
+    def auto_mute(self, on: bool) -> None:
+        self.gate.enabled = bool(on)
+
+    def _is_playing(self) -> bool:
+        if self._out:
+            return True
+        return self.sink is not None and self.sink.bufferSize() - self.sink.bytesFree() > 0
+
+    def _barge_in(self) -> None:
+        """The user talked over Jarvis: stop him now and drop the rest of that answer."""
+        self._drop_turn = self._turn_open
+        self._clear_audio()
+        self.state.emit("listening")
+
+    def _on_interrupted(self) -> None:
+        self._drop_turn = self._turn_open = False
+        self._clear_audio()
+
+    def _on_session_state(self, state: str) -> None:
+        if state == "listening":  # Gemini finished (or abandoned) its turn
+            self._drop_turn = self._turn_open = False
+        elif state == "speaking" and self.gate.enabled:
+            state = "speaking (talk over me to interrupt)"
+        self.state.emit(state)
+
     def _on_mic(self) -> None:
         if self.mic_io is None:
             return
@@ -195,8 +230,13 @@ class VoiceBridge(QObject):
             peak = max((abs(s) for s in samples[::8]), default=0)
             self.level.emit(min(1.0, peak / 12000))
         if self.session is not None:
+            self.gate.set_playing(self._is_playing(), time.monotonic())
             if not self.muted:
-                self.session.send_audio(data)
+                out, barged = self.gate.feed(data)
+                if barged:
+                    self._barge_in()
+                if out:
+                    self.session.send_audio(out)
         elif self.wake is not None and self.wake.feed(data):
             try:
                 self.start()
@@ -205,6 +245,9 @@ class VoiceBridge(QObject):
                 self.state.emit(f"error: {exc}")
 
     def _queue_audio(self, pcm: bytes) -> None:
+        if self._drop_turn:
+            return
+        self._turn_open = True
         self._out.extend(pcm)
 
     def _clear_audio(self) -> None:  # barge-in: the user started talking over Jarvis

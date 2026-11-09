@@ -56,6 +56,10 @@ class LiveSession:
             "systemInstruction": {"parts": [{"text": self.system}]},
             "tools": [{"functionDeclarations": self.tools}] if self.tools else [],
             "inputAudioTranscription": {}, "outputAudioTranscription": {},
+            # Low start sensitivity: leftover speaker echo and room noise should not count as the user talking.
+            "realtimeInputConfig": {"automaticActivityDetection": {
+                "startOfSpeechSensitivity": "START_SENSITIVITY_LOW", "prefixPaddingMs": 200,
+                "silenceDurationMs": 800}},
             "sessionResumption": {"handle": self.resume_handle} if self.resume_handle else {},
         }
         if self.context_tokens:
