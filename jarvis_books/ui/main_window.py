@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
 
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.craft import GENRES
-from jarvis_books.assistant.tools import WAR_ROOM_BLOCKED
 from jarvis_books.errors import JarvisError
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count

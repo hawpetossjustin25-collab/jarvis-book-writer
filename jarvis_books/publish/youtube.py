@@ -98,7 +98,8 @@ class YouTube:
         self._check(resp)
         return 0, None
 
-    def upload(self, path: Path, metadata: dict, session_uri: str = "", on_session: Optional[Callable[[str], None]] = None,
+    def upload(self, path: Path, metadata: dict, session_uri: str = "",
+               on_session: Optional[Callable[[str], None]] = None,
                progress: Optional[Callable[[float], None]] = None, cancel: Optional[threading.Event] = None) -> dict:
         """Upload a video, resuming `session_uri` when given. Returns the created video resource."""
         total = os.path.getsize(path)
