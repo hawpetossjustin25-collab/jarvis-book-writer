@@ -76,6 +76,7 @@ class GeminiClient:
             raise LLMError("no Gemini API key configured", kind="auth")
         self._key = api_key
         self.session = session or requests.Session()
+        self._speaker_parts_models: set[str] = set()
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
 
@@ -147,14 +148,35 @@ class GeminiClient:
         """Two voices in one request. `transcript` has lines like 'Lily: text'; speakers is [(name, voice)] x 2."""
         if len(speakers) != 2 or speakers[0][0] == speakers[1][0]:
             raise ValueError("multi-speaker speech needs exactly two different speakers")
-        prompt = f"{direction.strip()}\n\n{transcript}" if direction.strip() else transcript
         configs = [{"speaker": name, "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
                    for name, voice in speakers]
-        return self._speak(model_id, prompt, {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": configs}})
+        speech = {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": configs}}
+        if model_id not in self._speaker_parts_models:
+            prompt = f"{direction.strip()}\n\n{transcript}" if direction.strip() else transcript
+            try:
+                return self._speak(model_id, [{"text": prompt}], speech)
+            except LLMError as exc:
+                if exc.kind != "invalid" or "speech_metadata" not in str(exc):
+                    raise
+                self._speaker_parts_models.add(model_id)
+        # Newer speech models take one text part per line, tagged with its speaker (and no separate direction).
+        names = {name for name, _ in speakers}
+        parts = []
+        for row in transcript.splitlines():
+            name, sep, text = row.partition(": ")
+            if sep and name in names and text.strip():
+                parts.append({"text": text, "speech_metadata": {"speaker": name}})
+            elif parts and row.strip():
+                parts[-1]["text"] += " " + row.strip()
+        if not parts:
+            raise ValueError("the transcript has no 'Speaker: text' lines")
+        return self._speak(model_id, parts, speech)
 
-    def _speak(self, model_id: str, prompt: str, speech_config: dict) -> bytes:
+    def _speak(self, model_id: str, parts, speech_config: dict) -> bytes:
+        if isinstance(parts, str):
+            parts = [{"text": parts}]
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": speech_config},
         }
         body = self.generate(model_id, payload)

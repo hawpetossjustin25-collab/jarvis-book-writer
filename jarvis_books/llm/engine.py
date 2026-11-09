@@ -471,6 +471,9 @@ class AdaptiveLLMEngine:
                                                 unavailable=exc.kind == "unavailable")
                     reasons.append(f"{model}: {exc.kind}")
                     continue
+                if exc.kind == "invalid":  # this model does not take this kind of request; another may
+                    reasons.append(f"{model}: {str(exc)[:80]}")
+                    continue
                 raise
             self.record_result(model_id=model, role="tts", ok=1, latency_s=time.perf_counter() - start,
                                config_version=config.version)

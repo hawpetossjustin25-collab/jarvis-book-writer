@@ -275,8 +275,11 @@ class Narrator:
         tokens = {n: _token(n) for n in names}
         if tokens[names[0]] == tokens[names[1]]:
             tokens[names[1]] += "Two"
-        transcript = "\n".join(f"{tokens[ln.speaker]}: " + (f"[{ln.style}] " if ln.style else "") + speech_text(ln)
-                                for ln in lines)
+        def tag(ln) -> str:
+            styles = [ln.style] if ln.speaker == NARRATOR else [cast[ln.speaker].get("style", ""), ln.style]
+            styles = [x.strip() for x in styles if x and x.strip()]
+            return f"[{', '.join(styles)}] " if styles else ""
+        transcript = "\n".join(f"{tokens[ln.speaker]}: {tag(ln)}{speech_text(ln)}" for ln in lines)
         direction = "Read this audiobook passage aloud, exactly as written. " + " ".join(
             self._direction(n, cast[n]).replace(_token(n), tokens[n], 1) for n in names)
         return self.engine.tts_multi(transcript, [(tokens[n], cast[n]["voice"]) for n in names], direction)

@@ -52,7 +52,7 @@ def test_dialogue_passage_uses_narrator_and_character_in_one_request(setup):
     narrator.ensure(passage)
     [(transcript, speakers, direction)] = fake.multi_log
     assert speakers == [("Narrator", "Charon"), ("Lily", "Leda")]
-    assert transcript.splitlines() == ["Narrator: Lily looked up.", "Lily: [whispering] Is he back?",
+    assert transcript.splitlines() == ["Narrator: Lily looked up.", "Lily: [a girl about eight years old, whispering] Is he back?",
                                        "Narrator: she whispered."]
     assert "girl about eight" in direction
     narrator.ensure(heading)
@@ -156,3 +156,44 @@ def test_gemini_multi_speaker_request_format(monkeypatch):
     assert sent[0]["contents"][0]["parts"][0]["text"].startswith("Read it.")
     with pytest.raises(ValueError):
         client.tts_multi("m", "x", [("A", "Kore")])
+
+
+def test_newer_speech_models_get_one_part_per_speaker(monkeypatch):
+    client = GeminiClient("test-key")
+    sent = []
+    audio = base64.b64encode(pcm_to_wav(b"\x00\x00" * 10)).decode()
+
+    def generate(model_id, payload, timeout=None):
+        sent.append(payload)
+        if "speech_metadata" not in payload["contents"][0]["parts"][0]:
+            raise LLMError("Multi-speaker generation requests must specify speech_metadata.speaker for each "
+                           "text part in the contents.", kind="invalid")
+        return {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "audio/wav", "data": audio}}]}}]}
+    monkeypatch.setattr(client, "generate", generate)
+    speakers = [("Narrator", "Charon"), ("Lily", "Leda")]
+    client.tts_multi("new", "Narrator: She looked up.\nLily: [whispering] Back?", speakers, "Read it.")
+    assert sent[-1]["contents"][0]["parts"] == [
+        {"text": "She looked up.", "speech_metadata": {"speaker": "Narrator"}},
+        {"text": "[whispering] Back?", "speech_metadata": {"speaker": "Lily"}}]
+    client.tts_multi("new", "Lily: Hi.\nNarrator: she said.", speakers)
+    assert len(sent) == 3  # the model's format is remembered, so no second failed attempt
+
+
+def test_speech_routing_moves_on_when_a_model_rejects_the_request(make_engine):
+    def respond(model_id, payload):
+        return FakeGemini.default(model_id, payload)
+    fake = FakeGemini(respond)
+    engine = make_engine(fake)
+    tried = []
+
+    def picky(model_id, transcript, speakers, direction=""):
+        tried.append(model_id)
+        if len(tried) == 1:
+            raise LLMError("bad request for this model", kind="invalid")
+        return pcm_to_wav(b"\x00\x00" * 10)
+    fake.tts_multi = picky
+    engine.client = fake
+    routes = engine.get_runtime_configuration().routes
+    routes["tts"] = (list(routes["tts"]) + ["gemini-2.5-flash-preview-tts"])[:2]
+    assert engine.tts_multi("A: x\nB: y", [("A", "Kore"), ("B", "Puck")])[:4] == b"RIFF"
+    assert len(tried) == len(set(tried)) == 2
