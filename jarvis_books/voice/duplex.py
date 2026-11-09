@@ -37,7 +37,8 @@ class DuplexGate:
         self.echo = 0.0  # learned loudness of Jarvis's own voice in the mic; kept across turns
         self.out_frame_bytes = out_rate * FRAME_MS // 1000 * 2
         self.ref: deque[float] = deque(maxlen=max(1, latency_ms // FRAME_MS))  # recently played loudness
-        self.coupling = 1.0  # mic echo level / played level; starts cautious, learned while the user is quiet
+        self.coupling = 1.0  # mic echo level / played level; starts cautious until enough has been heard
+        self.ratios: deque[float] = deque(maxlen=8000 // FRAME_MS)  # mic/played loudness over the last 8 s
         self.enabled = True
         self._playing = False
         self._quiet_at = 0.0
@@ -97,9 +98,14 @@ class DuplexGate:
             loud = level > self.threshold()
             if not loud:
                 self.echo = 0.95 * self.echo + 0.05 * level if self.echo else level
-                envelope = max(self.ref, default=0.0)
-                if envelope > 300:
-                    self.coupling = min(2.0, max(0.02, 0.97 * self.coupling + 0.03 * level / envelope))
+            envelope = max(self.ref, default=0.0)
+            if envelope > 300:
+                # A high percentile over 8 s follows the echo's peaks, while half a sentence of the user
+                # talking (under a quarter of the window) cannot drag it up.
+                self.ratios.append(level / envelope)
+                if len(self.ratios) >= 25:
+                    ordered = sorted(self.ratios)
+                    self.coupling = min(2.0, max(0.02, ordered[int(len(ordered) * 0.75)]))
             self.window.append(loud)
             if sum(self.window) >= self.barge_frames:
                 said = b"".join(self.preroll) + data[i + self.frame_bytes:cut]
