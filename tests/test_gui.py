@@ -89,3 +89,18 @@ def test_voice_session_is_built_from_live_model(window, qapp):
     assert session.url == "wss://example/live" and isinstance(session.headers, dict)
     assert session.model == studio.engine.live_model()
     assert {d["name"] for d in session.tools} >= {"list_books", "read_chapter", "write_chapters"}
+
+
+def test_closed_window_stops_timers_and_storage_access(qapp, tmp_path):
+    from conftest import hardware
+    from jarvis_books.ui.main_window import MainWindow
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=FakeGemini(),
+                    engine_kwargs={"hardware_probe": hardware, "sleep": lambda s: None})
+    studio.start(probe=False)
+    win = MainWindow(studio)
+    win.show()
+    win.editor.setPlainText("unsaved")
+    win.close()
+    assert not win._refresh_timer.isActive() and not win._autosave.isActive()
+    win.refresh_books()  # a late timer tick must not touch the closed database
+    win._load_chapters()

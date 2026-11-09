@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self.job_bar.setMaximumWidth(380)
         self.job_bar.hide()
         self.statusBar().addPermanentWidget(self.job_bar)
+        self._closed = False
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(400)
@@ -329,6 +330,8 @@ class MainWindow(QMainWindow):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def refresh_books(self) -> None:
+        if self._closed:
+            return
         current = self.selected_book_id()
         books = self.studio.library.list_books()
         for combo in (getattr(self, "write_book", None), getattr(self, "listen_book", None)):
@@ -469,6 +472,8 @@ class MainWindow(QMainWindow):
         return w
 
     def _load_chapters(self) -> None:
+        if self._closed:
+            return
         self._save_editor()
         book_id = self.write_book.currentData()
         keep = self.current_chapter_id
@@ -794,7 +799,10 @@ class MainWindow(QMainWindow):
                                      "Tell the user briefly.)")
 
     def closeEvent(self, event) -> None:
+        self._autosave.stop()
+        self._refresh_timer.stop()
         self._save_editor()
+        self._closed = True
         self.player.stop()
         self.voice.enable_wake_word(False)
         self.voice.stop()

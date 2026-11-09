@@ -30,6 +30,10 @@ def main(argv: list[str] | None = None) -> int:
     from jarvis_books.studio import Studio
     from jarvis_books.ui.main_window import MainWindow
 
+    def log_unhandled(kind, value, tb):
+        # PyQt aborts the whole app on an unhandled slot exception unless a hook is installed.
+        logging.getLogger("jarvis_books").error("unhandled error", exc_info=(kind, value, tb))
+    sys.excepthook = log_unhandled
     app = QApplication(sys.argv[:1] + argv)
     app.setApplicationName("Jarvis Book Writer")
     studio = Studio()
