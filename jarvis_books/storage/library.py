@@ -12,8 +12,8 @@ from typing import Any, Callable, Iterable
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.models import (
-    BIBLE_KINDS, BOOK_STATUSES, CHAPTER_STATUSES, PROPOSAL_KINDS, PROPOSAL_STATUSES, BibleEntry, Book, Chapter,
-    Message, Note, Playback, Proposal, Revision, WarSession,
+    BIBLE_KINDS, BOOK_STATUSES, CHAPTER_STATUSES, POST_STATUSES, PROPOSAL_KINDS, PROPOSAL_STATUSES, BibleEntry, Book,
+    Chapter, Message, Note, Playback, Post, Proposal, Revision, WarSession,
 )
 from jarvis_books.text import word_count
 
@@ -393,6 +393,50 @@ class Library:
                         (status, json.dumps(prop.applied if applied is None else applied), time.time(), proposal_id))
         self._emit("proposal", prop.book_id, proposal_id=proposal_id, action=status)
         return self.get_proposal(proposal_id)
+
+    # ---- publishing -------------------------------------------------------------
+    POST_FIELDS = {"status", "progress", "file_path", "upload_uri", "remote_id", "url", "error", "text_hash", "settings"}
+
+    def add_post(self, book_id: str, provider: str, title: str, privacy: str, chapters: list[int],
+                 settings: dict | None = None) -> Post:
+        if not (title or "").strip():
+            raise ValidationError("a post needs a title")
+        self.get_book(book_id)
+        now = time.time()
+        pid = self.db.execute(
+            "INSERT INTO publish_posts (book_id, provider, title, privacy, chapters, settings, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (book_id, provider, title.strip(), privacy, json.dumps(list(chapters)),
+                                         json.dumps(settings or {}), now, now)).lastrowid
+        self._emit("post", book_id, post_id=pid)
+        return self.get_post(pid)
+
+    def get_post(self, post_id: int) -> Post:
+        row = self.db.query_one("SELECT * FROM publish_posts WHERE id=?", (post_id,))
+        if not row:
+            raise NotFound(f"post {post_id} not found")
+        return Post.from_row(row)
+
+    def update_post(self, post_id: int, **fields: Any) -> Post:
+        unknown = set(fields) - self.POST_FIELDS
+        if unknown:
+            raise ValidationError(f"unknown post fields: {sorted(unknown)}")
+        if "status" in fields and fields["status"] not in POST_STATUSES:
+            raise ValidationError(f"invalid post status {fields['status']!r}")
+        if "settings" in fields:
+            fields["settings"] = json.dumps(fields["settings"])
+        cols = ", ".join(f"{k}=?" for k in fields)
+        self.db.execute(f"UPDATE publish_posts SET {cols}, updated_at=? WHERE id=?",
+                        (*fields.values(), time.time(), post_id))
+        post = self.get_post(post_id)
+        self._emit("post", post.book_id, post_id=post_id)
+        return post
+
+    def list_posts(self, book_id: str | None = None, limit: int = 100) -> list[Post]:
+        if book_id:
+            rows = self.db.query("SELECT * FROM publish_posts WHERE book_id=? ORDER BY id DESC LIMIT ?", (book_id, limit))
+        else:
+            rows = self.db.query("SELECT * FROM publish_posts ORDER BY id DESC LIMIT ?", (limit,))
+        return [Post.from_row(r) for r in rows]
 
     # ---- meta -----------------------------------------------------------------
     def get_meta(self, key: str, default: str | None = None) -> str | None:

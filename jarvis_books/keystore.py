@@ -36,19 +36,31 @@ def key_path(root: Optional[Path] = None) -> Path:
     return (root or data_dir()) / "gemini.key"
 
 
-def save_key(key: str, root: Optional[Path] = None) -> Path:
-    key = key.strip()
-    if not key:
-        raise ValueError("empty key")
-    raw = key.encode()
-    data = b"dpapi:" + base64.b64encode(_dpapi(raw, True)) if sys.platform == "win32" else b"plain:" + base64.b64encode(raw)
-    path = key_path(root)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_bytes(data)
+def seal(raw: bytes) -> bytes:
+    """Encrypt for this Windows user (DPAPI). Other platforms rely on file permissions."""
+    return b"dpapi:" + base64.b64encode(_dpapi(raw, True)) if sys.platform == "win32" else b"plain:" + base64.b64encode(raw)
+
+
+def unseal(data: bytes) -> bytes:
+    scheme, _, payload = data.partition(b":")
+    raw = base64.b64decode(payload)
+    return _dpapi(raw, False) if scheme == b"dpapi" else raw
+
+
+def write_sealed(path: Path, raw: bytes) -> Path:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(seal(raw))
     if sys.platform != "win32":
         os.chmod(tmp, 0o600)
     tmp.replace(path)
     return path
+
+
+def save_key(key: str, root: Optional[Path] = None) -> Path:
+    key = key.strip()
+    if not key:
+        raise ValueError("empty key")
+    return write_sealed(key_path(root), key.encode())
 
 
 def load_key(root: Optional[Path] = None) -> Optional[str]:
@@ -58,9 +70,4 @@ def load_key(root: Optional[Path] = None) -> Optional[str]:
     path = key_path(root)
     if not path.exists():
         return None
-    data = path.read_bytes()
-    scheme, _, payload = data.partition(b":")
-    raw = base64.b64decode(payload)
-    if scheme == b"dpapi":
-        raw = _dpapi(raw, False)
-    return raw.decode().strip() or None
+    return unseal(path.read_bytes()).decode().strip() or None

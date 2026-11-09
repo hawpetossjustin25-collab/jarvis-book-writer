@@ -17,6 +17,7 @@ from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.paths import data_dir, mirror_dir
+from jarvis_books.publish.service import Publisher
 from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
@@ -61,6 +62,7 @@ class Studio:
         settings = self.settings()
         self.narrator = Narrator(self.library, self.engine, self.home / "audio", voice=settings["voice"],
                                  edge_voice=settings["edge_voice"])
+        self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

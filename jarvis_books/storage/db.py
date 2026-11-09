@@ -165,6 +165,28 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX idx_proposals_book ON proposals(book_id, status, id);
     """,
+    3: """
+    CREATE TABLE publish_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        title TEXT NOT NULL,
+        privacy TEXT NOT NULL,
+        chapters TEXT NOT NULL DEFAULT '[]',
+        settings TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'queued',
+        progress REAL NOT NULL DEFAULT 0,
+        file_path TEXT NOT NULL DEFAULT '',
+        upload_uri TEXT NOT NULL DEFAULT '',
+        remote_id TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        text_hash TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE INDEX idx_publish_posts_book ON publish_posts(book_id, id);
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

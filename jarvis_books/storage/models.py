@@ -10,6 +10,7 @@ BIBLE_KINDS = ("character", "location", "item", "rule", "theme", "thread", "even
 # A proposal changes canon only when accepted: bible entry, chapter outline, or a saved idea/note.
 PROPOSAL_KINDS = ("bible", "outline", "note")
 PROPOSAL_STATUSES = ("proposed", "accepted", "rejected", "undone")
+POST_STATUSES = ("queued", "rendering", "uploading", "processing", "published", "failed", "cancelled")
 
 
 @dataclass
@@ -172,4 +173,32 @@ class Proposal:
     def from_row(cls, row) -> "Proposal":
         d = dict(row)
         d["applied"] = json.loads(d["applied"] or "{}")
+        return cls(**d)
+
+
+@dataclass
+class Post:
+    id: int
+    book_id: str
+    provider: str
+    title: str
+    privacy: str
+    chapters: list
+    settings: dict
+    status: str
+    progress: float
+    file_path: str
+    upload_uri: str
+    remote_id: str
+    url: str
+    error: str
+    text_hash: str
+    created_at: float
+    updated_at: float
+
+    @classmethod
+    def from_row(cls, row) -> "Post":
+        d = dict(row)
+        d["chapters"] = json.loads(d["chapters"] or "[]")
+        d["settings"] = json.loads(d["settings"] or "{}")
         return cls(**d)

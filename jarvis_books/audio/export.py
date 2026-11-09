@@ -45,38 +45,54 @@ def _escape(value: str) -> str:
     return "".join("\\" + c if c in "=;#\\\n" else c for c in value)
 
 
+def chapter_audio(narrator: Narrator, book_id: str, tmp: Path, numbers: Optional[list[int]] = None, progress=None,
+                  cancel=None) -> list[tuple[int, str, Path, int]]:
+    """Narrate the chosen written chapters into one WAV each: (number, heading, wav, duration_ms)."""
+    ffmpeg = ffmpeg_path()
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg is not available")
+    segments = [s for s in narrator.book_segments(book_id) if not numbers or s.chapter_number in numbers]
+    if not segments:
+        raise RuntimeError("none of those chapters are written yet")
+    narrator.prepare(segments, cancel=cancel, progress=progress)
+    chapters = {c.number: c for c in narrator.library.list_chapters(book_id)}
+    out: list[tuple[int, str, Path, int]] = []
+    for number in sorted({s.chapter_number for s in segments}):
+        listing = tmp / f"ch{number}.txt"
+        files = [narrator.ensure(s) for s in segments if s.chapter_number == number]
+        listing.write_text("".join(f"file '{str(f).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n"
+                                   for f in files), encoding="utf-8")
+        wav = tmp / f"ch{number}.wav"
+        _run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+              "-ar", "24000", "-ac", "1", str(wav)])
+        out.append((number, chapters[number].heading, wav, _probe_ms(ffmpeg, wav)))
+    return out
+
+
 def export_audiobook(narrator: Narrator, book_id: str, out_dir: Path, fmt: str = "m4b", progress=None,
                      cancel=None) -> Path:
     ffmpeg = ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError("FFmpeg is not available")
     book = narrator.library.get_book(book_id)
-    segments = narrator.book_segments(book_id)
-    if not segments:
+    if not narrator.book_segments(book_id):
         raise RuntimeError("the book has no written chapters yet")
-    narrator.prepare(segments, cancel=cancel, progress=(lambda p, m: progress(p * 0.8, m)) if progress else None)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    chapters = {c.number: c for c in narrator.library.list_chapters(book_id)}
     with tempfile.TemporaryDirectory() as tmp_s:
         tmp = Path(tmp_s)
-        chapter_files: list[tuple[int, Path]] = []
-        for number in sorted({s.chapter_number for s in segments}):
-            listing = tmp / f"ch{number}.txt"
-            files = [narrator.ensure(s) for s in segments if s.chapter_number == number]
-            listing.write_text("".join(f"file '{str(f).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n"
-                                       for f in files), encoding="utf-8")
-            wav = tmp / f"ch{number}.wav"
-            _run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
-                  "-ar", "24000", "-ac", "1", str(wav)])
-            chapter_files.append((number, wav))
+        rendered = chapter_audio(narrator, book_id, tmp, progress=(lambda p, m: progress(p * 0.8, m)) if progress
+                                 else None, cancel=cancel)
+        chapter_files = [(n, w) for n, _, w, _ in rendered]
+        headings = {n: h for n, h, _, _ in rendered}
+        durations = {n: d for n, _, _, d in rendered}
         if progress:
             progress(0.85, "Encoding")
         if fmt == "mp3":
             folder = out_dir / f"{safe_filename(book.title)} - Audiobook"
             folder.mkdir(exist_ok=True)
             for number, wav in chapter_files:
-                title = chapters[number].heading
+                title = headings[number]
                 _run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(wav), "-codec:a", "libmp3lame",
                       "-b:a", "96k", "-metadata", f"title={title}", "-metadata", f"album={book.title}",
                       "-metadata", f"track={number}", str(folder / f"{number:03d} - {safe_filename(title)}.mp3")])
@@ -86,9 +102,9 @@ def export_audiobook(narrator: Narrator, book_id: str, out_dir: Path, fmt: str =
         meta = [";FFMETADATA1", f"title={_escape(book.title)}", f"album={_escape(book.title)}", "genre=Audiobook"]
         start = 0
         for number, wav in chapter_files:
-            dur = _probe_ms(ffmpeg, wav)
+            dur = durations[number]
             meta += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={start}", f"END={start + dur}",
-                     f"title={_escape(chapters[number].heading)}"]
+                     f"title={_escape(headings[number])}"]
             start += dur
         meta_file = tmp / "meta.txt"
         meta_file.write_text("\n".join(meta) + "\n", encoding="utf-8")
