@@ -80,10 +80,21 @@ def test_no_fallback_when_disabled(engine, fake):
         engine.generate(LLMRequest(role="writer", instruction="w", allow_fallback=False))
 
 
-def test_overload_retries_with_backoff(engine, fake):
+def test_overload_retries_with_backoff_when_no_fallback(engine, fake):
+    fake.errors = [LLMError("busy", kind="overload")]
+    r = engine.generate(LLMRequest(role="writer", instruction="write", allow_fallback=False))
+    assert r.attempts == 2 and r.model == "gemini-9.0-flash-lite"
+
+
+def test_overloaded_model_cools_down_and_route_moves_on(engine, fake):
+    route = engine.get_runtime_configuration().routes["writer"]
     fake.errors = [LLMError("busy", kind="overload")]
     r = engine.generate(LLMRequest(role="writer", instruction="write"))
-    assert r.attempts == 2 and r.model == "gemini-9.0-flash-lite"
+    assert r.model == route[1] and r.attempts == 1  # no wasted retries on the overloaded model
+    calls = len(fake.calls)
+    r2 = engine.generate(LLMRequest(role="writer", instruction="write again"))
+    assert r2.model == route[1]  # still cooling down, so it is skipped without a request
+    assert fake.calls[calls][0] == route[1]
 
 
 def test_auth_error_is_not_retried(engine, fake):

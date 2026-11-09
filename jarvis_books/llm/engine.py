@@ -53,6 +53,8 @@ class AdaptiveLLMEngine:
         self._pending: Optional[tuple[int, int, dict]] = None  # (new version, parent version, baseline)
         self._since_eval = 0
         self._shutdown = False
+        self._cooldown: dict[str, float] = {}  # model -> time it may be tried again
+        self._clock = clock
 
     # ---- lifecycle ------------------------------------------------------------
     def initialize(self, probe: bool = True) -> RuntimeConfig:
@@ -246,13 +248,21 @@ class AdaptiveLLMEngine:
         if not request.allow_fallback or not self.policy.auto_fallback:
             route = route[:1]
         reasons: list[str] = []
+        usable = []
         for model_id in route:
             blocked = self.limiter.blocked_reason(model_id)
             if blocked:
                 reasons.append(blocked)
-                continue
+            else:
+                usable.append(model_id)
+        now = self._clock()
+        warm = [m for m in usable if self._cooldown.get(m, 0) <= now]
+        cooling = sorted((m for m in usable if m not in warm), key=lambda m: self._cooldown[m])
+        # Overloaded/slow models go to the back of the line instead of being retried first.
+        candidates = warm + cooling
+        for i, model_id in enumerate(candidates):
             try:
-                return self._generate_on(model_id, request, config)
+                return self._generate_on(model_id, request, config, has_fallback=i < len(candidates) - 1)
             except LLMError as exc:
                 if exc.kind in ("rate", "quota", "unavailable", "overload", "network", "context"):
                     reasons.append(f"{model_id}: {exc.kind}")
@@ -260,7 +270,8 @@ class AdaptiveLLMEngine:
                 raise
         raise NoModelAvailable(request.role, reasons)
 
-    def _generate_on(self, model_id: str, request: LLMRequest, config: RuntimeConfig) -> LLMResponse:
+    def _generate_on(self, model_id: str, request: LLMRequest, config: RuntimeConfig,
+                     has_fallback: bool = False) -> LLMResponse:
         shrink, attempts, repair_note = 1.0, 0, ""
         last_error: Optional[LLMError] = None
         while attempts <= config.max_retries:
@@ -288,6 +299,10 @@ class AdaptiveLLMEngine:
                 if exc.kind == "context" and shrink > 0.3:
                     shrink *= 0.5
                     continue
+                if exc.kind in ("overload", "network") and has_fallback:
+                    cool = self.policy.overload_cooldown_s if exc.kind == "overload" else self.policy.timeout_cooldown_s
+                    self._cooldown[model_id] = self._clock() + cool
+                    raise
                 if exc.retryable and attempts <= config.max_retries:
                     delay = exc.retry_after_s or min(self.policy.max_backoff_s, (2 ** attempts) + random.random())
                     self.sleep(delay)
@@ -311,6 +326,7 @@ class AdaptiveLLMEngine:
                         continue
                     raise last_error
             self._record(model_id, request.role, True, latency, prompt_chars, parsed, None, json_valid, trimmed, config)
+            self._cooldown.pop(model_id, None)
             return LLMResponse(text=parsed["text"], model=model_id, data=data, function_calls=parsed["function_calls"],
                                content=parsed["content"], finish_reason=parsed["finish_reason"],
                                prompt_tokens=parsed["prompt_tokens"], output_tokens=parsed["output_tokens"],

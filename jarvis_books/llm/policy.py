@@ -46,6 +46,8 @@ class EnginePolicy:
     # safety-protected (not user-editable at runtime)
     max_retries: int = 3
     max_backoff_s: float = 60.0
+    overload_cooldown_s: float = 120.0  # skip a model Google reports as overloaded
+    timeout_cooldown_s: float = 300.0  # skip a model that just timed out
     probe_model_limit: int = 4
     min_observations: int = 5
 
