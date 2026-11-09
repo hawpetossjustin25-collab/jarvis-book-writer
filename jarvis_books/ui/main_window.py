@@ -5,10 +5,11 @@ import html
 import logging
 import os
 import sys
+import threading
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QFont
+from PyQt6.QtCore import QThread, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
@@ -77,6 +78,7 @@ class NewBookDialog(QDialog):
 
 class MainWindow(QMainWindow):
     _perm_event = pyqtSignal(str, object)
+    _ui_call = pyqtSignal(object)
 
     def __init__(self, studio: Studio):
         super().__init__()
@@ -112,6 +114,8 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.job_bar)
         self._closed = False
         self._perm_event.connect(self._on_permission)
+        self._ui_call.connect(self._run_ui_call)
+        studio.tools.app_handler = studio.war_tools.app_handler = self._app_tool
         studio.gate.subscribe(lambda event, info: self._perm_event.emit(event, info))
         self._expire_timer = QTimer(self)
         self._expire_timer.setInterval(5000)
@@ -312,6 +316,96 @@ class MainWindow(QMainWindow):
             if bridge.active:
                 bridge.send_text(note + " Tell the author briefly.")
         self._refresh_permissions()
+
+    # ---- app control by Jarvis --------------------------------------------------------------
+    def _on_ui(self, fn, timeout_s: float = 5.0) -> dict:
+        """Run fn on the UI thread (Jarvis's tools run on worker threads) and wait briefly for its answer."""
+        if self._closed:
+            return {"error": "the app window is closing"}
+        if QThread.currentThread() is self.thread():
+            return fn()
+        box: dict = {}
+        done = threading.Event()
+        self._ui_call.emit((fn, box, done))
+        if not done.wait(timeout_s):
+            return {"error": "the app is busy right now; try again"}
+        return box["result"]
+
+    def _run_ui_call(self, item) -> None:
+        fn, box, done = item
+        try:
+            box["result"] = {"error": "the app window is closing"} if self._closed else fn()
+        except Exception as exc:
+            log.exception("app control failed")
+            box["result"] = {"error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            done.set()
+
+    def _app_tool(self, action: str, args: dict) -> dict:
+        return self._on_ui(lambda: self._app_do(action, args))
+
+    def _app_do(self, action: str, args: dict) -> dict:
+        if action == "status":
+            book_id = getattr(self.player, "book_id", None)
+            playing = None
+            if book_id and self.player.playing:
+                playing = self.studio.library.get_book(book_id).title
+            return {"tab": self.tabs.tabText(self.tabs.currentIndex()),
+                    "voice_chat": "war room" if self.war_voice.active else ("jarvis" if self.voice.active else "off"),
+                    "mic_muted": self.mute_box.isChecked() or self.war_mute.isChecked(),
+                    "audiobook_playing": playing}
+        if action == "tab":
+            names = [self.tabs.tabText(i).lower() for i in range(self.tabs.count())]
+            if args["tab"] not in names:
+                return {"error": f"no tab called {args['tab']}"}
+            self.tabs.setCurrentIndex(names.index(args["tab"]))
+            if args.get("book_id"):
+                for name in ("write_book", "listen_book", "war_book", "pub_book"):
+                    combo = getattr(self, name, None)
+                    if combo is not None and combo.findData(args["book_id"]) >= 0:
+                        combo.setCurrentIndex(combo.findData(args["book_id"]))
+            return {"ok": True, "tab": args["tab"]}
+        if action == "setting":
+            self._show_setting(args["key"], args["value"])
+            return {"ok": True}
+        if action == "action":
+            what = args["action"]
+            if what in ("mute_mic", "unmute_mic"):
+                for box in (self.mute_box, self.war_mute):
+                    box.setChecked(what == "mute_mic")
+            elif what == "end_voice":
+                QTimer.singleShot(2500, self._end_voice)  # let Jarvis finish saying goodbye
+            elif what == "open_book_folder":
+                folder = self.studio.mirror.folder_for(args["book_id"])
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+                return {"ok": True, "folder": str(folder)}
+            return {"ok": True, "action": what}
+        return {"error": f"unknown app action {action}"}
+
+    def _end_voice(self) -> None:
+        if self._closed:
+            return
+        if self.voice.active:
+            self._toggle_talk()
+        if self.war_voice.active:
+            self._war_toggle_talk()
+
+    def _show_setting(self, key: str, value: str) -> None:
+        """Keep the Settings widgets in step when Jarvis changes a setting (their own handlers apply it)."""
+        if key == "author":
+            self.author_edit.setText(value)
+        elif key in ("voice", "edge_voice", "jarvis_voice"):
+            {"voice": self.narrator_voice, "edge_voice": self.edge_voice,
+             "jarvis_voice": self.jarvis_voice}[key].setCurrentText(value)
+        elif key == "auto_mute":
+            self.auto_mute_box.setChecked(value == "1")
+        elif key == "wake_word":
+            self.wake_box.setChecked(value == "1")
+        elif key == "narration_speed":
+            rate = float(value)
+            if self.speed.findData(rate) < 0:
+                self.speed.addItem(f"{rate:g}x", rate)
+            self.speed.setCurrentIndex(self.speed.findData(rate))
 
     def _refresh_permissions(self) -> None:
         if not hasattr(self, "perm_list"):

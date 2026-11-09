@@ -50,14 +50,15 @@ class Studio:
         self.context = ContextBuilder(self.library, self.index)
         self.writer = BookWriter(self.library, self.engine, self.index, self.context)
         self.jobs = JobManager(self.library, workers=2)
+        self.undo: list = []  # newest last; shared so 'undo that' works from any Jarvis
         self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
-        self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate)
+        self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
         self.assistant = Assistant(self.engine, self.library, self.tools)
         self.warroom = WarRoom(self.library, self.engine, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
-        self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate)
+        self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.war_tools.warroom = self.warroom
         self.war_assistant = Assistant(self.engine, self.library, self.war_tools, channel="warroom",
                                        guide=WAR_ROOM_GUIDE, per_book=True)
@@ -66,6 +67,7 @@ class Studio:
                                  edge_voice=settings["edge_voice"])
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
         self.tools.publisher = self.war_tools.publisher = self.publisher
+        self.tools.settings_store = self.war_tools.settings_store = self
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

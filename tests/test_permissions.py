@@ -182,3 +182,99 @@ def test_chat_round_trip_asks_then_does_it_on_the_authors_typed_yes(box, library
 
 def test_needs_yes_levels():
     assert set(NEEDS_YES) == {CHANGE, OUTSIDE, "system"}
+
+
+class FakeSettings:
+    DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
+                "wake_word": "1", "narration_speed": "1.0", "auto_mute": "1"}
+
+    def __init__(self):
+        self.values = dict(self.DEFAULTS)
+
+    def settings(self):
+        return dict(self.values)
+
+    def set_setting(self, key, value):
+        self.values[key] = value
+
+
+def test_setting_keys_match_the_studio():
+    from jarvis_books.assistant.tools import SETTING_KEYS
+    from jarvis_books.studio import Studio
+    assert set(SETTING_KEYS) == set(Studio.DEFAULTS)
+
+
+def test_app_control_levels():
+    for tool, level in {"app_status": "read", "get_settings": "read", "open_tab": "safe", "app_action": "safe",
+                        "change_setting": "change", "undo_last_change": "change"}.items():
+        assert level_of(tool) == level
+
+
+def test_change_setting_waits_for_yes_and_validates_before_asking(box):
+    tools, gate, clock, b = box
+    tools.settings_store = store = FakeSettings()
+    assert "must be" in tools.call("change_setting", {"key": "narration_speed", "value": "9"})["error"]
+    assert "must be" in tools.call("change_setting", {"key": "jarvis_voice", "value": "Bob"})["error"]
+    assert gate.pending is None
+    ask = tools.call("change_setting", {"key": "jarvis_voice", "value": "puck"})
+    assert ask["needs_approval"] and "'Charon' to 'Puck'" in ask["asking"]
+    assert store.values["jarvis_voice"] == "Charon"
+    assert gate.answer(True)["result"]["value"] == "Puck" and store.values["jarvis_voice"] == "Puck"
+    assert tools.call("get_settings")["settings"]["jarvis_voice"] == "Puck"
+    tools.run("change_setting", {"key": "auto_mute", "value": "off"})
+    assert store.values["auto_mute"] == "0"
+
+
+def test_undo_last_change_puts_things_back_after_a_yes(box, library):
+    tools, gate, clock, b = box
+    tools.settings_store = store = FakeSettings()
+    assert "nothing to undo" in tools.call("undo_last_change")["error"] and gate.pending is None
+    tools.run("change_outline", {"chapter": 1, "title": "Gates"})
+    tools.run("update_story_bible", {"kind": "character", "name": "Mara", "summary": "A thief"})
+    tools.run("change_setting", {"key": "narration_speed", "value": "1.25x"})
+    assert store.values["narration_speed"] == "1.25"
+
+    ask = tools.call("undo_last_change")
+    assert ask["needs_approval"] and "narration_speed" in ask["asking"]
+    gate.answer(True)
+    assert store.values["narration_speed"] == "1.0"
+    tools.call("undo_last_change")
+    assert gate.answer(True)["result"]["undone"].startswith("adding character 'Mara'")
+    assert library.list_bible(b.id, "character") == []
+    tools.call("undo_last_change")
+    gate.answer(True)
+    assert outline_title(library, b.id) == "Doors"
+
+
+def test_a_yes_to_undo_never_undoes_a_newer_change(box, library):
+    tools, gate, clock, b = box
+    tools.run("change_outline", {"chapter": 1, "title": "Gates"})
+    ask = tools.call("undo_last_change")
+    tools.run("change_outline", {"chapter": 1, "title": "Keys"})  # something else changed before the yes
+    out = gate.answer(True, ask["request_id"])["result"]
+    assert "ask again" in out["error"] and outline_title(library, b.id) == "Keys"
+
+
+def test_undo_restores_the_story_bible_entry_and_an_added_chapter(box, library):
+    tools, gate, clock, b = box
+    library.upsert_bible(b.id, "character", "Mara", "A thief")
+    tools.run("update_story_bible", {"kind": "Character", "name": "mara", "summary": "A queen"})
+    tools.run("change_outline", {"chapter": 0, "title": "Epilogue"})
+    assert len(library.list_chapters(b.id)) == 2
+    tools.run("undo_last_change")
+    assert len(library.list_chapters(b.id)) == 1
+    tools.run("undo_last_change")
+    assert library.list_bible(b.id, "character")[0].summary == "A thief"
+
+
+def test_app_controls_need_the_window(box):
+    tools, gate, clock, b = box
+    assert "window" in tools.call("open_tab", {"tab": "listen"})["error"]
+    seen = []
+    tools.app_handler = lambda action, args: seen.append((action, args)) or {"ok": True}
+    assert tools.call("open_tab", {"tab": "listen", "book": "Midnight"}) == {"ok": True}
+    assert seen == [("tab", {"tab": "listen", "book_id": b.id})] and gate.pending is None
+    assert "invalid" in tools.call("open_tab", {"tab": "kitchen"})["error"]
+    assert tools.call("app_action", {"action": "mute_mic"}) == {"ok": True}
+    status = tools.call("app_status")
+    assert status["books"] == 1 and status["open_book"] == "Midnight Rings" and status["ok"]

@@ -238,3 +238,33 @@ def test_approval_card_shows_everywhere_and_the_yes_button_runs_the_action(qapp,
         assert win.perm_list.count() == 2 and win.perm_list.item(0).text().startswith("Yes")
     finally:
         win.close()
+
+
+def test_jarvis_controls_the_window_from_a_worker_thread(window, qapp):
+    import threading
+    win, studio, _book = window
+    results = {}
+
+    def jarvis():
+        results["tab"] = studio.tools.call("open_tab", {"tab": "war room"}, source="voice")
+        results["mute"] = studio.tools.call("app_action", {"action": "mute_mic"}, source="voice")
+        results["status"] = studio.tools.call("app_status", {}, source="voice")
+    t = threading.Thread(target=jarvis)
+    t.start()
+    while t.is_alive():
+        qapp.processEvents()
+    assert results["tab"]["ok"] and win.tabs.tabText(win.tabs.currentIndex()) == "War Room"
+    assert win.mute_box.isChecked() and win.war_mute.isChecked()
+    assert results["status"]["tab"] == "War Room" and results["status"]["mic_muted"]
+
+    asked = studio.tools.call("change_setting", {"key": "auto_mute", "value": "off"})
+    qapp.processEvents()
+    assert asked["needs_approval"] and win.auto_mute_box.isChecked()
+    win.approval_bars[0].yes_btn.click()
+    qapp.processEvents()
+    assert not win.auto_mute_box.isChecked() and not win.voice.auto_mute and not win.war_voice.auto_mute
+    assert studio.settings()["auto_mute"] == "0"
+    studio.tools.call("undo_last_change")
+    studio.gate.answer(True)
+    qapp.processEvents()
+    assert win.auto_mute_box.isChecked() and studio.settings()["auto_mute"] == "1"

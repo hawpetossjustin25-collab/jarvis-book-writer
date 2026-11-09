@@ -5,10 +5,12 @@ Long-running operations are started as background jobs and return immediately.
 """
 from __future__ import annotations
 
+import itertools
 import logging
 from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
+from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.errors import NotFound
 from jarvis_books.jobs import JobManager
@@ -34,6 +36,12 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
+TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish")
+SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute")
+SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES}
+APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
+_ON = {"1", "on", "true", "yes", "enable", "enabled"}
+_OFF = {"0", "off", "false", "no", "disable", "disabled"}
 
 DECLARATIONS = [
     _decl("list_books", "List all of the user's books with status and progress."),
@@ -91,6 +99,21 @@ DECLARATIONS = [
            "privacy": {"type": "STRING", "enum": ["private", "unlisted", "public"]},
            "per_chapter": {"type": "BOOLEAN"}}, ["privacy"]),
     _decl("list_posts", "List the book's YouTube posts with their status and links.", {"book": BOOK}),
+    _decl("app_status", "What the app is doing right now: open tab, voice chat, mic, audiobook, background jobs, "
+          "storage space and settings."),
+    _decl("open_tab", "Switch the app to a tab, optionally showing a book there.",
+          {"tab": {"type": "STRING", "enum": list(TABS)}, "book": BOOK}, ["tab"]),
+    _decl("get_settings", "The app's settings: audiobook narrator voice, backup narrator, Jarvis voice, author "
+          "name, Hey Jarvis wake word, narration speed, auto-mute while Jarvis talks."),
+    _decl("change_setting", "Change one app setting. voice/jarvis_voice: a Gemini voice (" + ", ".join(GEMINI_VOICES)
+          + "); edge_voice: a backup narrator; narration_speed: 0.5 to 2.0; wake_word and auto_mute: on/off; "
+          "author: the author's name.",
+          {"key": {"type": "STRING", "enum": list(SETTING_KEYS)}, "value": S}, ["key", "value"]),
+    _decl("app_action", "Press a button in the app: mute_mic, unmute_mic, end_voice (hang up this voice chat), "
+          "open_book_folder (show the book's files on the computer).",
+          {"action": {"type": "STRING", "enum": list(APP_ACTIONS)}, "book": BOOK}, ["action"]),
+    _decl("undo_last_change", "Undo the most recent change: a chapter rewrite, outline or title change, new "
+          "chapter, story bible entry, accepted War Room idea or setting."),
 ]
 
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
@@ -106,7 +129,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
 
 class ToolBox:
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
-                 gate: Optional[PermissionGate] = None):
+                 gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
         self.gate = gate or PermissionGate()
         self.writer = writer
@@ -118,6 +141,10 @@ class ToolBox:
         self.warroom = None  # set by the Studio
         self.publisher = None  # set by the Studio
         self.war_session_id: Optional[int] = None  # set while a War Room session is open
+        self.app_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (tabs, buttons, status)
+        self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
+        self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
+        self._undo_ids = itertools.count(1)
 
     def declarations(self, names: Optional[list[str]] = None) -> list[dict]:
         blocked = WAR_ROOM_BLOCKED if self.war_session_id is not None else ()
@@ -145,6 +172,13 @@ class ToolBox:
             "decide_proposal": ("accept", "reject", "undo", "yes", "approve", "keep", "go with"),
             "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
             "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
+            "app_status": ("status", "what's playing", "doing", "app", "storage", "space", "running"),
+            "open_tab": ("open", "go to", "show", "tab", "switch", "take me"),
+            "get_settings": ("setting", "voice", "speed", "wake", "mute", "author name"),
+            "change_setting": ("setting", "voice", "speed", "faster", "slower", "wake", "auto-mute", "auto mute",
+                               "author name", "my name", "turn on", "turn off"),
+            "app_action": ("mute", "unmute", "hang up", "end the call", "goodbye", "bye", "folder", "files"),
+            "undo_last_change": ("undo", "take that back", "revert", "put it back", "change it back"),
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -168,7 +202,7 @@ class ToolBox:
         try:
             args = self._pin(decl, args)
             summary = self.describe(name, args)
-        except NotFound as exc:
+        except (NotFound, ValueError) as exc:
             return {"error": str(exc)}
         if mode == "auto":
             self.gate.record_auto(name, args, summary, source)
@@ -198,6 +232,12 @@ class ToolBox:
         """Fix 'the open book' to a named book now, so a later yes runs exactly what was asked about."""
         if "book" in decl["parameters"].get("properties", {}):
             args["book"] = self._book(args.get("book")).title
+        if decl["name"] == "change_setting":
+            args["value"] = self._setting_value(args["key"], args["value"])
+        if decl["name"] == "undo_last_change":  # a yes undoes the change it was asked about, nothing newer
+            if not self.undo:
+                raise NotFound("there is nothing to undo")
+            args["expect"] = self.undo[-1]["id"]
         return args
 
     def describe(self, name: str, args: dict) -> str:
@@ -217,7 +257,8 @@ class ToolBox:
         if name == "change_outline":
             if not args.get("chapter"):
                 return f"Add a new chapter to '{book}'" + (f": {args['title']}" if args.get("title") else "")
-            return f"Change the title/outline of chapter {args.get('chapter')} of '{book}'"
+            to = f" to '{args['title']}'" if args.get("title") else ""
+            return f"Change the title/outline of chapter {args.get('chapter')} of '{book}'{to}"
         if name == "export_book":
             return f"Export '{book}' as {args.get('format') or 'docx'}"
         if name == "decide_proposal":
@@ -227,6 +268,11 @@ class ToolBox:
             chapters = args.get("chapters") or []
             which = f"chapters {', '.join(str(c) for c in chapters)}" if chapters else "all written chapters"
             return f"Post '{book}' ({which}) to YouTube as {args.get('privacy')}"
+        if name == "change_setting":
+            old = self._store().settings()[args["key"]]
+            return f"Change the setting '{args['key']}' from '{old}' to '{args['value']}'"
+        if name == "undo_last_change":
+            return f"Undo the last change: {self.undo[-1]['summary']}"
         return f"{name.replace('_', ' ')} {args}"
 
     def _book(self, book: Optional[str]):
@@ -282,9 +328,16 @@ class ToolBox:
     def _t_rewrite_chapter(self, chapter: int, instructions: str, book: str = "") -> dict:
         b = self._book(book)
         self.library.get_chapter(b.id, chapter)
-        job = self.jobs.submit("revise", f"Revising {b.title} chapter {chapter}",
-                               lambda p, c: self.writer.revise_chapter(b.id, chapter, instructions, "ai-revision").number,
-                               book_id=b.id)
+        ch = self.library.get_chapter(b.id, chapter)
+        before = (self.library.revisions(ch.id) or [None])[0]
+
+        def revise(progress, cancel):
+            number = self.writer.revise_chapter(b.id, chapter, instructions, "ai-revision").number
+            if before is not None:
+                self._push_undo(f"the rewrite of chapter {chapter} of '{b.title}'",
+                                lambda: self.library.restore_revision(before.id))
+            return number
+        job = self.jobs.submit("revise", f"Revising {b.title} chapter {chapter}", revise, book_id=b.id)
         return {"started": True, "job_id": job.id}
 
     def _t_read_chapter(self, chapter: int, book: str = "", start_paragraph: int = 0, max_words: int = 900) -> dict:
@@ -316,7 +369,15 @@ class ToolBox:
 
     def _t_update_story_bible(self, kind: str, name: str, summary: str, book: str = "") -> dict:
         b = self._book(book)
+        old = next((e for e in self.library.list_bible(b.id, (kind or "").strip().lower())
+                    if e.name.lower() == (name or "").strip().lower()), None)
         e = self.library.upsert_bible(b.id, kind, name, summary)
+        if old is not None:
+            self._push_undo(f"the story bible entry {e.kind} '{e.name}' in '{b.title}'",
+                            lambda: self.library.upsert_bible(b.id, old.kind, old.name, old.summary, old.data))
+        else:
+            self._push_undo(f"adding {e.kind} '{e.name}' to the story bible of '{b.title}'",
+                            lambda: self.library.delete_bible_entry(e.id))
         return {"saved": True, "kind": e.kind, "name": e.name}
 
     def _t_add_note(self, text: str, book: str = "") -> dict:
@@ -332,10 +393,17 @@ class ToolBox:
         if chapter <= 0:
             ch = self.library.add_chapter(b.id, title=title, outline=outline,
                                           target_words=(b.chapter_words_min + b.chapter_words_max) // 2)
+            new_id = ch.id
+            self._push_undo(f"adding chapter {ch.number} to '{b.title}'", lambda: self.library.delete_chapter(new_id))
         else:
             ch = self.library.get_chapter(b.id, chapter)
             fields = {k: v for k, v in (("title", title), ("outline", outline)) if v}
-            ch = self.library.update_chapter(ch.id, **fields) if fields else ch
+            if fields:
+                old = {"title": ch.title, "outline": ch.outline}
+                ch_id, ch_title = ch.id, ch.title
+                ch = self.library.update_chapter(ch.id, **fields)
+                self._push_undo(f"chapter {ch.number} of '{b.title}' back to '{ch_title}'",
+                                lambda: self.library.update_chapter(ch_id, **old))
         return {"saved": True, "chapter": ch.number, "title": ch.title}
 
     def _t_writing_advice(self, genre: str) -> dict:
@@ -416,4 +484,104 @@ class ToolBox:
         wr = self._wr()
         p = {"accept": lambda: wr.accept(proposal_id, content or None), "reject": lambda: wr.reject(proposal_id),
              "undo": lambda: wr.undo(proposal_id)}[decision]()
+        if decision == "accept":
+            self._push_undo(f"accepting the idea '{p.title}'", lambda: wr.undo(proposal_id))
         return {"proposal_id": p.id, "status": p.status}
+
+    # ---- app control ----------------------------------------------------------------
+    def _push_undo(self, summary: str, fn: Callable[[], Any]) -> None:
+        self.undo.append({"id": next(self._undo_ids), "summary": summary, "fn": fn})
+        del self.undo[:-20]
+
+    def _t_undo_last_change(self, expect: int = 0) -> dict:
+        if not self.undo:
+            raise NotFound("there is nothing to undo")
+        if expect and self.undo[-1]["id"] != expect:
+            raise NotFound("something else changed after you asked; ask again what to undo")
+        entry = self.undo.pop()
+        entry["fn"]()
+        return {"undone": entry["summary"]}
+
+    def _store(self):
+        if self.settings_store is None:
+            raise NotFound("settings are not available here")
+        return self.settings_store
+
+    def _ui(self, action: str, args: Optional[dict] = None) -> dict:
+        if self.app_handler is None:
+            raise NotFound("app controls only work while the app window is open")
+        return self.app_handler(action, args or {})
+
+    @staticmethod
+    def _setting_value(key: str, value: Any) -> str:
+        v = str(value).strip()
+        if key in SETTING_CHOICES:
+            choices = SETTING_CHOICES[key]
+            exact = [c for c in choices if c.lower() == v.lower()]
+            near = exact or [c for c in choices if v and v.lower() in c.lower()]
+            if len(near) != 1:
+                raise ValueError(f"{key} must be one of: {', '.join(choices)}")
+            return near[0]
+        if key in ("wake_word", "auto_mute"):
+            if v.lower() in _ON:
+                return "1"
+            if v.lower() in _OFF:
+                return "0"
+            raise ValueError(f"{key} must be on or off")
+        if key == "narration_speed":
+            try:
+                rate = float(v.lower().rstrip("x"))
+            except ValueError:
+                raise ValueError("narration_speed must be a number like 1.25") from None
+            if not 0.5 <= rate <= 2.0:
+                raise ValueError("narration_speed must be between 0.5 and 2.0")
+            return str(round(rate, 2))
+        if key == "author":
+            if len(v) > 100:
+                raise ValueError("author name is too long")
+            return v
+        raise ValueError(f"unknown setting {key}")
+
+    def _t_get_settings(self) -> dict:
+        return {"settings": self._store().settings()}
+
+    def _t_change_setting(self, key: str, value: str) -> dict:
+        store = self._store()
+        new = self._setting_value(key, value)
+        old = store.settings()[key]
+        self._apply_setting(key, new)
+        self._push_undo(f"setting '{key}' back to '{old}'", lambda: self._apply_setting(key, old))
+        return {"saved": True, "key": key, "value": new, "was": old}
+
+    def _apply_setting(self, key: str, value: str) -> None:
+        self._store().set_setting(key, value)
+        if self.app_handler is not None:
+            self.app_handler("setting", {"key": key, "value": value})
+
+    def _t_app_status(self) -> dict:
+        out: dict = {"books": len(self.library.list_books()), **self._t_job_status()}
+        try:
+            out["open_book"] = self._book("").title if self.current_book_id else None
+        except NotFound:
+            out["open_book"] = None
+        if self.settings_store is not None:
+            out["settings"] = self.settings_store.settings()
+            capacity = getattr(self.settings_store, "capacity", None)
+            if capacity is not None:
+                out["storage"] = capacity.report().describe()
+        if self.app_handler is not None:
+            out.update(self._ui("status"))
+        out["undo_available"] = self.undo[-1]["summary"] if self.undo else None
+        return out
+
+    def _t_open_tab(self, tab: str, book: str = "") -> dict:
+        args: dict = {"tab": tab}
+        if book:
+            args["book_id"] = self._book(book).id
+        return self._ui("tab", args)
+
+    def _t_app_action(self, action: str, book: str = "") -> dict:
+        args: dict = {"action": action}
+        if action == "open_book_folder":
+            args["book_id"] = self._book(book).id
+        return self._ui("action", args)

@@ -111,3 +111,11 @@ away; **Change** (writing, rewriting, story bible, outline, exports, accepting i
 the exact action, shows a yes/no card in the Jarvis, Chat and War Room tabs, and runs it only on the author's own
 typed or spoken yes (or the Yes button). A yes is single-use and expires after 2 minutes. "Don't ask again this
 session" exists for Change-level tools only. Every request and answer is logged in Settings.
+
+## Jarvis controls the app
+
+Jarvis can report what the app is doing (`app_status`), switch tabs (`open_tab`), read and change settings
+(`get_settings`, `change_setting`), press buttons (`app_action`: mute/unmute, hang up, open a book's folder) and
+`undo_last_change` (chapter rewrites, outline/title changes, new chapters, story bible entries, accepted War Room
+ideas and settings). Setting changes and undo ask yes/no first. A yes to "undo" only undoes the change it named,
+never something newer.
