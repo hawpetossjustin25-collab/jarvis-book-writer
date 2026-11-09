@@ -179,8 +179,9 @@ class AdaptiveLLMEngine:
         budget = config.budgets[model_id]
         cpt = self._chars_per_token(model_id)
         history = request.history[-config.history_turns:] if request.history else []
-        while history and history[0].get("role") != "user":
-            history = history[1:]
+        while history and (history[0].get("role") != "user" or
+                           any("functionResponse" in part for part in history[0].get("parts", []))):
+            history = history[1:]  # a window must start on a plain user turn (no orphaned tool replies)
         fixed = estimate_tokens(request.system, cpt) + sum(
             estimate_tokens(str(t.get("parts", "")), cpt) for t in history)
         available = int((budget.input_budget_tokens - fixed) * shrink)
