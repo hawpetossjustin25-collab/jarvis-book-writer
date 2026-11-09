@@ -241,6 +241,32 @@ MIGRATIONS: dict[int, str] = {
         PRIMARY KEY (book_id, text_hash)
     );
     """,
+    7: """
+    CREATE TABLE memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL DEFAULT 'fact',
+        text TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'jarvis',
+        importance INTEGER NOT NULL DEFAULT 2,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        embedding BLOB,
+        embed_model TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE INDEX idx_memories_book ON memories(book_id);
+    CREATE TABLE conversation_summaries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel TEXT NOT NULL,
+        book_id TEXT REFERENCES books(id) ON DELETE CASCADE,
+        first_message_id INTEGER NOT NULL,
+        last_message_id INTEGER NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX idx_summaries_channel ON conversation_summaries(channel, last_message_id);
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

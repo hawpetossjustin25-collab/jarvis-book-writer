@@ -26,7 +26,8 @@ LEVEL_LABELS = {READ: "Read", SAFE: "Safe change", CHANGE: "Change", OUTSIDE: "O
 TOOL_LEVELS: dict[str, str] = {
     "list_books": READ, "open_book": READ, "read_chapter": READ, "search_books": READ, "story_bible": READ,
     "writing_advice": READ, "job_status": READ, "war_briefing": READ, "find_gaps": READ, "list_proposals": READ,
-    "list_posts": READ, "app_status": READ, "get_settings": READ,
+    "list_posts": READ, "app_status": READ, "get_settings": READ, "recall_memories": READ,
+    "remember": SAFE, "forget_memory": CHANGE,
     "add_note": SAFE, "play_audiobook": SAFE, "stop_audiobook": SAFE, "reading_speed": SAFE, "cancel_job": SAFE, "propose_idea": SAFE,
     "open_tab": SAFE, "app_action": SAFE,
     "create_book": CHANGE, "write_chapters": CHANGE, "rewrite_chapter": CHANGE, "update_story_bible": CHANGE,

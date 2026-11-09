@@ -41,7 +41,7 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
-                "dialogue_tags")
+                "dialogue_tags", "memory")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
 SPEEDS = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
@@ -78,6 +78,14 @@ DECLARATIONS = [
     _decl("update_story_bible", "Add or change a story-bible entry (a character, place, rule, etc.).",
           {"book": BOOK, "kind": S, "name": S, "summary": S}, ["kind", "name", "summary"]),
     _decl("add_note", "Save a brainstorming idea or note for a book.", {"book": BOOK, "text": S}, ["text"]),
+    _decl("remember", "Save something to your long-term memory when the author asks you to remember it (about "
+          "them, how they like to work, a decision). scope: 'this book' for something about one book, else "
+          "'all books'.", {"text": S, "scope": {"type": "STRING", "enum": ["all books", "this book"]}, "book": BOOK},
+          ["text"]),
+    _decl("recall_memories", "What you remember long-term about the author and their books, with ids. about: an "
+          "optional topic to look for.", {"about": S}),
+    _decl("forget_memory", "Delete one long-term memory by its id (from recall_memories or LONG-TERM MEMORY).",
+          {"memory_id": I}, ["memory_id"]),
     _decl("change_outline", "Change a chapter's title or outline, or add a new chapter.",
           {"book": BOOK, "chapter": {"type": "INTEGER", "description": "Chapter number; 0 adds a new chapter"},
            "title": S, "outline": S}, ["chapter"]),
@@ -122,7 +130,7 @@ DECLARATIONS = [
     _decl("change_setting", "Change one app setting. voice/jarvis_voice: a Gemini voice (" + ", ".join(GEMINI_VOICES)
           + "); edge_voice: a backup narrator; narration_speed: 0.5 to 3.0; dialogue_tags: how many times per "
           "chapter the narrator says 'said Tom' for each character before the voices alone show who is talking "
-          "(all = every time); wake_word and auto_mute: on/off; "
+          "(all = every time); wake_word, auto_mute and memory (learn from conversations): on/off; "
           "author: the author's name.",
           {"key": {"type": "STRING", "enum": list(SETTING_KEYS)}, "value": S}, ["key", "value"]),
     _decl("app_action", "Press a button in the app: mute_mic, unmute_mic, end_voice (hang up this voice chat), "
@@ -179,6 +187,7 @@ class ToolBox:
         self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
         self.upgrader = None  # set by the Studio
         self.director = None  # set by the Studio (voice cast)
+        self.memory = None  # set by the Studio (Jarvis's long-term memory)
         self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
         self._undo_ids = itertools.count(1)
 
@@ -200,6 +209,9 @@ class ToolBox:
             "cancel_job": ("stop", "cancel"),
             "play_audiobook": ("play", "listen", "audio", "read me", "narrat"),
             "stop_audiobook": ("stop", "pause", "audio"),
+            "remember": ("remember", "don't forget", "keep in mind", "memor"),
+            "recall_memories": ("remember", "memor", "know about me", "forget", "recall"),
+            "forget_memory": ("forget", "memor"),
             "reading_speed": ("faster", "slower", "speed", "slow down", "speed up", "quicker", "too fast",
                               "too slow", "normal speed"),
             "export_book": ("export", "docx", "epub", "word", "file", "mp3", "m4b", "audiobook"),
@@ -286,6 +298,8 @@ class ToolBox:
             args["expect"] = self.undo[-1]["id"]
         if decl["name"] == "set_voice":
             args.update(self._voice_change(args))
+        if decl["name"] == "forget_memory":
+            self.library.get_memory(args["memory_id"])
         if decl["name"] == "undo_upgrade" and not args.get("upgrade_id"):
             args["upgrade_id"] = self._upgrader().last_installed()["id"]
         return args
@@ -295,6 +309,9 @@ class ToolBox:
         book = args.get("book", "")
         extra = (args.get("instructions") or "").strip()
         extra = f" ({truncate_words(extra, 25)})" if extra else ""
+        if name == "forget_memory":
+            text = self.library.get_memory(args["memory_id"])["text"]
+            return f"Forget this memory: '{truncate_words(text, 30)}'"
         if name == "create_book":
             return f"Start a new book: {truncate_words(args.get('idea', ''), 25)}"
         if name == "write_chapters":
@@ -458,6 +475,37 @@ class ToolBox:
         note = self.library.add_note(book_id, text, source="jarvis")
         return {"saved": True, "note_id": note.id}
 
+    def _memory(self):
+        if self.memory is None:
+            raise NotFound("long-term memory is not available here")
+        return self.memory
+
+    def _t_remember(self, text: str, scope: str = "", book: str = "") -> dict:
+        memory = self._memory()
+        book_id = None
+        if scope == "this book" or book:
+            try:
+                book_id = self._book(book).id
+            except NotFound:
+                if book:
+                    raise
+        m = memory.remember(text, book_id)
+        if m["new"]:
+            self._push_undo(f"remembering '{truncate_words(m['text'], 10)}'", lambda: memory.forget(m["id"]))
+        return {"remembered": m["text"], "memory_id": m["id"], "scope": m["scope"]}
+
+    def _t_recall_memories(self, about: str = "") -> dict:
+        memory = self._memory()
+        found = memory.recall(about, None, k=25) if about.strip() else memory.all()[:40]
+        return {"memories": [{"id": m["id"], "text": m["text"], "scope": m["scope"], "pinned": m["pinned"]}
+                             for m in found], "total": len(self.library.list_memories())}
+
+    def _t_forget_memory(self, memory_id: int) -> dict:
+        memory = self._memory()
+        row = memory.forget(memory_id)
+        self._push_undo(f"forgetting '{truncate_words(row['text'], 10)}'", lambda: memory.restore(row))
+        return {"forgot": row["text"]}
+
     def _t_change_outline(self, chapter: int, title: str = "", outline: str = "", book: str = "") -> dict:
         b = self._book(book)
         if chapter <= 0:
@@ -592,7 +640,7 @@ class ToolBox:
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute"):
+        if key in ("wake_word", "auto_mute", "memory"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:

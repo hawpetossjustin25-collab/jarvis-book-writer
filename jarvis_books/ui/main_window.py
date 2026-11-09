@@ -223,16 +223,26 @@ class MainWindow(QMainWindow):
             "a book aloud use play_audiobook (character voices); if you quote a line yourself, say it exactly as " \
             "written.\nBooks: " + \
             ", ".join(f"'{b.title}'" for b in books[:30])
+        system += self._voice_memory(("chat", "voice"), self.studio.tools.current_book_id)
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
                            self.studio.tools.declarations(),
                            lambda name, args: self.studio.tools.call(name, args, source="voice"),
                            voice=self.studio.settings()["jarvis_voice"],
                            context_tokens=profile.context_window if profile else None, **callbacks)
 
+    def _voice_memory(self, channels: tuple, book_id, per_book: bool = False) -> str:
+        """What a new voice conversation starts with: the recent conversation and long-term memory."""
+        recent = self.studio.library.recent_messages(channels, 16, book_id=book_id if per_book else None)
+        text = ("\nThe conversation so far (text and voice):\n" + "\n".join(
+            f"{m.role}: {m.text[:600]}" for m in recent)) if recent else ""
+        remembered = self.studio.memory.prompt("", book_id)
+        return text + ("\n\n" + remembered if remembered else "")
+
     def _toggle_talk(self) -> None:
         if self.voice.active:
             self.voice.stop()
             self.talk_btn.setText("Talk to Jarvis")
+            self.studio.memory.schedule("voice", force=True)
             return
         if self.war_voice.active:
             self._war_toggle_talk()
@@ -279,13 +289,17 @@ class MainWindow(QMainWindow):
             self.talk_btn.setText("Talk to Jarvis")
             if self.voice.session is not None and state == "offline":
                 self.voice.stop()
+                self.studio.memory.schedule("voice", force=True)
 
     def _on_voice_transcript(self, role: str, text: str) -> None:
         self._hear_voice(role, text)
         if role == "turn":
-            for who, label in (("user", "You"), ("jarvis", "Jarvis")):
-                if self._voice_line[who].strip():
-                    self.voice_log.append(f"<b>{label}:</b> {html.escape(self._voice_line[who].strip())}")
+            for who, label, stored in (("user", "You", "user"), ("jarvis", "Jarvis", "assistant")):
+                line = self._voice_line[who].strip()
+                if line:
+                    self.voice_log.append(f"<b>{label}:</b> {html.escape(line)}")
+                    # saved, so Chat, the next voice chat and long-term memory all pick up from it
+                    self.studio.library.add_message("voice", stored, line, self.studio.tools.current_book_id)
                 self._voice_line[who] = ""
             return
         self._voice_line[role] = self._voice_line.get(role, "") + text
@@ -418,6 +432,8 @@ class MainWindow(QMainWindow):
              "jarvis_voice": self.jarvis_voice}[key].setCurrentText(value)
         elif key == "auto_mute":
             self.auto_mute_box.setChecked(value == "1")
+        elif key == "memory":
+            self.memory_box.setChecked(value == "1")
         elif key == "wake_word":
             self.wake_box.setChecked(value == "1")
         elif key == "dialogue_tags":
@@ -755,11 +771,9 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Pick a book first")
         self._war_session()
         book = self.studio.library.get_book(bid)
-        recent = self.studio.library.recent_messages("warroom", 16, book_id=bid)
         system = (prompts.ASSISTANT + "\n\n" + WAR_ROOM_GUIDE + "\n\nYou are speaking out loud; keep it "
                   "conversational and short unless asked for detail.\nThe book on the table: '" + book.title + "'."
-                  + ("\nThe conversation so far (text and voice):\n" + "\n".join(
-                      f"{m.role}: {m.text[:600]}" for m in recent) if recent else ""))
+                  + self._voice_memory(("warroom",), bid, per_book=True))
         tools = self.studio.war_tools
         profile = engine.profile(model)
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
@@ -770,6 +784,8 @@ class MainWindow(QMainWindow):
     def _war_toggle_talk(self) -> None:
         if self.war_voice.active:
             self.war_voice.stop()
+            if self._war_book_id():
+                self.studio.memory.schedule("warroom", self._war_book_id(), force=True)
             self.war_talk.setText("Talk to Jarvis")
             if self.wake_box.isChecked():
                 self.voice.enable_wake_word(True)
@@ -1522,6 +1538,26 @@ class MainWindow(QMainWindow):
         forget.clicked.connect(self.studio.gate.forget_allowances)
         lay.addWidget(forget)
         self._refresh_permissions()
+        lay.addWidget(QLabel("<b>What Jarvis remembers</b> (long-term memory from Chat, voice and the War Room; "
+                             "it stays on this laptop)"))
+        self.memory_box = QCheckBox("Learn from our conversations")
+        self.memory_box.setChecked(s["memory"] == "1")
+        self.memory_box.toggled.connect(lambda on: self.studio.set_setting("memory", "1" if on else "0"))
+        lay.addWidget(self.memory_box)
+        self.memory_list = QListWidget()
+        self.memory_list.setMaximumHeight(160)
+        lay.addWidget(self.memory_list)
+        mrow = QHBoxLayout()
+        self.memory_buttons = {}
+        for label, fn in (("Add...", self._memory_add), ("Edit...", self._memory_edit),
+                          ("Pin / unpin", self._memory_pin), ("Forget", self._memory_forget),
+                          ("Refresh", self._refresh_memories)):
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, f=fn: f())
+            mrow.addWidget(b)
+            self.memory_buttons[label] = b
+        lay.addLayout(mrow)
+        self._refresh_memories()
         lay.addWidget(QLabel("<b>App upgrades</b> (ask Jarvis, e.g. \"add a word-count goal\"; each is built "
                              "and tested on a copy first)"))
         self.upgrade_list = QListWidget()
@@ -1597,6 +1633,55 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.information(self, "Rollback", str(exc))
         self._refresh_settings()
+
+    # ---- long-term memory panel ----------------------------------------------------------------
+    def _refresh_memories(self) -> None:
+        current = self._selected_memory()
+        self.memory_list.clear()
+        for m in self.studio.memory.all():
+            item = QListWidgetItem(("[pinned] " if m["pinned"] else "") + f"[{m['scope']}] {m['text']}")
+            item.setData(Qt.ItemDataRole.UserRole, m["id"])
+            self.memory_list.addItem(item)
+            if m["id"] == current:
+                self.memory_list.setCurrentItem(item)
+
+    def _selected_memory(self):
+        item = self.memory_list.currentItem() if hasattr(self, "memory_list") else None
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _memory_add(self, text=None) -> None:
+        if text is None:
+            text, ok = QInputDialog.getText(self, "Remember", "What should Jarvis remember?")
+            if not ok:
+                return
+        if text.strip():
+            self.studio.memory.remember(text)
+            self._refresh_memories()
+
+    def _memory_edit(self, text=None) -> None:
+        mid = self._selected_memory()
+        if mid is None:
+            return
+        if text is None:
+            old = self.studio.library.get_memory(mid)["text"]
+            text, ok = QInputDialog.getText(self, "Edit memory", "Jarvis remembers:", text=old)
+            if not ok:
+                return
+        if text.strip():
+            self.studio.memory.edit(mid, text)
+            self._refresh_memories()
+
+    def _memory_pin(self) -> None:
+        mid = self._selected_memory()
+        if mid is not None:
+            self.studio.memory.toggle_pin(mid)
+            self._refresh_memories()
+
+    def _memory_forget(self) -> None:
+        mid = self._selected_memory()
+        if mid is not None:
+            self.studio.memory.forget(mid)
+            self._refresh_memories()
 
     def _refresh_settings(self) -> None:
         engine = self.studio.engine

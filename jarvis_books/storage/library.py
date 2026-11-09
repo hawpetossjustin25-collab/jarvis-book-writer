@@ -311,14 +311,132 @@ class Library:
                                  (book_id, channel, role, text, time.time())).lastrowid
         return Message.from_row(self.db.query_one("SELECT * FROM messages WHERE id=?", (msg_id,)))
 
-    def recent_messages(self, channel: str, limit: int = 30, book_id: str | None = None) -> list[Message]:
-        if book_id:
-            rows = self.db.query("SELECT * FROM messages WHERE channel=? AND book_id=? ORDER BY id DESC LIMIT ?",
-                                 (channel, book_id, int(limit)))
-        else:
-            rows = self.db.query("SELECT * FROM messages WHERE channel=? ORDER BY id DESC LIMIT ?",
-                                 (channel, int(limit)))
+    def recent_messages(self, channel: str | tuple, limit: int = 30, book_id: str | None = None) -> list[Message]:
+        """The newest messages, oldest first. channel may be several channels (one conversation across them)."""
+        channels = (channel,) if isinstance(channel, str) else tuple(channel)
+        where = f"channel IN ({','.join('?' * len(channels))})" + (" AND book_id=?" if book_id else "")
+        params = channels + ((book_id,) if book_id else ())
+        rows = self.db.query(f"SELECT * FROM messages WHERE {where} ORDER BY id DESC LIMIT ?", (*params, int(limit)))
         return [Message.from_row(r) for r in reversed(rows)]
+
+    def messages_after(self, channel: str, after_id: int, book_id: str | None = None,
+                       limit: int = 200) -> list[Message]:
+        where, params = ("AND book_id=?", (book_id,)) if book_id else ("", ())
+        rows = self.db.query(f"SELECT * FROM messages WHERE channel=? AND id>? {where} ORDER BY id LIMIT ?",
+                             (channel, int(after_id), *params, int(limit)))
+        return [Message.from_row(r) for r in rows]
+
+    def message_books(self, channel: str) -> list[str]:
+        return [r[0] for r in self.db.query("SELECT DISTINCT book_id FROM messages WHERE channel=? AND book_id "
+                                            "IS NOT NULL", (channel,))]
+
+    # ---- Jarvis's long-term memory -----------------------------------------------
+    MEMORY_COLUMNS = "id, book_id, kind, text, source, importance, pinned, created_at, updated_at"
+
+    @staticmethod
+    def _memory(row) -> dict:
+        d = dict(row)
+        d["pinned"] = bool(d["pinned"])
+        return d
+
+    def add_memory(self, text: str, kind: str = "fact", book_id: str | None = None, source: str = "jarvis",
+                   importance: int = 2, pinned: bool = False) -> dict:
+        text = " ".join(str(text or "").split())
+        if not text:
+            raise ValidationError("a memory needs some text")
+        if len(text) > 1000:
+            raise ValidationError("a memory must be under 1000 characters")
+        if book_id:
+            self.get_book(book_id)
+        now = time.time()
+        memory_id = self.db.execute(
+            "INSERT INTO memories (book_id, kind, text, source, importance, pinned, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)", (book_id or None, kind, text, source, max(1, min(3, int(importance))),
+                                         int(bool(pinned)), now, now)).lastrowid
+        return self.get_memory(memory_id)
+
+    def get_memory(self, memory_id: int) -> dict:
+        row = self.db.query_one(f"SELECT {self.MEMORY_COLUMNS} FROM memories WHERE id=?", (int(memory_id),))
+        if row is None:
+            raise NotFound(f"no memory #{memory_id}")
+        return self._memory(row)
+
+    def list_memories(self, book_id: str | None = None, only_scope: bool = False) -> list[dict]:
+        """Every memory (book_id None), or the all-books memories plus one book's. only_scope: just that scope."""
+        if only_scope:
+            where, params = ("book_id=?", (book_id,)) if book_id else ("book_id IS NULL", ())
+        elif book_id:
+            where, params = "book_id IS NULL OR book_id=?", (book_id,)
+        else:
+            where, params = "1", ()
+        rows = self.db.query(f"SELECT {self.MEMORY_COLUMNS} FROM memories WHERE {where} "
+                             "ORDER BY pinned DESC, updated_at DESC, id DESC", params)
+        return [self._memory(r) for r in rows]
+
+    def update_memory(self, memory_id: int, **fields: Any) -> dict:
+        allowed = {"text", "kind", "importance", "pinned", "source"}
+        bad = set(fields) - allowed
+        if bad:
+            raise ValidationError(f"cannot change {', '.join(sorted(bad))} of a memory")
+        self.get_memory(memory_id)
+        if "text" in fields:
+            fields["text"] = " ".join(str(fields["text"] or "").split())
+            if not fields["text"] or len(fields["text"]) > 1000:
+                raise ValidationError("a memory needs 1 to 1000 characters")
+        if "importance" in fields:
+            fields["importance"] = max(1, min(3, int(fields["importance"])))
+        if "pinned" in fields:
+            fields["pinned"] = int(bool(fields["pinned"]))
+        sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=?" + (", embedding=NULL, embed_model=NULL"
+                                                                          if "text" in fields else "")
+        self.db.execute(f"UPDATE memories SET {sets} WHERE id=?", (*fields.values(), time.time(), int(memory_id)))
+        return self.get_memory(memory_id)
+
+    def delete_memory(self, memory_id: int) -> dict:
+        row = self.get_memory(memory_id)
+        self.db.execute("DELETE FROM memories WHERE id=?", (int(memory_id),))
+        return row
+
+    def memory_embeddings(self, ids: list[int] | None = None) -> list:
+        if ids is None:
+            return self.db.query("SELECT id, text, embedding, embed_model FROM memories")
+        if not ids:
+            return []
+        return self.db.query(f"SELECT id, text, embedding, embed_model FROM memories WHERE id IN "
+                             f"({','.join('?' * len(ids))})", tuple(ids))
+
+    def set_memory_embeddings(self, pairs: list[tuple[int, bytes]], model: str) -> None:
+        with self.db.transaction() as conn:
+            for memory_id, blob in pairs:
+                conn.execute("UPDATE memories SET embedding=?, embed_model=? WHERE id=?", (blob, model, memory_id))
+
+    def prune_memories(self, keep: int) -> int:
+        """Keep at most `keep` unpinned memories, dropping the least important and oldest."""
+        extra = self.db.query_one("SELECT COUNT(*) FROM memories WHERE pinned=0")[0] - int(keep)
+        if extra <= 0:
+            return 0
+        self.db.execute("DELETE FROM memories WHERE id IN (SELECT id FROM memories WHERE pinned=0 "
+                        "ORDER BY importance, updated_at LIMIT ?)", (extra,))
+        return extra
+
+    def add_conversation_summary(self, channel: str, book_id: str | None, first_id: int, last_id: int,
+                                 summary: str) -> int:
+        return self.db.execute(
+            "INSERT INTO conversation_summaries (channel, book_id, first_message_id, last_message_id, summary, "
+            "created_at) VALUES (?,?,?,?,?,?)", (channel, book_id, int(first_id), int(last_id), summary,
+                                                 time.time())).lastrowid
+
+    def last_summarized_id(self, channel: str, book_id: str | None = None) -> int:
+        where, params = ("AND book_id=?", (book_id,)) if book_id else ("", ())
+        row = self.db.query_one(f"SELECT MAX(last_message_id) FROM conversation_summaries WHERE channel=? {where}",
+                                (channel, *params))
+        return int(row[0] or 0)
+
+    def conversation_summaries(self, book_id: str | None = None, limit: int = 4) -> list[dict]:
+        where, params = ("AND (book_id IS NULL OR book_id=?)", (book_id,)) if book_id else ("", ())
+        rows = self.db.query(f"SELECT * FROM conversation_summaries WHERE summary<>'' {where} "
+                             "ORDER BY id DESC LIMIT ?", (*params, int(limit)))
+        return [dict(r) for r in rows]
 
     # ---- audiobook playback position -----------------------------------------
     def get_playback(self, book_id: str) -> Playback | None:

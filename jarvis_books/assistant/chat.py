@@ -17,18 +17,20 @@ MAX_TOOL_ROUNDS = 6
 
 class Assistant:
     def __init__(self, engine, library: Library, tools: ToolBox, channel: str = "chat", guide: str = "",
-                 per_book: bool = False):
+                 per_book: bool = False, history_channels: tuple = ()):
         self.engine = engine
         self.library = library
         self.tools = tools
         self.channel = channel
         self.guide = guide  # extra instructions for this room (e.g. the War Room)
         self.per_book = per_book  # keep a separate conversation per book
+        self.history_channels = tuple(history_channels) or (channel,)  # e.g. chat and voice are one conversation
+        self.memory = None  # Jarvis's long-term memory (set by the Studio)
 
     def _history(self) -> list[dict]:
         config = self.engine.get_runtime_configuration()
         book_id = self.tools.current_book_id if self.per_book else None
-        msgs = self.library.recent_messages(self.channel, limit=config.history_turns, book_id=book_id)
+        msgs = self.library.recent_messages(self.history_channels, limit=config.history_turns, book_id=book_id)
         return [{"role": "user" if m.role == "user" else "model", "parts": [{"text": m.text}]} for m in msgs]
 
     def _situation(self) -> str:
@@ -47,6 +49,9 @@ class Assistant:
 
     def send(self, text: str, on_tool: Optional[Callable[[str, dict, dict], None]] = None) -> str:
         """Send one user message; runs tool calls until Gemini answers in text. Returns the reply."""
+        key_book = self.tools.current_book_id if self.per_book else None
+        if self.memory is not None:  # a conversation that went quiet is learned from before this one goes on
+            self.memory.schedule(self.channel, key_book)
         history = self._history()
         self.library.add_message(self.channel, "user", text, self.tools.current_book_id)
         tools = self.tools.select(text)
@@ -54,6 +59,9 @@ class Assistant:
         model_text = text + ("\n\n" + outcome_note(answered) if answered else "")
         contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
         system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "") + "\n\n" + self._situation()
+        remembered = self.memory.prompt(text, self.tools.current_book_id) if self.memory is not None else ""
+        if remembered:
+            system += "\n\n" + remembered
         reply = ""
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
@@ -72,6 +80,8 @@ class Assistant:
         else:
             reply = "I ran out of steps working on that. Could you say it a different way?"
         self.library.add_message(self.channel, "assistant", reply or "(done)", self.tools.current_book_id)
+        if self.memory is not None:
+            self.memory.schedule(self.channel, key_book)
         return reply
 
 

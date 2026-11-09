@@ -18,6 +18,7 @@ from jarvis_books.llm.engine import AdaptiveLLMEngine
 from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
+from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
 from jarvis_books.publish.service import Publisher
 from jarvis_books.storage.capacity import CapacityMonitor
@@ -56,7 +57,7 @@ class Studio:
         self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
-        self.assistant = Assistant(self.engine, self.library, self.tools)
+        self.assistant = Assistant(self.engine, self.library, self.tools, history_channels=("chat", "voice"))
         self.warroom = WarRoom(self.library, self.engine, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
@@ -73,6 +74,9 @@ class Studio:
         self.narrator.director = self.director
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
+        self.memory = JarvisMemory(self.library, self.engine, self.settings)
+        self.tools.memory = self.war_tools.memory = self.memory
+        self.assistant.memory = self.war_assistant.memory = self.memory
         self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.ready = threading.Event()
@@ -82,7 +86,7 @@ class Studio:
     # ---- settings (non-secret, stored in the library meta table) ---------------------
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
-                "auto_mute": "1", "dialogue_tags": "3"}
+                "auto_mute": "1", "dialogue_tags": "3", "memory": "1"}
 
     def settings(self) -> dict:
         return {k: self.library.get_meta(f"setting.{k}", v) for k, v in self.DEFAULTS.items()}
@@ -114,6 +118,8 @@ class Studio:
                 log.exception("engine start failed")
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
+        if self.engine is not None and not self.start_error:
+            self.memory.catch_up()
         if probe and self.engine is not None and not self.start_error:
             self.engine.refine()
 
@@ -122,7 +128,8 @@ class Studio:
         save_key(key, self.home)
         self.client = GeminiClient(key)
         self.engine = AdaptiveLLMEngine(self.client, EngineStore(self.home / "adaptive_llm.db"))
-        for obj in (self.index, self.writer, self.assistant, self.narrator, self.director):
+        for obj in (self.index, self.writer, self.assistant, self.war_assistant, self.warroom, self.narrator,
+                    self.director, self.memory, self.upgrader):
             obj.engine = self.engine
         self.start_error = None
         self.engine.initialize(probe=False)
@@ -154,6 +161,7 @@ class Studio:
         return {"saved": str(path)}
 
     def close(self) -> None:
+        self.memory.shutdown()
         self.jobs.shutdown(wait=False)
         self.mirror.stop()
         try:
