@@ -266,4 +266,5 @@ class VoiceBridge(QObject):
         if n > 0:
             written = self.sink_io.write(bytes(self._out[:n]))
             if written and written > 0:
+                self.gate.played(bytes(self._out[:written]))
                 del self._out[:written]
