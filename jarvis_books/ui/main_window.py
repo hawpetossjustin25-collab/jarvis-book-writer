@@ -415,6 +415,8 @@ class MainWindow(QMainWindow):
             self.auto_mute_box.setChecked(value == "1")
         elif key == "wake_word":
             self.wake_box.setChecked(value == "1")
+        elif key == "dialogue_tags":
+            self.tag_limit.setValue(int(value))
         elif key == "narration_speed":
             rate = float(value)
             if self.speed.findData(rate) < 0:
@@ -1304,6 +1306,16 @@ class MainWindow(QMainWindow):
         self.player.set_volume(0.8)
         row2.addWidget(vol, 1)
         lay.addLayout(row2)
+        trow = QHBoxLayout()
+        trow.addWidget(QLabel("Read \u201csaid Tom\u201d up to"))
+        self.tag_limit = QSpinBox()
+        self.tag_limit.setRange(0, 99)
+        self.tag_limit.setValue(int(self.studio.settings()["dialogue_tags"]))
+        self.tag_limit.setSpecialValueText("never")
+        self.tag_limit.valueChanged.connect(lambda v: self.studio.set_setting("dialogue_tags", str(v)))
+        trow.addWidget(self.tag_limit)
+        trow.addWidget(QLabel("times per character per chapter, then let the voices show who is talking"), 1)
+        lay.addLayout(trow)
         vrow = QHBoxLayout()
         vrow.addWidget(QLabel("<b>Voices</b> (the narrator reads the story, each character speaks their own lines)"), 1)
         self.cast_button = QPushButton("Find characters and give them voices")

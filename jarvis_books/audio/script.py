@@ -108,6 +108,50 @@ def merge_lines(spans: list[tuple[str, str]], speakers: dict[int, tuple[str, str
     return [Line(ln.speaker, ln.text.strip(), ln.style) for ln in lines if ln.text.strip()]
 
 
+_SPEECH = (r"said|says|asked|asks|whispered|whispers|replied|replies|answered|shouted|yelled|called|cried|"
+           r"muttered|murmured|added|continued|snapped|told|begged|demanded|insisted|growled|hissed|breathed|"
+           r"admitted|agreed|warned|explained|began|went on|repeated|protested|stammered|teased|offered|pleaded|"
+           r"screamed|barked|grumbled|whimpered|mumbled|corrected|announced|declared|exclaimed|responded|spoke")
+_WHO = r"(?:(?i:he|she|they|I|we|you|it|the\s+[a-z]+(?:\s+[a-z]+)?)|[A-Z][\w'\u2019-]*(?:\s+[A-Z][\w'\u2019-]*){0,2})"
+_TO = r"(?:\s+(?i:to|at)\s+(?:(?i:him|her|them|me|us|you|the\s+[a-z]+)|[A-Z][\w'\u2019-]*))?"
+_TAG = re.compile(rf"^[\s,.;:\u2014\u2013-]*(?:(?i:{_SPEECH})\s+{_WHO}|{_WHO}\s+(?i:{_SPEECH}))"
+                  rf"(?:\s+(?i:[a-z]+ly))?{_TO}(?:\s+(?i:[a-z]+ly))?[\s,.!?;:\u2014\u2013-]*$")
+
+
+def is_plain_tag(text: str) -> bool:
+    """True for a bare speech tag ('said Tom.', 'she whispered softly,') that only tells who is talking."""
+    return bool(_TAG.match(text or ""))
+
+
+def trim_tags(passages: list[list[Line]], limit: int = 3, counts: Optional[dict] = None) -> list[list[Line]]:
+    """Narrate only each character's first `limit` bare speech tags; after that the voices say who is talking.
+
+    Only the audio changes: tags with action in them ('Lily asked, wide-eyed') are always read, and the book's
+    text is never touched. `counts` carries on between calls (one chapter = one count).
+    """
+    counts = {} if counts is None else counts
+    out = []
+    for lines in passages:
+        kept: list[Line] = []
+        for i, ln in enumerate(lines):
+            if ln.speaker == NARRATOR and is_plain_tag(ln.text):
+                prev = lines[i - 1].speaker if i > 0 else NARRATOR
+                nxt = lines[i + 1].speaker if i + 1 < len(lines) else NARRATOR
+                post = ln.text[:1].islower() or ln.text[:1] in ",;\u2014\u2013-"
+                who = prev if prev != NARRATOR and (post or nxt == NARRATOR) else nxt
+                if who != NARRATOR:
+                    counts[who] = counts.get(who, 0) + 1
+                    if counts[who] > limit:
+                        continue
+            if kept and kept[-1].speaker == ln.speaker != NARRATOR and kept[-1].style == ln.style \
+                    and i > 0 and lines[i - 1].speaker == NARRATOR:  # a dropped tag joined two pieces of one speech
+                kept[-1] = Line(ln.speaker, f"{kept[-1].text} {ln.text}", ln.style)
+                continue
+            kept.append(ln)
+        out.append(kept)
+    return out
+
+
 class VoiceDirector:
     """Keeps each book's voice cast and turns passages into narrator/character lines."""
 
@@ -214,6 +258,20 @@ class VoiceDirector:
             who = self._resolve(book_id, item.get("speaker", "")) or NARRATOR
             speakers[int(item["n"])] = (who, _clean_style(item.get("style", "")) if who != NARRATOR else "")
         return merge_lines(spans, speakers)
+
+    def tag_limit(self) -> int:
+        try:
+            return max(0, int(self.settings().get("dialogue_tags", 3)))
+        except (TypeError, ValueError):
+            return 3
+
+    def chapter_lines(self, book_id: str, passages: list[str]) -> list[list[Line]]:
+        """Lines for every passage of one chapter, with repeated 'said Tom' tags left to the voices."""
+        scripted, before = [], ""
+        for text in passages:
+            scripted.append(self.script(book_id, text, before))
+            before = text
+        return trim_tags(scripted, self.tag_limit())
 
     def _label(self, book_id: str, spans: list[tuple[str, str]], before: str) -> list[dict]:
         marked, n = [], 0

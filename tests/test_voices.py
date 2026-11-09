@@ -1,7 +1,7 @@
 """Multi-voice narration, stage 1: who says each line, and a voice cast with a narrator per book."""
 import json
 
-from jarvis_books.audio.script import VoiceDirector, merge_lines, split_spans
+from jarvis_books.audio.script import Line, VoiceDirector, is_plain_tag, merge_lines, split_spans, trim_tags
 from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, assign_voices, default_style, parse_edge_voice,
                                        who)
 from jarvis_books.llm.errors import LLMError
@@ -166,3 +166,60 @@ def test_voice_tools_ask_first_and_undo(library, make_engine, tmp_path):
         assert {"voice_cast", "set_voice"} <= {d["name"] for d in t.select("make the narrator sound deeper")}
     finally:
         studio.close()
+
+
+def test_plain_speech_tags_are_recognised():
+    for tag in ("said Tom.", "she whispered,", "Tom said quietly.", "asked Captain Reyes", ", the captain replied.",
+                "he said to her.", "Lily muttered at Tom."):
+        assert is_plain_tag(tag), tag
+    for not_tag in ("Lily asked, wide-eyed.", "Tom said nothing for a long time.", "The ship creaked.",
+                    "He laughed.", "said Tom, slamming the door."):
+        assert not is_plain_tag(not_tag), not_tag
+
+
+TOM_SCENE = "".join(f'"Line {i}," said Tom. ' for i in range(1, 6)) + '"Six." Tom grabbed the rope, said Tom.'
+
+
+def test_said_tom_is_read_only_three_times_then_voices_carry_it():
+    spans = split_spans(TOM_SCENE)
+    q = sum(1 for k, _ in spans if k == "quote")
+    lines = merge_lines(spans, {i: ("Tom", "") for i in range(1, q + 1)})
+    [trimmed] = trim_tags([lines], limit=3)
+    tags = [ln.text for ln in trimmed if ln.speaker == NARRATOR]
+    assert tags.count("said Tom.") == 3
+    assert "Tom grabbed the rope, said Tom." in tags  # tags with action are always read
+    spoken = [ln.text for ln in trimmed if ln.speaker == "Tom"]
+    assert '"Line 4," "Line 5," "Six."' in spoken  # one speech once the tags between are gone
+    [everything] = trim_tags([lines], limit=99)
+    assert everything == lines
+
+
+def test_tag_count_carries_across_passages_but_restarts_each_chapter(library, make_engine):
+    d, book, _ = make(library, make_engine)
+    counts = {}
+    one = [Line("Tom", '"Hi,"'), Line(NARRATOR, "said Tom."), Line("Tom", '"Again."')]
+    passages = trim_tags([one, one, one, one], limit=3, counts=counts)
+    assert [any(ln.text == "said Tom." for ln in p) for p in passages] == [True, True, True, False]
+    assert counts["Tom"] == 4
+    d.settings = lambda: {**SETTINGS, "dialogue_tags": "1"}
+    assert d.tag_limit() == 1
+
+
+def test_chapter_lines_drop_repeated_tags_in_audio_only(library, make_engine):
+    labels = {"quotes": [{"n": 1, "speaker": "Lily"}, {"n": 2, "speaker": "Lily"}]}
+    d, book, _ = make(library, make_engine, labels=labels)
+    library.upsert_cast_member(book.id, "Lily", gender="female", age="child")
+    passage = '"Hello," said Lily. "Hello again," said Lily.'
+    d.settings = lambda: {**SETTINGS, "dialogue_tags": "1"}
+    [lines] = d.chapter_lines(book.id, [passage])
+    assert [ln.text for ln in lines if ln.speaker == NARRATOR] == ["said Lily."]
+    assert passage.count("said Lily") == 2  # the book itself is unchanged
+
+
+def test_dialogue_tags_setting_values():
+    from jarvis_books.assistant.tools import ToolBox
+    assert ToolBox._setting_value("dialogue_tags", "all") == "99"
+    assert ToolBox._setting_value("dialogue_tags", "3") == "3"
+    import pytest
+    with pytest.raises(ValueError):
+        ToolBox._setting_value("dialogue_tags", "lots")

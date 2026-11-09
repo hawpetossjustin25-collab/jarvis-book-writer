@@ -40,7 +40,8 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish")
-SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute")
+SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
+                "dialogue_tags")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
 _ON = {"1", "on", "true", "yes", "enable", "enabled"}
@@ -109,7 +110,9 @@ DECLARATIONS = [
     _decl("get_settings", "The app's settings: audiobook narrator voice, backup narrator, Jarvis voice, author "
           "name, Hey Jarvis wake word, narration speed, auto-mute while Jarvis talks."),
     _decl("change_setting", "Change one app setting. voice/jarvis_voice: a Gemini voice (" + ", ".join(GEMINI_VOICES)
-          + "); edge_voice: a backup narrator; narration_speed: 0.5 to 2.0; wake_word and auto_mute: on/off; "
+          + "); edge_voice: a backup narrator; narration_speed: 0.5 to 2.0; dialogue_tags: how many times per "
+          "chapter the narrator says 'said Tom' for each character before the voices alone show who is talking "
+          "(all = every time); wake_word and auto_mute: on/off; "
           "author: the author's name.",
           {"key": {"type": "STRING", "enum": list(SETTING_KEYS)}, "value": S}, ["key", "value"]),
     _decl("app_action", "Press a button in the app: mute_mic, unmute_mic, end_voice (hang up this voice chat), "
@@ -583,6 +586,12 @@ class ToolBox:
             if v.lower() in _OFF:
                 return "0"
             raise ValueError(f"{key} must be on or off")
+        if key == "dialogue_tags":
+            if v.lower() in ("all", "always", "every time", "unlimited"):
+                return "99"
+            if not v.isdigit() or int(v) > 99:
+                raise ValueError("dialogue_tags must be a number from 0 to 99, or 'all'")
+            return str(int(v))
         if key == "narration_speed":
             try:
                 rate = float(v.lower().rstrip("x"))

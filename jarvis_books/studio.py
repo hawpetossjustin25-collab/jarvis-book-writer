@@ -81,7 +81,7 @@ class Studio:
     # ---- settings (non-secret, stored in the library meta table) ---------------------
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
-                "auto_mute": "1"}
+                "auto_mute": "1", "dialogue_tags": "3"}
 
     def settings(self) -> dict:
         return {k: self.library.get_meta(f"setting.{k}", v) for k, v in self.DEFAULTS.items()}
