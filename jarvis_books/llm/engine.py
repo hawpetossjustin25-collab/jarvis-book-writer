@@ -35,13 +35,14 @@ TUNABLE = ("memory_budget_tokens", "history_turns", "words_per_call", "scene_wor
 class AdaptiveLLMEngine:
     def __init__(self, client: GeminiClient, store: EngineStore, policy: Optional[EnginePolicy] = None,
                  hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
-                 sleep: Callable[[float], None] = time.sleep, evaluate_every: int = 5):
+                 sleep: Callable[[float], None] = time.sleep, evaluate_every: int = 5,
+                 clock: Callable[[], float] = time.time):
         self.client = client
         self.store = store
         self.policy = policy or EnginePolicy()
         self.hardware_probe = hardware_probe
         self.sleep = sleep
-        self.limiter = RateLimiter(store, self.policy, sleep=sleep)
+        self.limiter = RateLimiter(store, self.policy, clock=clock, sleep=sleep)
         self.monitor = RuntimeMonitor(store)
         self.controller = AdaptationController(self.monitor, self.policy)
         self.evaluate_every = max(1, evaluate_every)
