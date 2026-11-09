@@ -452,32 +452,39 @@ class AdaptiveLLMEngine:
 
     def _speech(self, call) -> bytes:
         config = self.get_runtime_configuration()
-        reasons = []
-        for model in config.routes.get("tts", ()):
-            if self.limiter.blocked_reason(model):
-                reasons.append(self.limiter.blocked_reason(model))
-                continue
-            if not self.limiter.acquire(model, max_wait_s=65):
-                reasons.append(f"{model} busy")
-                continue
-            start = time.perf_counter()
-            try:
-                audio = call(model)
-            except LLMError as exc:
-                self.record_result(model_id=model, role="tts", ok=0, error_kind=exc.kind,
-                                   latency_s=time.perf_counter() - start, config_version=config.version)
-                if exc.kind in ("rate", "quota", "unavailable"):
-                    self.limiter.on_quota_error(model, exc.retry_after_s, exc.quota_id, exc.quota_value,
-                                                unavailable=exc.kind == "unavailable")
-                    reasons.append(f"{model}: {exc.kind}")
+        reasons, tried = [], set()
+        # First pass takes any model with a free slot right now; only when all are busy wait for a slot.
+        for wait_s in (0.0, 65.0):
+            for model in config.routes.get("tts", ()):
+                if model in tried:
                     continue
-                if exc.kind == "invalid":  # this model does not take this kind of request; another may
-                    reasons.append(f"{model}: {str(exc)[:80]}")
+                if self.limiter.blocked_reason(model):
+                    reasons.append(self.limiter.blocked_reason(model))
+                    tried.add(model)
                     continue
-                raise
-            self.record_result(model_id=model, role="tts", ok=1, latency_s=time.perf_counter() - start,
-                               config_version=config.version)
-            return audio
+                if not self.limiter.acquire(model, max_wait_s=wait_s):
+                    if wait_s:
+                        reasons.append(f"{model} busy")
+                    continue
+                tried.add(model)
+                start = time.perf_counter()
+                try:
+                    audio = call(model)
+                except LLMError as exc:
+                    self.record_result(model_id=model, role="tts", ok=0, error_kind=exc.kind,
+                                       latency_s=time.perf_counter() - start, config_version=config.version)
+                    if exc.kind in ("rate", "quota", "unavailable"):
+                        self.limiter.on_quota_error(model, exc.retry_after_s, exc.quota_id, exc.quota_value,
+                                                    unavailable=exc.kind == "unavailable")
+                        reasons.append(f"{model}: {exc.kind}")
+                        continue
+                    if exc.kind in ("invalid", "invalid_output"):  # this model can't do this request; another may
+                        reasons.append(f"{model}: {str(exc)[:80]}")
+                        continue
+                    raise
+                self.record_result(model_id=model, role="tts", ok=1, latency_s=time.perf_counter() - start,
+                                   config_version=config.version)
+                return audio
         raise NoModelAvailable("tts", reasons or ["no speech model available"])
 
     def live_model(self) -> Optional[str]:

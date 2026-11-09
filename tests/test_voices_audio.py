@@ -197,3 +197,41 @@ def test_speech_routing_moves_on_when_a_model_rejects_the_request(make_engine):
     routes["tts"] = (list(routes["tts"]) + ["gemini-2.5-flash-preview-tts"])[:2]
     assert engine.tts_multi("A: x\nB: y", [("A", "Kore"), ("B", "Puck")])[:4] == b"RIFF"
     assert len(tried) == len(set(tried)) == 2
+
+
+def test_stray_punctuation_is_not_sent_and_backup_errors_are_reported(setup, monkeypatch):
+    seen = []
+
+    def edge(text, voice):
+        seen.append(text)
+        if voice == "en-US-AnaNeural":
+            raise RuntimeError("No audio was received")
+        return b"ID3x"
+    narrator, book, fake = setup('"Is he back?", "Yes."', {"quotes": [{"n": 1, "speaker": "Lily"},
+                                                                     {"n": 2, "speaker": "Lily"}]}, edge=edge)
+
+    def no_quota(*a, **k):
+        raise LLMError("quota", kind="quota")
+    monkeypatch.setattr(narrator.engine, "tts_multi", no_quota)
+    monkeypatch.setattr(narrator.engine, "tts", no_quota)
+    with pytest.raises(LLMError):
+        narrator.ensure(narrator.book_segments(book.id)[1])
+    assert seen and all(any(c.isalnum() for c in t) for t in seen)
+
+
+def test_speech_uses_a_free_model_before_waiting_for_a_busy_one(make_engine, monkeypatch):
+    fake = FakeGemini()
+    engine = make_engine(fake)
+    routes = engine.get_runtime_configuration().routes
+    routes["tts"] = (list(routes["tts"]) + ["gemini-2.5-flash-preview-tts"])[:2]
+    busy, free = routes["tts"]
+    waits = []
+
+    def acquire(model, max_wait_s=65.0):
+        waits.append((model, max_wait_s))
+        return model == free
+    monkeypatch.setattr(engine.limiter, "acquire", acquire)
+    used = []
+    fake.tts = lambda model, *a, **k: used.append(model) or pcm_to_wav(b"\x00\x00")
+    engine.tts("hello", "Kore")
+    assert used == [free] and waits == [(busy, 0.0), (free, 0.0)]

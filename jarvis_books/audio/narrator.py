@@ -130,7 +130,7 @@ class Narrator:
         self.style = style
         self.passage_words = passage_words
         self.edge_fallback = edge_fallback
-        self._edge = edge_synth
+        self._edge_synth = edge_synth
         self._locks: dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
         self.last_backend = ""
@@ -160,6 +160,14 @@ class Narrator:
         return out
 
     # ---- synthesis + cache -------------------------------------------------------------
+    def _edge(self, text: str, voice: str) -> bytes:
+        try:
+            return self._edge_synth(text, voice)
+        except LLMError:
+            raise
+        except Exception as exc:  # network trouble or a voice Edge doesn't know
+            raise LLMError(f"backup voice {voice} failed: {exc}", kind="unavailable") from exc
+
     def _plan(self, segment: Segment, offline: bool) -> Optional[dict]:
         """How a passage is voiced and the cache keys for it. None when its dialogue is not labelled yet."""
         voice, edge_voice = self.voice, self.edge_voice
@@ -287,7 +295,8 @@ class Narrator:
 
     def _synthesize_cast(self, plan: dict) -> tuple[bytes, str, str]:
         gemini_key, *rest = plan["keys"]
-        lines, cast = plan["lines"], plan["cast"]
+        cast = plan["cast"]
+        lines = [ln for ln in plan["lines"] if re.search(r"\w", speech_text(ln))]  # skip stray ', ' or '.'
         try:
             chunks = chunk_lines(lines)
             if len(chunks) == 1:
