@@ -20,7 +20,7 @@ from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
-from jarvis_books.ui.workers import Bridge, run_async
+from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
 from jarvis_books.voice.live import LiveSession
 from jarvis_books.writer import prompts
 
@@ -798,5 +798,6 @@ class MainWindow(QMainWindow):
         self.player.stop()
         self.voice.enable_wake_word(False)
         self.voice.stop()
+        wait_for_tasks()
         self.studio.close()
         super().closeEvent(event)
