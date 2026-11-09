@@ -85,6 +85,7 @@ class VoiceBridge(QObject):
     transcript = pyqtSignal(str, str)
     tool_used = pyqtSignal(str, str)
     level = pyqtSignal(float)
+    external_barge = pyqtSignal()  # the user talked over the audiobook: the window pauses it
     _audio_in = pyqtSignal(bytes)
     _interrupt = pyqtSignal()
     _state_in = pyqtSignal(str)
@@ -101,6 +102,7 @@ class VoiceBridge(QObject):
         self.wake: Optional[WakeWord] = None
         self.wake_error = ""
         self.muted = False
+        self.external_playing = lambda: False  # other app audio (the audiobook) is playing out loud
         self.gate = DuplexGate(IN_RATE)
         self.aec = EchoCanceller.create(IN_RATE, OUT_RATE)
         self._turn_open = False  # Jarvis audio for the current answer is still arriving
@@ -236,19 +238,30 @@ class VoiceBridge(QObject):
             peak = max((abs(s) for s in samples[::8]), default=0)
             self.level.emit(min(1.0, peak / 12000))
         if self.session is not None:
-            self.gate.set_playing(self._is_playing(), time.monotonic())
-            if not self.muted:
-                out, barged = self.gate.feed(data)
-                if barged:
-                    self._barge_in()
-                if out:
-                    self.session.send_audio(out)
+            self._route_mic(data, time.monotonic())
         elif self.wake is not None and self.wake.feed(data):
             try:
                 self.start()
                 self.session.send_text("(The user just said 'Hey Jarvis'. Greet them briefly.)")
             except Exception as exc:
                 self.state.emit(f"error: {exc}")
+
+    def _route_mic(self, data: bytes, now: float) -> None:
+        """Send the mic to Gemini, holding it back while Jarvis or the audiobook is playing out loud."""
+        jarvis = self._is_playing()
+        book = not jarvis and bool(self.external_playing())
+        self.gate.set_playing(jarvis or book, now)
+        if self.muted:
+            return
+        out, barged = self.gate.feed(data)
+        if barged:
+            if book:
+                self.external_barge.emit()
+                self.state.emit("listening")
+            else:
+                self._barge_in()
+        if out:
+            self.session.send_audio(out)
 
     def _queue_audio(self, pcm: bytes) -> None:
         if self._drop_turn:

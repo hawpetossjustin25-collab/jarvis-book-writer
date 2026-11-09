@@ -278,3 +278,27 @@ def test_app_controls_need_the_window(box):
     assert tools.call("app_action", {"action": "mute_mic"}) == {"ok": True}
     status = tools.call("app_status")
     assert status["books"] == 1 and status["open_book"] == "Midnight Rings" and status["ok"]
+
+
+def test_reading_speed_changes_straight_away_and_can_be_undone(box):
+    from jarvis_books.assistant.tools import step_speed
+    tools, gate, clock, b = box
+    tools.settings_store = store = FakeSettings()
+    assert level_of("reading_speed") == "safe"
+    assert tools.call("reading_speed", {"change": "faster"})["speed"] == "1.1x" and gate.pending is None
+    assert store.values["narration_speed"] == "1.1"
+    tools.call("reading_speed", {"change": "slower"})
+    tools.call("reading_speed", {"change": "slower"})
+    assert store.values["narration_speed"] == "0.9"
+    tools.call("reading_speed", {"change": "2.5x"})
+    assert store.values["narration_speed"] == "2.5"
+    tools.call("reading_speed", {"change": "normal"})
+    assert store.values["narration_speed"] == "1.0"
+    assert "must be" in tools.call("reading_speed", {"change": "9"})["error"]
+    store.values["narration_speed"] = "3.0"
+    assert "fastest" in tools.call("reading_speed", {"change": "faster"})["note"]
+    tools.run("undo_last_change")
+    gate.answer(True)
+    assert store.values["narration_speed"] == "2.5"  # undo puts back the speed before 'normal'
+    assert step_speed(1.3, 1) == 1.5 and step_speed(1.3, -1) == 1.25 and step_speed(0.5, -1) == 0.5
+    assert "reading_speed" in [d["name"] for d in tools.select("read a bit faster please")]

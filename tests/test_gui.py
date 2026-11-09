@@ -285,3 +285,51 @@ def test_listen_tab_cast_table_changes_a_voice(window, qapp):
     assert pump(qapp, lambda: studio.library.get_cast_member(book.id, "Mara")["voice"] == "Kore")
     mara = studio.library.get_cast_member(book.id, "Mara")
     assert mara["locked"] and mara["age"] == "child"
+
+
+class _MicSession:
+    def __init__(self):
+        self.sent = []
+
+    def send_audio(self, pcm):
+        self.sent.append(pcm)
+
+
+def _frames(level: int, ms: int) -> bytes:
+    import array
+    return array.array("h", [level, -level] * (16 * ms // 2)).tobytes()
+
+
+def test_audiobook_holds_the_mic_and_talking_over_it_pauses_it(qapp):
+    from jarvis_books.ui.voice_bridge import VoiceBridge
+    bridge = VoiceBridge(lambda **kw: None)
+    bridge.session = session = _MicSession()
+    playing = [True]
+    bridge.external_playing = lambda: playing[0]
+    paused = []
+    bridge.external_barge.connect(lambda: paused.append(True))
+    for i in range(50):  # a second of the audiobook leaking into the mic: Gemini hears none of it
+        bridge._route_mic(_frames(900, 20), i * 0.02)
+    assert not session.sent and not paused
+    for i in range(50, 100):  # the author talks over it
+        bridge._route_mic(_frames(9000, 20), i * 0.02)
+    assert paused and session.sent  # the audiobook pauses and what they said goes to Jarvis
+    playing[0] = False
+    bridge._route_mic(_frames(900, 20), 3.0)
+    bridge._route_mic(_frames(900, 20), 3.5)
+    sent = len(session.sent)
+    bridge._route_mic(_frames(900, 20), 3.6)
+    assert len(session.sent) > sent  # after the audiobook stops the mic is open again
+
+
+def test_listen_tab_faster_and_slower_buttons(window):
+    win, studio, _ = window
+    win.speed.setCurrentIndex(win.speed.findData(1.0))
+    win.faster_btn.click()
+    assert studio.settings()["narration_speed"] == "1.1"
+    assert abs(win.player.player.playbackRate() - 1.1) < 1e-6
+    win.slower_btn.click()
+    win.slower_btn.click()
+    assert studio.settings()["narration_speed"] == "0.9"
+    win._show_setting("narration_speed", "2.5")  # Jarvis changed it
+    assert win.speed.currentData() == 2.5 and studio.settings()["narration_speed"] == "2.5"

@@ -27,6 +27,8 @@ class AudiobookPlayer(QObject):
         self.player = QMediaPlayer(self)
         self.output = QAudioOutput(self)
         self.player.setAudioOutput(self.output)
+        if hasattr(self.player, "setPitchCompensation"):  # Qt 6.10+: faster or slower, never chipmunk or slurred
+            self.player.setPitchCompensation(True)
         self.player.mediaStatusChanged.connect(self._on_status)
         self.player.errorOccurred.connect(lambda e, msg: self.error.emit(msg))
         self._ready.connect(self._on_ready)
@@ -38,8 +40,13 @@ class AudiobookPlayer(QObject):
         self._prefetching: set[int] = set()
         self._lock = threading.Lock()
 
+    @property
+    def audible(self) -> bool:
+        """The audiobook is coming out of the speakers right now."""
+        return self.playing and self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+
     def set_speed(self, rate: float) -> None:
-        self.player.setPlaybackRate(max(0.5, min(2.0, rate)))
+        self.player.setPlaybackRate(max(0.5, min(3.0, rate)))
 
     def set_volume(self, value: float) -> None:
         self.output.setVolume(max(0.0, min(1.0, value)))

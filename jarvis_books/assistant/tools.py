@@ -44,6 +44,14 @@ SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "n
                 "dialogue_tags")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
+SPEEDS = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
+
+
+def step_speed(rate: float, steps: int) -> float:
+    """The next reading speed up (steps > 0) or down from `rate`, on the same steps as the Listen tab."""
+    if steps > 0:
+        return next((v for v in SPEEDS if v > rate + 1e-9), SPEEDS[-1])
+    return next((v for v in reversed(SPEEDS) if v < rate - 1e-9), SPEEDS[0])
 _ON = {"1", "on", "true", "yes", "enable", "enabled"}
 _OFF = {"0", "off", "false", "no", "disable", "disabled"}
 
@@ -80,6 +88,8 @@ DECLARATIONS = [
     _decl("play_audiobook", "Play the audiobook of a book (works for unfinished books).",
           {"book": BOOK, "chapter": I}),
     _decl("stop_audiobook", "Pause the audiobook."),
+    _decl("reading_speed", "Make the audiobook (and Jarvis reading a book) faster or slower right away. change: "
+          "'faster', 'slower', 'normal', or a speed like 1.5 (0.5 to 3).", {"change": S}, ["change"]),
     _decl("export_book", "Export a book as a manuscript file.",
           {"book": BOOK, "format": {"type": "STRING", "enum": ["docx", "epub", "markdown", "mp3", "m4b"]}}),
     _decl("war_briefing", "War Room: brief the author on a book - what is written vs only planned, open threads, "
@@ -110,7 +120,7 @@ DECLARATIONS = [
     _decl("get_settings", "The app's settings: audiobook narrator voice, backup narrator, Jarvis voice, author "
           "name, Hey Jarvis wake word, narration speed, auto-mute while Jarvis talks."),
     _decl("change_setting", "Change one app setting. voice/jarvis_voice: a Gemini voice (" + ", ".join(GEMINI_VOICES)
-          + "); edge_voice: a backup narrator; narration_speed: 0.5 to 2.0; dialogue_tags: how many times per "
+          + "); edge_voice: a backup narrator; narration_speed: 0.5 to 3.0; dialogue_tags: how many times per "
           "chapter the narrator says 'said Tom' for each character before the voices alone show who is talking "
           "(all = every time); wake_word and auto_mute: on/off; "
           "author: the author's name.",
@@ -190,6 +200,8 @@ class ToolBox:
             "cancel_job": ("stop", "cancel"),
             "play_audiobook": ("play", "listen", "audio", "read me", "narrat"),
             "stop_audiobook": ("stop", "pause", "audio"),
+            "reading_speed": ("faster", "slower", "speed", "slow down", "speed up", "quicker", "too fast",
+                              "too slow", "normal speed"),
             "export_book": ("export", "docx", "epub", "word", "file", "mp3", "m4b", "audiobook"),
             "war_briefing": ("brief", "fill me in", "catch me up", "where are we", "war room", "status"),
             "find_gaps": ("gap", "undecided", "missing", "hole", "not decided", "what if", "unexplained"),
@@ -597,8 +609,8 @@ class ToolBox:
                 rate = float(v.lower().rstrip("x"))
             except ValueError:
                 raise ValueError("narration_speed must be a number like 1.25") from None
-            if not 0.5 <= rate <= 2.0:
-                raise ValueError("narration_speed must be between 0.5 and 2.0")
+            if not 0.5 <= rate <= 3.0:
+                raise ValueError("narration_speed must be between 0.5 and 3.0")
             return str(round(rate, 2))
         if key == "author":
             if len(v) > 100:
@@ -616,6 +628,26 @@ class ToolBox:
         self._apply_setting(key, new)
         self._push_undo(f"setting '{key}' back to '{old}'", lambda: self._apply_setting(key, old))
         return {"saved": True, "key": key, "value": new, "was": old}
+
+    def _t_reading_speed(self, change: str) -> dict:
+        store = self._store()
+        old = store.settings()["narration_speed"]
+        rate, c = float(old), str(change).strip().lower()
+        if c in ("faster", "speed up", "up", "quicker", "a bit faster"):
+            target = step_speed(rate, 1)
+        elif c in ("slower", "slow down", "down", "a bit slower"):
+            target = step_speed(rate, -1)
+        elif c in ("normal", "regular", "reset", "default", "normal speed"):
+            target = 1.0
+        else:
+            target = float(self._setting_value("narration_speed", change))
+        new = self._setting_value("narration_speed", str(target))
+        if float(new) == rate:
+            limit = "fastest" if rate >= SPEEDS[-1] else "slowest" if rate <= SPEEDS[0] else "current"
+            return {"saved": False, "speed": f"{rate:g}x", "note": f"already at the {limit} speed"}
+        self._apply_setting("narration_speed", new)
+        self._push_undo(f"reading speed back to {float(old):g}x", lambda: self._apply_setting("narration_speed", old))
+        return {"saved": True, "speed": f"{float(new):g}x", "was": f"{rate:g}x"}
 
     def _apply_setting(self, key: str, value: str) -> None:
         self._store().set_setting(key, value)

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (QTableWidgetItem, QTableWidget, QCheckBox, QComboBo
                              QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis_books.assistant.permissions import LEVEL_LABELS, outcome_note
+from jarvis_books.assistant.tools import SPEEDS, step_speed
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import GEMINI_CATALOG, NARRATOR, describe_voice, who
 from jarvis_books.craft import GENRES
@@ -99,6 +100,9 @@ class MainWindow(QMainWindow):
         self.player = AudiobookPlayer(studio.narrator, self)
         self.voice = VoiceBridge(self._make_live_session, self)
         self.war_voice = VoiceBridge(self._make_war_live_session, self)
+        for bridge in (self.voice, self.war_voice):
+            bridge.external_playing = lambda: self.player.audible
+            bridge.external_barge.connect(self.player.pause)
         self.voice.auto_mute = self.war_voice.auto_mute = self.studio.settings()["auto_mute"] == "1"
         self._war_loaded: Optional[str] = None
         self.tabs = QTabWidget()
@@ -215,8 +219,9 @@ class MainWindow(QMainWindow):
             raise RuntimeError("Your Gemini key has no live voice model available")
         profile = engine.profile(model)
         books = self.studio.library.list_books()
-        system = prompts.ASSISTANT + "\n\nYou are speaking out loud. Keep answers to a few sentences unless " \
-            "reading a book aloud. When reading, read the text exactly as written.\nBooks: " + \
+        system = prompts.ASSISTANT + "\n\nYou are speaking out loud. Keep answers to a few sentences. To read " \
+            "a book aloud use play_audiobook (character voices); if you quote a line yourself, say it exactly as " \
+            "written.\nBooks: " + \
             ", ".join(f"'{b.title}'" for b in books[:30])
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
                            self.studio.tools.declarations(),
@@ -1292,12 +1297,21 @@ class MainWindow(QMainWindow):
         lay.addLayout(row)
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Speed"))
+        self.slower_btn = QPushButton("Slower")
+        self.slower_btn.clicked.connect(lambda: self._step_speed(-1))
+        row2.addWidget(self.slower_btn)
         self.speed = QComboBox()
-        for s in ("0.75", "0.9", "1.0", "1.1", "1.25", "1.5", "1.75", "2.0"):
-            self.speed.addItem(f"{s}x", float(s))
-        self.speed.setCurrentIndex(self.speed.findData(float(self.studio.settings()["narration_speed"])))
+        for rate in SPEEDS:
+            self.speed.addItem(f"{rate:g}x", rate)
+        current = float(self.studio.settings()["narration_speed"])
+        if self.speed.findData(current) < 0:
+            self.speed.addItem(f"{current:g}x", current)
+        self.speed.setCurrentIndex(self.speed.findData(current))
         self.speed.currentIndexChanged.connect(self._speed_changed)
         row2.addWidget(self.speed)
+        self.faster_btn = QPushButton("Faster")
+        self.faster_btn.clicked.connect(lambda: self._step_speed(1))
+        row2.addWidget(self.faster_btn)
         row2.addWidget(QLabel("Volume"))
         vol = QSlider(Qt.Orientation.Horizontal)
         vol.setRange(0, 100)
@@ -1393,6 +1407,12 @@ class MainWindow(QMainWindow):
         self.cast_button.setEnabled(False)
         self.studio.jobs.submit("cast", f"Giving the characters of {title} their voices",
                                 lambda p, c: self.studio.tools.run("cast_voices", {"book": title}), book_id=book_id)
+
+    def _step_speed(self, steps: int) -> None:
+        rate = step_speed(self.speed.currentData(), steps)
+        if self.speed.findData(rate) < 0:
+            self.speed.addItem(f"{rate:g}x", rate)
+        self.speed.setCurrentIndex(self.speed.findData(rate))
 
     def _speed_changed(self) -> None:
         rate = self.speed.currentData()
