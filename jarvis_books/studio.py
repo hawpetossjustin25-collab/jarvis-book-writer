@@ -23,6 +23,7 @@ from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
 from jarvis_books.storage.mirror import BackupManager, BookMirror
+from jarvis_books.upgrade import Upgrader
 from jarvis_books.warroom import WAR_ROOM_GUIDE, WarRoom
 from jarvis_books.writer import BookWriter
 
@@ -68,6 +69,8 @@ class Studio:
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
+        self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")
+        self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

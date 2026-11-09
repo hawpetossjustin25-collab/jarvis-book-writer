@@ -33,6 +33,8 @@ TOOL_LEVELS: dict[str, str] = {
     "change_outline": CHANGE, "export_book": CHANGE, "decide_proposal": CHANGE,
     "change_setting": CHANGE, "undo_last_change": CHANGE,
     "publish_audiobook": OUTSIDE,
+    "list_upgrades": READ,
+    "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
 }
 
 ASKING_NOTE = ("Not done yet: the app is asking the author yes or no. In one short sentence tell them what you "

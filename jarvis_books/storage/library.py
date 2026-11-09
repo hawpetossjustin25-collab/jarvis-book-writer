@@ -466,6 +466,42 @@ class Library:
             r["args"] = json.loads(r["args"] or "{}")
         return out
 
+    # ---- app upgrades -------------------------------------------------------------
+    UPGRADE_STATUSES = ("building", "ready", "failed", "installed", "undone")
+    _UPGRADE_JSON = ("files", "added", "hashes")
+
+    def add_upgrade(self, request: str) -> dict:
+        now = time.time()
+        uid = self.db.execute("INSERT INTO upgrades (request, created_at, updated_at) VALUES (?,?,?)",
+                              (request, now, now)).lastrowid
+        return self.get_upgrade(uid)
+
+    def update_upgrade(self, upgrade_id: int, **fields: Any) -> dict:
+        allowed = ("status", "summary", "files", "added", "hashes", "diff", "test_output")
+        bad = set(fields) - set(allowed)
+        if bad:
+            raise ValidationError(f"unknown upgrade fields {sorted(bad)}")
+        if "status" in fields and fields["status"] not in self.UPGRADE_STATUSES:
+            raise ValidationError(f"invalid upgrade status {fields['status']!r}")
+        values = {k: json.dumps(v) if k in self._UPGRADE_JSON else v for k, v in fields.items()}
+        sets = ", ".join(f"{k}=?" for k in values)
+        self.db.execute(f"UPDATE upgrades SET {sets}, updated_at=? WHERE id=?",
+                        (*values.values(), time.time(), upgrade_id))
+        return self.get_upgrade(upgrade_id)
+
+    def get_upgrade(self, upgrade_id: int) -> dict:
+        row = self.db.query_one("SELECT * FROM upgrades WHERE id=?", (upgrade_id,))
+        if not row:
+            raise NotFound(f"upgrade {upgrade_id} not found")
+        out = dict(row)
+        for k in self._UPGRADE_JSON:
+            out[k] = json.loads(out[k])
+        return out
+
+    def list_upgrades(self, limit: int = 20) -> list[dict]:
+        rows = self.db.query("SELECT id FROM upgrades ORDER BY id DESC LIMIT ?", (limit,))
+        return [self.get_upgrade(r[0]) for r in rows]
+
     # ---- meta -----------------------------------------------------------------
     def get_meta(self, key: str, default: str | None = None) -> str | None:
         row = self.db.query_one("SELECT value FROM meta WHERE key=?", (key,))

@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import logging
 import os
+import subprocess
 import sys
 import threading
 from typing import Optional
@@ -22,6 +23,7 @@ from jarvis_books.errors import JarvisError
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
 from jarvis_books.ui.approval import ApprovalBar
+from jarvis_books.upgrade import app_root, describe as describe_upgrade
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
@@ -380,7 +382,18 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
                 return {"ok": True, "folder": str(folder)}
             return {"ok": True, "action": what}
+        if action == "restart":
+            QTimer.singleShot(4000, self._restart)  # time for Jarvis to say it is restarting
+            return {"ok": True, "restarting_in_s": 4}
         return {"error": f"unknown app action {action}"}
+
+    def _restart(self) -> None:
+        if self._closed:
+            return
+        self.close()
+        flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+        subprocess.Popen([sys.executable, "-m", "jarvis_books"], cwd=str(app_root()), creationflags=flags,
+                         close_fds=True)
 
     def _end_voice(self) -> None:
         if self._closed:
@@ -1404,7 +1417,58 @@ class MainWindow(QMainWindow):
         forget.clicked.connect(self.studio.gate.forget_allowances)
         lay.addWidget(forget)
         self._refresh_permissions()
+        lay.addWidget(QLabel("<b>App upgrades</b> (ask Jarvis, e.g. \"add a word-count goal\"; each is built "
+                             "and tested on a copy first)"))
+        self.upgrade_list = QListWidget()
+        self.upgrade_list.setMaximumHeight(120)
+        lay.addWidget(self.upgrade_list)
+        urow = QHBoxLayout()
+        for label, fn in (("Show changes", self._upgrade_show), ("Install", self._upgrade_install),
+                          ("Undo last upgrade", self._upgrade_undo)):
+            b = QPushButton(label)
+            b.clicked.connect(fn)
+            urow.addWidget(b)
+        urow.addStretch(1)
+        lay.addLayout(urow)
+        self._refresh_upgrades()
         return w
+
+    def _refresh_upgrades(self) -> None:
+        self.upgrade_list.clear()
+        for u in self.studio.library.list_upgrades(20):
+            item = QListWidgetItem(f"[{u['status']}] {describe_upgrade(u)}")
+            item.setData(Qt.ItemDataRole.UserRole, u["id"])
+            self.upgrade_list.addItem(item)
+
+    def _selected_upgrade(self) -> Optional[dict]:
+        item = self.upgrade_list.currentItem()
+        return self.studio.library.get_upgrade(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def _upgrade_show(self) -> None:
+        up = self._selected_upgrade()
+        if up is None:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(f"Upgrade #{up['id']}")
+        box.setText(f"You asked: {up['request']}\n\n{up['summary']}\n\nStatus: {up['status']}")
+        box.setDetailedText(up["diff"] + "\n\n--- tests ---\n" + up["test_output"][-3000:])
+        box.exec()
+
+    def _upgrade_install(self) -> None:
+        up = self._selected_upgrade()
+        if up is None or QMessageBox.question(self, "Install upgrade",
+                                              f"Install upgrade {describe_upgrade(up)}? The app restarts.") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        self._report(self.studio.tools.run("install_upgrade", {"upgrade_id": up["id"]}))
+        self._refresh_upgrades()
+
+    def _upgrade_undo(self) -> None:
+        if QMessageBox.question(self, "Undo upgrade", "Put the app back the way it was before the last upgrade? "
+                                "The app restarts.") != QMessageBox.StandardButton.Yes:
+            return
+        self._report(self.studio.tools.run("undo_upgrade", {}))
+        self._refresh_upgrades()
 
     def _save_key(self) -> None:
         key = self.key_edit.text().strip()
@@ -1469,6 +1533,8 @@ class MainWindow(QMainWindow):
             self.job_bar.setFormat(f"{j.message[:60]} %p%")
         else:
             self.job_bar.hide()
+        if job.status in ("done", "failed", "cancelled") and job.kind == "upgrade":
+            self._refresh_upgrades()
         if job.status in ("done", "failed", "cancelled"):
             msg = {"done": f"Finished: {job.title}", "failed": f"Failed: {job.title} - {job.error}",
                    "cancelled": f"Stopped: {job.title}"}[job.status]

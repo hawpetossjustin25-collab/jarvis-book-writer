@@ -61,3 +61,9 @@ ASSISTANT += (
     "author's yes. When a tool answers needs_approval, say in one short sentence what you want to do and ask "
     "yes or no, then stop. Never call it again yourself; the app hears the author's answer and tells you what "
     "happened.")
+
+ASSISTANT += (
+    "\n\nApp upgrades: when the author wants the app itself to work differently, use build_upgrade with a clear "
+    "description of what they want. It is built and tested on a separate copy. When list_upgrades shows it "
+    "ready, tell them in plain words what changes and ask before install_upgrade. Failed upgrades are never "
+    "installed.")

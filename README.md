@@ -119,3 +119,13 @@ Jarvis can report what the app is doing (`app_status`), switch tabs (`open_tab`)
 `undo_last_change` (chapter rewrites, outline/title changes, new chapters, story bible entries, accepted War Room
 ideas and settings). Setting changes and undo ask yes/no first. A yes to "undo" only undoes the change it named,
 never something newer.
+
+## Upgrading the app by voice
+
+Ask Jarvis for a change to the app itself ("add a word-count goal"). After your yes, `build_upgrade` has Gemini
+edit a separate copy of the app (only `.py` files in `jarvis_books/` and `tests/`; the permission gate, the
+approval card, the upgrader, key storage and their tests are protected). The whole test suite then runs on that
+copy with a throwaway data folder and no secrets in its environment, and failures go back to Gemini, up to 3 tries.
+Only a copy whose tests pass can be installed, and only after a second yes (`install_upgrade`). Installing backs up
+every file it replaces, and `undo_upgrade` restores them. Settings > App upgrades shows each change's diff and test
+results. Updates installed from GitHub replace local upgrades.

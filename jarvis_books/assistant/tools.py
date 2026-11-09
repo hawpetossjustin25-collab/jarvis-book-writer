@@ -18,6 +18,7 @@ from jarvis_books.llm.schema import validate
 from jarvis_books.memory.index import StoryIndex
 from jarvis_books.storage.library import Library
 from jarvis_books.text import paragraphs, truncate_words
+from jarvis_books.upgrade import describe as describe_upgrade
 from jarvis_books.writer.pipeline import BookWriter
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,14 @@ DECLARATIONS = [
     _decl("app_action", "Press a button in the app: mute_mic, unmute_mic, end_voice (hang up this voice chat), "
           "open_book_folder (show the book's files on the computer).",
           {"action": {"type": "STRING", "enum": list(APP_ACTIONS)}, "book": BOOK}, ["action"]),
+    _decl("build_upgrade", "Upgrade the app itself (new feature, fix, change in how it works). Gemini changes a "
+          "separate test copy, never the running app, and every test runs on it in the background. Nothing is "
+          "installed; when it is ready ask the author, then install_upgrade.", {"request": S}, ["request"]),
+    _decl("list_upgrades", "App upgrades: what each changes, whether its tests passed, and which are installed."),
+    _decl("install_upgrade", "Install a tested app upgrade (status ready). The app restarts.",
+          {"upgrade_id": I}, ["upgrade_id"]),
+    _decl("undo_upgrade", "Put the app back the way it was before an installed upgrade (latest if omitted). The "
+          "app restarts.", {"upgrade_id": I}),
     _decl("undo_last_change", "Undo the most recent change: a chapter rewrite, outline or title change, new "
           "chapter, story bible entry, accepted War Room idea or setting."),
 ]
@@ -143,6 +152,7 @@ class ToolBox:
         self.war_session_id: Optional[int] = None  # set while a War Room session is open
         self.app_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (tabs, buttons, status)
         self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
+        self.upgrader = None  # set by the Studio
         self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
         self._undo_ids = itertools.count(1)
 
@@ -179,6 +189,11 @@ class ToolBox:
                                "author name", "my name", "turn on", "turn off"),
             "app_action": ("mute", "unmute", "hang up", "end the call", "goodbye", "bye", "folder", "files"),
             "undo_last_change": ("undo", "take that back", "revert", "put it back", "change it back"),
+            "build_upgrade": ("upgrade", "feature", "improve the app", "change the app", "update the app",
+                              "add a button", "add an option", "code", "fix the app", "bug"),
+            "list_upgrades": ("upgrade", "feature", "install", "tests pass", "code"),
+            "install_upgrade": ("upgrade", "install"),
+            "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -238,6 +253,8 @@ class ToolBox:
             if not self.undo:
                 raise NotFound("there is nothing to undo")
             args["expect"] = self.undo[-1]["id"]
+        if decl["name"] == "undo_upgrade" and not args.get("upgrade_id"):
+            args["upgrade_id"] = self._upgrader().last_installed()["id"]
         return args
 
     def describe(self, name: str, args: dict) -> str:
@@ -273,6 +290,19 @@ class ToolBox:
             return f"Change the setting '{args['key']}' from '{old}' to '{args['value']}'"
         if name == "undo_last_change":
             return f"Undo the last change: {self.undo[-1]['summary']}"
+        if name == "build_upgrade":
+            return ("Build an app upgrade in a separate test copy (the running app is not touched): "
+                    + truncate_words(args.get("request", ""), 30))
+        if name == "install_upgrade":
+            up = self.library.get_upgrade(int(args["upgrade_id"]))
+            if up["status"] != "ready":
+                raise NotFound(f"upgrade #{up['id']} is {up['status']}, not ready to install")
+            return f"Install app upgrade {describe_upgrade(up)} and restart the app"
+        if name == "undo_upgrade":
+            up = self.library.get_upgrade(int(args["upgrade_id"]))
+            if up["status"] != "installed":
+                raise NotFound(f"upgrade #{up['id']} is {up['status']}, not installed")
+            return f"Undo app upgrade {describe_upgrade(up)} and restart the app"
         return f"{name.replace('_', ' ')} {args}"
 
     def _book(self, book: Optional[str]):
@@ -557,6 +587,34 @@ class ToolBox:
         self._store().set_setting(key, value)
         if self.app_handler is not None:
             self.app_handler("setting", {"key": key, "value": value})
+
+    def _upgrader(self):
+        if self.upgrader is None:
+            raise NotFound("app upgrades are not available here")
+        return self.upgrader
+
+    def _t_build_upgrade(self, request: str) -> dict:
+        up = self._upgrader().start(request)
+        job = self.jobs.submit("upgrade", f"Building app upgrade #{up['id']}",
+                               lambda p, c: self.upgrader.build(up["id"], p, c)["status"])
+        return {"started": True, "upgrade_id": up["id"], "job_id": job.id,
+                "next": "When the job is done, check list_upgrades. Only a ready upgrade can be installed, and "
+                        "only after the author says yes."}
+
+    def _t_list_upgrades(self) -> dict:
+        return {"upgrades": [{"id": u["id"], "asked": u["request"], "status": u["status"], "summary": u["summary"],
+                              "files": u["files"], "tests": u["test_output"].strip().splitlines()[-1:]}
+                             for u in self.library.list_upgrades(10)]}
+
+    def _t_install_upgrade(self, upgrade_id: int) -> dict:
+        up = self._upgrader().install(upgrade_id)
+        restarting = self.app_handler is not None and "error" not in self._ui("restart")
+        return {"installed": up["id"], "files": up["files"], "restarting": restarting}
+
+    def _t_undo_upgrade(self, upgrade_id: int = 0) -> dict:
+        up = self._upgrader().undo(upgrade_id)
+        restarting = self.app_handler is not None and "error" not in self._ui("restart")
+        return {"undone": up["id"], "restarting": restarting}
 
     def _t_app_status(self) -> dict:
         out: dict = {"books": len(self.library.list_books()), **self._t_job_status()}

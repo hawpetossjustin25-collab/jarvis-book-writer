@@ -202,6 +202,21 @@ MIGRATIONS: dict[int, str] = {
         decided_at REAL
     );
     """,
+    5: """
+    CREATE TABLE upgrades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'building',
+        summary TEXT NOT NULL DEFAULT '',
+        files TEXT NOT NULL DEFAULT '[]',
+        added TEXT NOT NULL DEFAULT '[]',
+        hashes TEXT NOT NULL DEFAULT '{}',
+        diff TEXT NOT NULL DEFAULT '',
+        test_output TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)
