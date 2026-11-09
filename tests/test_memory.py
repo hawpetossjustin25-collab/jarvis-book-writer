@@ -529,3 +529,19 @@ def test_settings_shows_lessons_archive_and_learning_log(qapp_mem):
     studio.memory.background = False
     win.memory_buttons["Reflect now"].click()  # runs a reflection pass on Gemini (fake here) without errors
     assert any(e["action"] == "reflected" for e in studio.library.learning_log())
+
+
+def test_memory_panel_is_quiet_while_the_window_is_torn_down(qapp_mem, monkeypatch):
+    import sys
+    win, studio = qapp_mem
+    studio.memory.remember("Justin likes short chapters")
+    win._refresh_memories()
+    win.memory_list.setCurrentRow(0)
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *exc: errors.append(exc))  # PyQt aborts on slot errors otherwise
+    win.close()
+    win.memory_list.clear()
+    win.memory_detail.deleteLater()
+    del win.memory_detail
+    win._show_memory_detail()
+    assert not errors

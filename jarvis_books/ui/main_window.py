@@ -1674,18 +1674,21 @@ class MainWindow(QMainWindow):
         self._show_memory_detail()
 
     def _show_memory_detail(self) -> None:
-        mid = self._selected_memory()
-        if mid is None:
-            self.memory_detail.setText("Pick a memory to see why Jarvis believes it.")
+        # Also fires while Qt tears the list down; an exception escaping a slot aborts the whole app.
+        if getattr(self, "_closed", False) or not hasattr(self, "memory_detail"):
             return
         try:
+            mid = self._selected_memory()
+            if mid is None:
+                self.memory_detail.setText("Pick a memory to see why Jarvis believes it.")
+                return
             m = self.studio.memory.explain(mid)
+            lines = [f"Strength {m['strength']:.2f}, used {m['uses']} times, from {m['source']}."]
+            if m["evidence"]:
+                lines.append("Because: " + " | ".join(e["text"][:160] for e in m["evidence"][:6]))
+            self.memory_detail.setText("\n".join(lines))
         except Exception:
-            return
-        lines = [f"Strength {m['strength']:.2f}, used {m['uses']} times, from {m['source']}."]
-        if m["evidence"]:
-            lines.append("Because: " + " | ".join(e["text"][:160] for e in m["evidence"][:6]))
-        self.memory_detail.setText("\n".join(lines))
+            log.debug("memory detail unavailable", exc_info=True)
 
     def _memory_reflect(self) -> None:
         self.studio.memory.reflect_now()
@@ -1801,6 +1804,10 @@ class MainWindow(QMainWindow):
         self._refresh_timer.stop()
         self._save_editor()
         self._closed = True
+        try:
+            self.memory_list.currentItemChanged.disconnect()
+        except (AttributeError, TypeError):
+            pass
         self.player.stop()
         self.voice.enable_wake_word(False)
         self.voice.stop()
