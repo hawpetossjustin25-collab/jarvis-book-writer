@@ -25,7 +25,7 @@ def rms(pcm16: bytes) -> float:
 
 class DuplexGate:
     def __init__(self, rate: int = 16000, barge_in_ms: int = 700, window_ms: int = 1000, tail_ms: int = 400,
-                 calibrate_ms: int = 300, preroll_ms: int = 1500, floor: float = 700.0, ratio: float = 2.5,
+                 calibrate_ms: int = 300, preroll_ms: int = 1500, floor: float = 1200.0, ratio: float = 2.5,
                  out_rate: int = 24000, latency_ms: int = 700):
         self.frame_bytes = rate * FRAME_MS // 1000 * 2
         self.barge_frames = max(1, barge_in_ms // FRAME_MS)
