@@ -86,11 +86,13 @@ class Studio:
             self.start_error = "No Gemini API key is set. Add it in Settings."
         else:
             try:
-                self.engine.initialize(probe=probe)
+                self.engine.initialize(probe=False)
             except Exception as exc:
                 log.exception("engine start failed")
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
+        if probe and self.engine is not None and not self.start_error:
+            self.engine.refine()
 
     def set_api_key(self, key: str) -> None:
         from jarvis_books.keystore import save_key
@@ -100,7 +102,8 @@ class Studio:
         for obj in (self.index, self.writer, self.assistant, self.narrator):
             obj.engine = self.engine
         self.start_error = None
-        self.engine.initialize()
+        self.engine.initialize(probe=False)
+        threading.Thread(target=self.engine.refine, daemon=True).start()
 
     def _on_change(self, event: str, book_id: str, detail: dict) -> None:
         if event == "chapter_text" and self.engine is not None:
@@ -134,6 +137,9 @@ class Studio:
             self.mirror.flush()
         except Exception:
             log.exception("final mirror flush failed")
-        if self.engine is not None:
+        # Startup probes may still be running on another thread; let them finish writing first.
+        started = self.ready.wait(timeout=30)
+        if self.engine is not None and started:
             self.engine.shutdown()
-        self.db.close()
+        if started:
+            self.db.close()

@@ -1,0 +1,200 @@
+"""Connects the laptop microphone and speakers (Qt Multimedia) to a Gemini Live session,
+with an optional on-device "Hey Jarvis" wake word."""
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtMultimedia import QAudioFormat, QAudioSink, QAudioSource, QMediaDevices
+
+from jarvis_books.voice.live import IN_RATE, OUT_RATE, LiveSession
+
+log = logging.getLogger(__name__)
+
+
+def _format(rate: int) -> QAudioFormat:
+    fmt = QAudioFormat()
+    fmt.setSampleRate(rate)
+    fmt.setChannelCount(1)
+    fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+    return fmt
+
+
+class WakeWord:
+    """openWakeWord 'hey_jarvis' detector (runs locally, nothing leaves the laptop)."""
+
+    FRAME = 1280  # 80 ms at 16 kHz
+
+    def __init__(self, threshold: float = 0.5):
+        import numpy as np
+        from openwakeword.model import Model
+        self._np = np
+        try:
+            self.model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+        except TypeError:
+            self.model = Model(wakeword_models=["hey_jarvis"])
+        self.threshold = threshold
+        self._buf = bytearray()
+
+    def feed(self, pcm: bytes) -> bool:
+        self._buf.extend(pcm)
+        hit = False
+        while len(self._buf) >= self.FRAME * 2:
+            frame = self._np.frombuffer(bytes(self._buf[:self.FRAME * 2]), dtype=self._np.int16)
+            del self._buf[:self.FRAME * 2]
+            scores = self.model.predict(frame)
+            if any(v >= self.threshold for v in scores.values()):
+                hit = True
+        if hit:
+            self.model.reset()
+            self._buf.clear()
+        return hit
+
+
+class VoiceBridge(QObject):
+    state = pyqtSignal(str)
+    transcript = pyqtSignal(str, str)
+    tool_used = pyqtSignal(str, str)
+    level = pyqtSignal(float)
+    _audio_in = pyqtSignal(bytes)
+    _interrupt = pyqtSignal()
+    _state_in = pyqtSignal(str)
+
+    def __init__(self, make_session, parent=None):
+        super().__init__(parent)
+        self.make_session = make_session  # callable(**callbacks) -> LiveSession
+        self.session: Optional[LiveSession] = None
+        self.source: Optional[QAudioSource] = None
+        self.mic_io = None
+        self.sink: Optional[QAudioSink] = None
+        self.sink_io = None
+        self._out = bytearray()
+        self.wake: Optional[WakeWord] = None
+        self.wake_error = ""
+        self.muted = False
+        self._audio_in.connect(self._queue_audio)
+        self._interrupt.connect(self._clear_audio)
+        self._state_in.connect(self.state.emit)
+        self._pump = QTimer(self)
+        self._pump.setInterval(20)
+        self._pump.timeout.connect(self._pump_audio)
+
+    # ---- devices -------------------------------------------------------------------
+    def _open_devices(self) -> None:
+        if self.source is None:
+            device = QMediaDevices.defaultAudioInput()
+            if device.isNull():
+                raise RuntimeError("No microphone found")
+            self.source = QAudioSource(device, _format(IN_RATE), self)
+            self.source.setBufferSize(IN_RATE // 5)
+            self.mic_io = self.source.start()
+            self.mic_io.readyRead.connect(self._on_mic)
+        if self.sink is None:
+            out = QMediaDevices.defaultAudioOutput()
+            self.sink = QAudioSink(out, _format(OUT_RATE), self)
+            self.sink.setBufferSize(OUT_RATE)  # ~0.5 s
+            self.sink_io = self.sink.start()
+            self._pump.start()
+
+    def _close_devices(self) -> None:
+        self._pump.stop()
+        for dev in (self.source, self.sink):
+            if dev is not None:
+                dev.stop()
+        self.source = self.sink = None
+        self.mic_io = self.sink_io = None
+        self._out.clear()
+
+    # ---- wake word -----------------------------------------------------------------
+    def enable_wake_word(self, on: bool) -> bool:
+        if not on:
+            self.wake = None
+            if self.session is None:
+                self._close_devices()
+            return False
+        try:
+            self.wake = WakeWord()
+            self._open_devices()
+            self.state.emit("waiting for 'Hey Jarvis'")
+            return True
+        except Exception as exc:
+            self.wake = None
+            self.wake_error = str(exc)
+            log.warning("wake word unavailable: %s", exc)
+            return False
+
+    # ---- session ---------------------------------------------------------------------
+    @property
+    def active(self) -> bool:
+        return self.session is not None
+
+    def start(self) -> None:
+        if self.session is not None:
+            return
+        self._open_devices()
+        self.session = self.make_session(
+            on_audio=self._audio_in.emit, on_interrupted=self._interrupt.emit,
+            on_transcript=lambda role, text: self.transcript.emit(role, text),
+            on_state=self._state_in.emit,
+            on_tool=lambda name, args, result: self.tool_used.emit(name, str(result)[:300]))
+        if not self.session.start(wait_s=20):
+            self.session.stop()
+            self.session = None
+            raise RuntimeError("Could not connect to Gemini Live")
+
+    def stop(self) -> None:
+        if self.session is not None:
+            self.session.stop()
+            self.session = None
+        self._out.clear()
+        if self.wake is None:
+            self._close_devices()
+        else:
+            self.state.emit("waiting for 'Hey Jarvis'")
+
+    def send_text(self, text: str) -> None:
+        if self.session is not None:
+            self.session.send_text(text)
+
+    def _on_mic(self) -> None:
+        if self.mic_io is None:
+            return
+        data = bytes(self.mic_io.readAll())
+        if not data:
+            return
+        if len(data) >= 2:
+            import array
+            samples = array.array("h", data[: len(data) - len(data) % 2])
+            peak = max((abs(s) for s in samples[::8]), default=0)
+            self.level.emit(min(1.0, peak / 12000))
+        if self.session is not None:
+            if not self.muted:
+                self.session.send_audio(data)
+        elif self.wake is not None and self.wake.feed(data):
+            try:
+                self.start()
+                self.session.send_text("(The user just said 'Hey Jarvis'. Greet them briefly.)")
+            except Exception as exc:
+                self.state.emit(f"error: {exc}")
+
+    def _queue_audio(self, pcm: bytes) -> None:
+        self._out.extend(pcm)
+
+    def _clear_audio(self) -> None:  # barge-in: the user started talking over Jarvis
+        self._out.clear()
+        if self.sink is not None:
+            self.sink.reset()
+            self.sink_io = self.sink.start()
+
+    def _pump_audio(self) -> None:
+        if self.sink is None or self.sink_io is None or not self._out:
+            return
+        free = self.sink.bytesFree()
+        if free <= 0:
+            return
+        n = min(free - free % 2, len(self._out))
+        if n > 0:
+            written = self.sink_io.write(bytes(self._out[:n]))
+            if written and written > 0:
+                del self._out[:written]

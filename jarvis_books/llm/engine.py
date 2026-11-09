@@ -92,6 +92,37 @@ class AdaptiveLLMEngine:
         reason = "model list changed" if (active and changed) else ("initial sizing" if not active else "startup re-sizing")
         return self._activate(reason, overrides=self._tuned_values(active) if active and not changed else None)
 
+    def refine(self) -> bool:
+        """Verify capabilities of the top models in the background (models probed in parallel) and
+        re-size once results are in. Lets the app start instantly with conservative routing."""
+        with self._lock:
+            targets = self._probe_targets(list(self._profiles.values()))
+        before = {p.model_id: (p.supports_json_mode, p.supports_tools, p.available) for p in targets}
+
+        def probe(p: ModelProfile) -> None:
+            if not self._shutdown:
+                capabilities.detect(self.client, self.store, p, acquire=lambda m: self.limiter.acquire(m, 30))
+        try:
+            # Daemon threads: a slow probe must never keep the app from exiting.
+            threads = [threading.Thread(target=probe, args=(p,), daemon=True) for p in targets]
+            for t in threads:
+                t.start()
+            for t in threads:
+                while t.is_alive() and not self._shutdown:
+                    t.join(timeout=0.5)
+            if self._shutdown:
+                return False
+            changed = any(before[p.model_id] != (p.supports_json_mode, p.supports_tools, p.available) for p in targets)
+            for p in targets:
+                self.store.save_model_profile(p)
+            if changed:
+                self._activate("capabilities verified", overrides=self._tuned_values(self._config))
+            return changed
+        except Exception as exc:
+            if not self._shutdown:
+                log.warning("background capability check failed: %s", exc)
+            return False
+
     def _probe_targets(self, profiles: list[ModelProfile]) -> list[ModelProfile]:
         targets: list[ModelProfile] = []
         for tier in ("flash-lite", "flash"):
