@@ -96,7 +96,7 @@ class PromptSection:
 @dataclass
 class LLMRequest:
     role: str
-    instruction: str
+    instruction: str = ""
     system: str = ""
     sections: list[PromptSection] = field(default_factory=list)
     history: list[dict] = field(default_factory=list)  # Gemini "contents" turns, oldest first
