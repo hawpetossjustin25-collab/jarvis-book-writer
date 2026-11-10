@@ -19,6 +19,21 @@ IN_RATE = 16000
 OUT_RATE = 24000
 
 
+LANGUAGES = {"en-US": "English"}
+
+
+def language_rule(code: str) -> str:
+    name = LANGUAGES.get(code, code)
+    return (f"LANGUAGE: always speak and answer in {name}, even if what you hear sounds like another language "
+            f"(it may be the audiobook, echo or room noise). Only switch if the author clearly asks you to in "
+            f"{name}.")
+
+
+def _expired(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "not found" in text or "expired" in text or "1008" in text
+
+
 def _default_connect(url: str, headers: dict):
     from websockets.sync.client import connect
     return connect(url, additional_headers=headers, max_size=None, open_timeout=20)
@@ -26,7 +41,7 @@ def _default_connect(url: str, headers: dict):
 
 class LiveSession:
     def __init__(self, url: str, headers: dict, model: str, system: str, tools: list[dict],
-                 call_tool: Callable[[str, dict], dict], voice: str = "Charon", context_tokens: Optional[int] = None,
+                 call_tool: Callable[[str, dict], dict], voice: str = "Charon", context_tokens: Optional[int] = None, language: str = "en-US",
                  on_audio: Callable[[bytes], None] = lambda b: None,
                  on_transcript: Callable[[str, str], None] = lambda role, text: None,
                  on_state: Callable[[str], None] = lambda s: None,
@@ -36,6 +51,7 @@ class LiveSession:
         self.url, self.headers, self.model = url, headers, model
         self.system, self.tools, self.call_tool, self.voice = system, tools, call_tool, voice
         self.context_tokens = context_tokens
+        self.language = language
         self.on_audio, self.on_transcript, self.on_state = on_audio, on_transcript, on_state
         self.on_interrupted, self.on_tool = on_interrupted, on_tool
         self._connect = connect
@@ -49,11 +65,13 @@ class LiveSession:
         self.state = "idle"
 
     def setup_message(self) -> dict:
+        speech: dict = {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": self.voice}}}
+        if "native-audio" not in self.model:  # native-audio models pick the language from the instructions only
+            speech["languageCode"] = self.language
         setup: dict = {
             "model": self.model if self.model.startswith("models/") else f"models/{self.model}",
-            "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
-                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": self.voice}}}},
-            "systemInstruction": {"parts": [{"text": self.system}]},
+            "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": speech},
+            "systemInstruction": {"parts": [{"text": language_rule(self.language) + "\n\n" + self.system}]},
             "tools": [{"functionDeclarations": self.tools}] if self.tools else [],
             "inputAudioTranscription": {}, "outputAudioTranscription": {},
             # Low start sensitivity: leftover speaker echo and room noise should not count as the user talking.
@@ -99,12 +117,17 @@ class LiveSession:
                 self._set_state("connecting")
                 self._ws = self._connect(self.url, self.headers)
                 self._send(self.setup_message())
-                attempts = 0
                 reconnect = self._receive_loop()
+                if self._ready.is_set():
+                    attempts = 0  # only a session that actually came up counts as a success
             except Exception as exc:
                 if self._stop.is_set():
                     break
+                if self._ready.is_set():
+                    attempts = 0
                 attempts += 1
+                if self.resume_handle and _expired(exc):
+                    self.resume_handle = None  # the old conversation is gone on Google's side: start a fresh one
                 log.warning("live session error (%s), attempt %d", exc, attempts)
                 reconnect = attempts <= self.max_reconnects
                 if reconnect:

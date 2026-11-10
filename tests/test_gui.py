@@ -333,3 +333,60 @@ def test_listen_tab_faster_and_slower_buttons(window):
     assert studio.settings()["narration_speed"] == "0.9"
     win._show_setting("narration_speed", "2.5")  # Jarvis changed it
     assert win.speed.currentData() == 2.5 and studio.settings()["narration_speed"] == "2.5"
+
+
+class _QuietMedia:
+    """Stands in for QMediaPlayer so the test never asks the OS to decode a fake file."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def setSource(self, url):
+        pass
+
+    def play(self):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+class _Bridge:
+    def __init__(self):
+        self.active, self.sent = True, []
+
+    def send_text(self, text):
+        self.sent.append(text)
+
+
+def test_jarvis_is_told_the_truth_about_playback(window, qapp, monkeypatch):
+    win, studio, book = window
+    empty = studio.library.create_book("Blank", "fantasy", "nothing yet")
+    result = win._audio_do("play", {"book_id": empty.id, "chapter": 1})
+    assert result["ok"] is False and result["playing"] is False and "no written chapters" in result["error"]
+
+    monkeypatch.setattr(win.player.narrator, "cached_path", lambda seg: None)
+    monkeypatch.setattr(win.player, "_fetch", lambda i: None)
+    result = win._audio_do("play", {"book_id": book.id, "chapter": 2})
+    assert result["ok"] and result["playing"] is False and result["recording"] is True
+    assert result["chapter"] == 1 and "isn't written yet" in result["note"]
+
+    bridge = _Bridge()
+    monkeypatch.setattr(win, "voice", bridge)
+    win.player._failed.emit(win.player.index, "Could not record audio: quota")
+    pump(qapp, lambda: bridge.sent)
+    assert not win.player.playing and not win.player._waiting
+    assert "not playing" in bridge.sent[0] and "quota" in bridge.sent[0]
+    assert "quota" in win.now_playing.text()
+
+
+def test_play_reports_playing_only_with_audio_ready(window, qapp, monkeypatch, tmp_path):
+    win, studio, book = window
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFF")
+    monkeypatch.setattr(win.player.narrator, "cached_path", lambda seg: clip)
+    monkeypatch.setattr(win.player, "player", _QuietMedia(win.player.player))
+    monkeypatch.setattr(win.player, "_fetch", lambda i: None)
+    result = win._audio_do("play", {"book_id": book.id, "chapter": 1})
+    assert result == {"ok": True, "chapter": 1, "playing": True}
+    assert win._audio_do("stop", {}) == {"ok": True, "action": "stop"}

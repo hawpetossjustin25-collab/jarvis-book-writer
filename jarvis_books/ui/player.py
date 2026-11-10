@@ -20,6 +20,7 @@ class AudiobookPlayer(QObject):
     state_changed = pyqtSignal(str)
     error = pyqtSignal(str)
     _ready = pyqtSignal(int, str)  # segment index, file path (from worker thread)
+    _failed = pyqtSignal(int, str)  # segment index, reason (from worker thread)
 
     def __init__(self, narrator: Narrator, parent=None):
         super().__init__(parent)
@@ -30,8 +31,9 @@ class AudiobookPlayer(QObject):
         if hasattr(self.player, "setPitchCompensation"):  # Qt 6.10+: faster or slower, never chipmunk or slurred
             self.player.setPitchCompensation(True)
         self.player.mediaStatusChanged.connect(self._on_status)
-        self.player.errorOccurred.connect(lambda e, msg: self.error.emit(msg))
+        self.player.errorOccurred.connect(lambda e, msg: self._give_up(f"Could not play audio: {msg}"))
         self._ready.connect(self._on_ready)
+        self._failed.connect(self._on_failed)
         self.book_id: Optional[str] = None
         self.segments: list[Segment] = []
         self.index = 0
@@ -148,7 +150,7 @@ class AudiobookPlayer(QObject):
                 self._ready.emit(i, str(path))
             except Exception as exc:
                 log.warning("narration failed: %s", exc)
-                self.error.emit(f"Could not record audio: {exc}")
+                self._failed.emit(i, f"Could not record audio: {exc}")
             finally:
                 with self._lock:
                     self._prefetching.discard(i)
@@ -160,6 +162,17 @@ class AudiobookPlayer(QObject):
             self.player.setSource(QUrl.fromLocalFile(path))
             self.player.play()
             self.state_changed.emit("playing")
+
+    def _on_failed(self, i: int, reason: str) -> None:
+        if i == self.index and self._waiting and self.playing:
+            self._give_up(reason)  # the passage it is waiting for can't be recorded: stop instead of sitting silent
+
+    def _give_up(self, reason: str) -> None:
+        self.playing = False
+        self._waiting = False
+        self.player.stop()
+        self.state_changed.emit("stopped")
+        self.error.emit(reason)
 
     def _on_status(self, status) -> None:
         if status == QMediaPlayer.MediaStatus.EndOfMedia and self.playing:

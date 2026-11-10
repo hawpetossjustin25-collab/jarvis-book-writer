@@ -1362,7 +1362,7 @@ class MainWindow(QMainWindow):
         self.listen_book.currentIndexChanged.connect(lambda _i: self._refresh_cast())
         self.player.position_changed.connect(self._on_play_position)
         self.player.state_changed.connect(lambda s: self.statusBar().showMessage(f"Audiobook: {s}", 4000))
-        self.player.error.connect(lambda e: self.now_playing.setText(e))
+        self.player.error.connect(self._on_player_error)
         return w
 
     WHO_CHOICES = (("Man", "male", "adult"), ("Woman", "female", "adult"), ("Boy", "male", "child"),
@@ -1470,16 +1470,38 @@ class MainWindow(QMainWindow):
             self.player.play()
 
     def _audio_tool(self, action: str, args: dict) -> dict:
-        """Called by Jarvis tools from a worker thread; hop to the UI thread."""
-        def do():
-            if action == "play":
-                self.listen_book.setCurrentIndex(self.listen_book.findData(args["book_id"]))
-                self.player.load(args["book_id"], args.get("chapter") or 0)
-                self.player.play()
-            else:
-                self.player.pause()
-        QTimer.singleShot(0, do)
-        return {"ok": True, "action": action}
+        """Called by Jarvis tools from a worker thread: runs on the UI thread and reports what really happened."""
+        return self._on_ui(lambda: self._audio_do(action, args))
+
+    def _audio_do(self, action: str, args: dict) -> dict:
+        if action != "play":
+            self.player.pause()
+            return {"ok": True, "action": action}
+        i = self.listen_book.findData(args["book_id"])
+        if i >= 0:
+            self.listen_book.setCurrentIndex(i)
+        if not self.player.load(args["book_id"], args.get("chapter") or 0):
+            return {"ok": False, "playing": False,
+                    "error": "This book has no written chapters yet, so there is nothing to read aloud."}
+        self.player.set_speed(self.speed.currentData())
+        self.player.play()
+        seg = self.player.segments[self.player.index]
+        result = {"ok": True, "chapter": seg.chapter_number}
+        if args.get("chapter") and seg.chapter_number != int(args["chapter"]):
+            result["note"] = f"Chapter {args['chapter']} isn't written yet, so it starts at chapter {seg.chapter_number}."
+        if self.player._waiting:
+            result.update(playing=False, recording=True, say="The first passage is being recorded; it starts in "
+                          "a few seconds. If it can't be recorded you'll get a system note.")
+        else:
+            result["playing"] = True
+        return result
+
+    def _on_player_error(self, message: str) -> None:
+        self.now_playing.setText(message)
+        for bridge in (self.voice, self.war_voice):
+            if bridge.active:
+                bridge.send_text(f"(System note: the audiobook stopped, it is not playing: {message} "
+                                 f"Tell the author briefly and truthfully.)")
 
     # ---- Settings ---------------------------------------------------------------------------------
     def _settings_tab(self) -> QWidget:

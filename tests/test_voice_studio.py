@@ -131,3 +131,50 @@ def test_studio_without_key_reports_clearly(tmp_path, monkeypatch):
     studio.start()
     assert "API key" in studio.start_error
     studio.close()
+
+
+def test_live_setup_pins_english():
+    s = LiveSession("wss://x", {}, "gemini-2.0-flash-live", "You are Jarvis", [], lambda n, a: {})
+    setup = s.setup_message()["setup"]
+    assert setup["generationConfig"]["speechConfig"]["languageCode"] == "en-US"
+    text = setup["systemInstruction"]["parts"][0]["text"]
+    assert text.startswith("LANGUAGE: always speak and answer in English") and "You are Jarvis" in text
+    native = LiveSession("wss://x", {}, "gemini-2.5-flash-native-audio", "sys", [], lambda n, a: {})
+    native_setup = native.setup_message()["setup"]
+    assert "languageCode" not in native_setup["generationConfig"]["speechConfig"]  # Google rejects it there
+    assert "in English" in native_setup["systemInstruction"]["parts"][0]["text"]
+
+
+class ExpiredSocket(FakeSocket):
+    def __iter__(self):
+        raise RuntimeError("received 1008 (policy violation) BidiGenerateContent session not found or expired")
+        yield
+
+
+def test_expired_resume_handle_is_dropped_and_a_fresh_session_starts(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    stale, fresh = ExpiredSocket(server), FakeSocket(server)
+    sockets = [stale, fresh]
+    s = LiveSession("wss://x", {}, "m", "sys", [], lambda n, a: {}, connect=lambda url, headers: sockets.pop(0))
+    s.resume_handle = "stale"
+    assert s.start(wait_s=5)
+    assert stale.sent[0]["setup"]["sessionResumption"] == {"handle": "stale"}
+    assert fresh.sent[0]["setup"]["sessionResumption"] == {}
+    assert s.resume_handle == "h1"
+    s.stop()
+
+
+def test_failed_sessions_do_not_retry_forever(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    made = []
+
+    def connect(url, headers):
+        made.append(1)
+        return ExpiredSocket(server)
+    s = LiveSession("wss://x", {}, "m", "sys", [], lambda n, a: {}, connect=connect)
+    s.resume_handle = "stale"
+    assert not s.start(wait_s=2)
+    deadline = time.time() + 5
+    while s.state != "offline" and time.time() < deadline:
+        time.sleep(0.02)
+    assert s.state == "offline" and len(made) == s.max_reconnects + 1 and s.resume_handle is None

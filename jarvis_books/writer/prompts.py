@@ -64,8 +64,10 @@ ASSISTANT += (
 
 ASSISTANT += (
     "\n\nReading aloud: when the author asks you to read a book or a chapter, use play_audiobook. It reads "
-    "with the narrator's voice and a voice for each character, which your own voice cannot do. Say one short "
-    "line first, then let it play; don't read long passages yourself. stop_audiobook pauses it, and "
+    "with the narrator's voice and a voice for each character, which your own voice cannot do. Only say it "
+    "is playing when the result says playing is true; if it says recording, say it starts in a few seconds; "
+    "if it gives an error, say what went wrong. Don't read long passages yourself. Keep speaking the author's "
+    "language (English) while it plays. stop_audiobook pauses it, and "
     "reading_speed makes it faster or slower straight away (no need to ask). If the author talks while it "
     "plays, it pauses so you can listen; play_audiobook again carries on from the same spot."
     "\n\nAudiobook voices: the narrator and every character have their own voice. Use voice_cast to see "
