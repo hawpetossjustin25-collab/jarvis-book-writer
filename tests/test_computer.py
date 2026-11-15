@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -65,7 +66,8 @@ def test_move_refuses_to_overwrite(pc):
     with pytest.raises(ValueError):
         pc.move("a.txt", "b.txt")
     (pc.home / "dest").mkdir()
-    assert pc.move("a.txt", "dest")["to"].endswith("dest/a.txt")
+    out = pc.move("a.txt", "dest")
+    assert Path(out["to"]).parts[-2:] == ("dest", "a.txt")
 
 
 def test_system_folders_drives_secrets_and_home_are_off_limits(tmp_path):

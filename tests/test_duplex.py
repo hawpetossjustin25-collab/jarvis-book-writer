@@ -1,10 +1,21 @@
 import array
 import math
 
+import pytest
+
 from jarvis_books.voice.duplex import FRAME_MS, DuplexGate, rms
 from jarvis_books.voice.live import LiveSession
 
 RATE = 16000
+
+
+@pytest.fixture(autouse=True)
+def _free_audio_processors():
+    # Release LiveKit's native audio processor between tests.
+    yield
+    import gc
+    gc.collect()
+
 
 
 def tone(ms, amp, freq=220):
@@ -123,3 +134,4 @@ def test_echo_canceller_removes_jarvis_from_the_mic():
         if k > 250:
             before, after = before + rms(mic), after + rms(cleaned)
     assert after < before / 5  # at least 14 dB less echo, before any gating
+    aec.close()

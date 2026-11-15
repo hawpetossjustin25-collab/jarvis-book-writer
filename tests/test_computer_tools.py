@@ -80,7 +80,8 @@ def test_paths_are_pinned_when_asked_and_bad_ones_never_reach_the_question(box):
     ask = tools.call("make_folder", {"path": "Projects/Jarvis"})
     assert gate.pending.args["path"] == str(home / "Projects" / "Jarvis") and "Projects" in ask["asking"]
     gate.answer(False)
-    for args in ({"path": "/etc/hosts", "content": "x"}, {"path": "/", "content": "x"},
+    system_path = "C:\\Windows\\System32\\drivers" if sys.platform == "win32" else "/etc/hosts"
+    for args in ({"path": system_path, "content": "x"}, {"path": "/", "content": "x"},
                  {"path": ".ssh/config", "content": "x"}):
         out = tools.call("write_file", args)
         assert "error" in out and gate.pending is None

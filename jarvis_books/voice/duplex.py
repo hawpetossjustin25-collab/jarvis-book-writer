@@ -127,6 +127,12 @@ class EchoCanceller:
         self._mic = b""
         self._ref = b""
 
+    def close(self) -> None:
+        # Drop the native audio processor now; leaving it to the GC can hold audio devices.
+        self.apm = None
+        import gc
+        gc.collect()
+
     @classmethod
     def create(cls, in_rate: int = 16000, out_rate: int = 24000) -> "EchoCanceller | None":
         try:
