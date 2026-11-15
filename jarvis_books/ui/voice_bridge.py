@@ -186,6 +186,9 @@ class VoiceBridge(QObject):
             self._close_devices()
         else:
             self.state.emit("waiting for 'Hey Jarvis'")
+        if self.aec is not None:
+            self.aec.close()
+            self.aec = None
 
     def send_text(self, text: str) -> None:
         if self.session is not None:
