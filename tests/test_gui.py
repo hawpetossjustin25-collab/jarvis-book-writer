@@ -390,3 +390,20 @@ def test_play_reports_playing_only_with_audio_ready(window, qapp, monkeypatch, t
     result = win._audio_do("play", {"book_id": book.id, "chapter": 1})
     assert result == {"ok": True, "chapter": 1, "playing": True}
     assert win._audio_do("stop", {}) == {"ok": True, "action": "stop"}
+
+
+def test_brain_settings_switch_and_switch_notice(window, qapp):
+    win, studio, book = window
+    assert "LFM3" in win.brain_state.text() and not win.brain_download.isHidden()  # tests use an offline Ollama
+    win.brain_choice.setCurrentIndex(win.brain_choice.findData("local"))
+    assert studio.settings()["brain"] == "local"
+    win.brain_auto.setChecked(False)
+    assert studio.settings()["brain_auto"] == "0"
+    studio.tools.call("switch_brain", {"use": "gemini", "automatic": "on"})
+    win._refresh_settings()
+    assert win.brain_choice.currentData() == "gemini" and win.brain_auto.isChecked()
+    win._on_brain_switch("local", "gemini", "Gemini: quota used up")
+    assert "switched to LFM3" in win.statusBar().currentMessage()
+    assert "switched to LFM3" in win.chat_view.toPlainText()
+    win._on_brain_switch("gemini", "local", "back")
+    assert "working again" in win.statusBar().currentMessage()

@@ -14,7 +14,9 @@ from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
+from jarvis_books.llm.brain import Brain
 from jarvis_books.llm.engine import AdaptiveLLMEngine
+from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
 from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
@@ -34,7 +36,7 @@ log = logging.getLogger(__name__)
 
 class Studio:
     def __init__(self, home: Optional[Path] = None, mirror: Optional[Path] = None, client=None,
-                 api_key: Optional[str] = None, engine_kwargs: Optional[dict] = None):
+                 api_key: Optional[str] = None, engine_kwargs: Optional[dict] = None, local_client=None):
         self.home = Path(home) if home else data_dir()
         self.home.mkdir(parents=True, exist_ok=True)
         self.mirror_root = Path(mirror) if mirror else mirror_dir()
@@ -49,38 +51,43 @@ class Studio:
         self.client = client
         self.engine = AdaptiveLLMEngine(client, EngineStore(self.home / "adaptive_llm.db"), **(engine_kwargs or {})) \
             if client else None
+        probe = (engine_kwargs or {}).get("hardware_probe")
+        self.local = LocalEngine(local_client or OllamaClient(), state_path=self.home / "local_llm.json",
+                                 **({"hardware_probe": probe} if probe else {}))
+        # Gemini and LFM3 behind one generate(); the index and narrator use Gemini-only embeddings and speech.
+        self.brain = Brain(self.engine, self.local, self.settings)
         self.index = StoryIndex(self.library, self.engine)
         self.context = ContextBuilder(self.library, self.index)
-        self.writer = BookWriter(self.library, self.engine, self.index, self.context)
+        self.writer = BookWriter(self.library, self.brain, self.index, self.context)
         self.jobs = JobManager(self.library, workers=2)
         self.undo: list = []  # newest last; shared so 'undo that' works from any Jarvis
         self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
-        self.assistant = Assistant(self.engine, self.library, self.tools, history_channels=("chat", "voice"))
-        self.warroom = WarRoom(self.library, self.engine, self.context)
+        self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=("chat", "voice"))
+        self.warroom = WarRoom(self.library, self.brain, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
         self.war_tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.war_tools.warroom = self.warroom
-        self.war_assistant = Assistant(self.engine, self.library, self.war_tools, channel="warroom",
+        self.war_assistant = Assistant(self.brain, self.library, self.war_tools, channel="warroom",
                                        guide=WAR_ROOM_GUIDE, per_book=True)
         settings = self.settings()
         self.narrator = Narrator(self.library, self.engine, self.home / "audio", voice=settings["voice"],
                                  edge_voice=settings["edge_voice"])
         self.publisher = Publisher(self.home, self.library, self.narrator, self.jobs)
-        self.director = VoiceDirector(self.library, self.engine, self.settings)
+        self.director = VoiceDirector(self.library, self.brain, self.settings)
         self.tools.director = self.war_tools.director = self.director
         self.narrator.director = self.director
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
-        self.memory = JarvisMemory(self.library, self.engine, self.settings)
+        self.memory = JarvisMemory(self.library, self.brain, self.settings)
         self.tools.memory = self.war_tools.memory = self.memory
         self.assistant.memory = self.war_assistant.memory = self.memory
         self.writer.guidance = self.memory.writing_guidance
         self.warroom.memory = self.memory
         self.gate.subscribe(self.memory.on_permission)
-        self.upgrader = Upgrader(self.library, self.engine, self.home / "upgrades")
+        self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
@@ -89,7 +96,7 @@ class Studio:
     # ---- settings (non-secret, stored in the library meta table) ---------------------
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
-                "auto_mute": "1", "dialogue_tags": "3", "memory": "1"}
+                "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1"}
 
     def settings(self) -> dict:
         return {k: self.library.get_meta(f"setting.{k}", v) for k, v in self.DEFAULTS.items()}
@@ -121,6 +128,10 @@ class Studio:
                 log.exception("engine start failed")
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
+        try:
+            self._start_local()
+        except Exception:
+            log.exception("LFM3 start failed")
         if self.engine is not None and not self.start_error:
             self.memory.catch_up()
         if probe and self.engine is not None and not self.start_error:
@@ -131,12 +142,32 @@ class Studio:
         save_key(key, self.home)
         self.client = GeminiClient(key)
         self.engine = AdaptiveLLMEngine(self.client, EngineStore(self.home / "adaptive_llm.db"))
-        for obj in (self.index, self.writer, self.assistant, self.war_assistant, self.warroom, self.narrator,
-                    self.director, self.memory, self.upgrader):
+        for obj in (self.index, self.narrator):
             obj.engine = self.engine
+        self.brain.gemini = self.engine
         self.start_error = None
         self.engine.initialize(probe=False)
         threading.Thread(target=self.engine.refine, daemon=True).start()
+
+    def _start_local(self) -> None:
+        """Get LFM3 ready on this computer; downloads it once in the background when Ollama is there."""
+        if self.local.initialize() or "downloaded" not in self.local.problem:
+            return
+        if self.library.get_meta("local_download_failed", "") == self.local.model:
+            return
+        self.download_local()
+
+    def download_local(self):
+        def run(progress, cancel):
+            try:
+                ok = self.local.download(lambda f, msg: progress(f, f"Downloading {LABEL}: {msg}"), cancel.is_set)
+            except Exception:
+                self.library.set_meta("local_download_failed", self.local.model)
+                raise
+            if not ok:
+                raise RuntimeError(self.local.problem)
+            return self.local.status()
+        return self.jobs.submit("download", f"Downloading {LABEL} for Jarvis (about 1 GB)", run)
 
     def _on_change(self, event: str, book_id: str, detail: dict) -> None:
         if event == "chapter_text" and self.engine is not None:

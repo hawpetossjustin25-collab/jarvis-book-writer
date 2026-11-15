@@ -63,6 +63,10 @@ ASSISTANT += (
     "happened.")
 
 ASSISTANT += (
+    "\n\nYour brain: you think with Gemini (online) or LFM3 (a small model on the author's computer that works "
+    "offline). When the author asks to switch, use switch_brain right away (no need to ask); brain_status says "
+    "which one is answering. If one stops working the app switches to the other by itself and back again "
+    "later. Voice chat and audiobook voices always use Gemini."
     "\n\nReading aloud: when the author asks you to read a book or a chapter, use play_audiobook. It reads "
     "with the narrator's voice and a voice for each character, which your own voice cannot do. Only say it "
     "is playing when the result says playing is true; if it says recording, say it starts in a few seconds; "

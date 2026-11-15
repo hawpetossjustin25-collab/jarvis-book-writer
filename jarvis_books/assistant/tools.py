@@ -41,8 +41,9 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
-                "dialogue_tags", "memory")
-SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES}
+                "dialogue_tags", "memory", "brain", "brain_auto")
+SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
+                   "brain": ("gemini", "local")}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
 SPEEDS = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
 
@@ -146,6 +147,12 @@ DECLARATIONS = [
           "app restarts.", {"upgrade_id": I}),
     _decl("undo_last_change", "Undo the most recent change: a chapter rewrite, outline or title change, new "
           "chapter, story bible entry, accepted War Room idea, setting or voice."),
+    _decl("brain_status", "Which brain Jarvis is thinking with: Gemini (online) or LFM3 (on this computer), "
+          "which one comes first, whether the automatic switch is on, and how fast LFM3 runs here."),
+    _decl("switch_brain", "Switch Jarvis's brain. use: 'gemini' (online, best writing) or 'lfm3' (runs on this "
+          "computer, works offline, weaker at long writing). automatic: 'on' to switch by itself when one isn't "
+          "working, 'off' to never switch.", {"use": {"type": "STRING", "enum": ["gemini", "lfm3"]},
+                                              "automatic": {"type": "STRING", "enum": ["on", "off"]}}),
     _decl("voice_cast", "Audiobook voices of a book: the narrator and the voice each character speaks in "
           "(man, woman, boy, girl, older...).", {"book": BOOK}),
     _decl("cast_voices", "Find every character in the story bible and give each a fitting voice for the "
@@ -234,6 +241,8 @@ class ToolBox:
             "list_upgrades": ("upgrade", "feature", "install", "tests pass", "code"),
             "install_upgrade": ("upgrade", "install"),
             "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
+            "brain_status": ("brain", "gemini", "lfm", "local model", "offline", "which model", "switch"),
+            "switch_brain": ("brain", "gemini", "lfm", "local model", "offline", "switch", "use the"),
             "voice_cast": ("voice", "cast", "narrator", "sound", "who reads"),
             "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
             "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
@@ -645,7 +654,7 @@ class ToolBox:
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:
@@ -807,6 +816,41 @@ class ToolBox:
             self.library.upsert_cast_member(b.id, NARRATOR, edge_voice=current["edge_voice"])
         self._push_undo(f"the voice of {character} in '{b.title}'", lambda: self.library.replace_cast(b.id, before))
         return {"book": b.title, "changed": self._cast_view(self.library.get_cast_member(b.id, character))}
+
+    def _brain(self):
+        brain = getattr(self.settings_store, "brain", None)
+        if brain is None:
+            raise NotFound("the brain switch is not available here")
+        return brain
+
+    def _t_brain_status(self) -> dict:
+        return self._brain().status()
+
+    def _t_switch_brain(self, use: str = "", automatic: str = "") -> dict:
+        store = self._store()
+        old = store.settings()
+        changes = {}
+        if use:
+            changes["brain"] = "local" if use.lower() in ("lfm3", "local", "lfm") else "gemini"
+        if automatic:
+            changes["brain_auto"] = "1" if automatic.lower() in _ON else "0"
+        if not changes:
+            return {"error": "say which brain to use or whether to switch automatically"}
+        for key, value in changes.items():
+            store.set_setting(key, value)
+
+        def back():
+            for key in changes:
+                store.set_setting(key, old[key])
+        self._push_undo("brain back to " + ("LFM3" if old["brain"] == "local" else "Gemini"), back)
+        out = {"saved": True, **self._brain().status()}
+        brain = self._brain()
+        if changes.get("brain") == "gemini" and out["gemini"].startswith("resting"):
+            out["warning"] = f"Gemini failed a moment ago ({out['gemini'][9:][:150]}); LFM3 answers until it works again"
+
+        if changes.get("brain") == "local" and not brain.local.available and not brain.local.initialize():
+            out["warning"] = brain.local.problem + "; Gemini answers until it is ready"
+        return out
 
     def _t_app_status(self) -> dict:
         out: dict = {"books": len(self.library.list_books()), **self._t_job_status()}

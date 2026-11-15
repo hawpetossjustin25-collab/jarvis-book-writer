@@ -6,12 +6,18 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fakes import FakeGemini  # noqa: E402
+from fakes import FakeGemini, FakeOllama  # noqa: E402
 from jarvis_books.llm.engine import AdaptiveLLMEngine  # noqa: E402
 from jarvis_books.llm.models import HardwareProfile  # noqa: E402
 from jarvis_books.llm.store import EngineStore  # noqa: E402
 from jarvis_books.storage.db import Database  # noqa: E402
 from jarvis_books.storage.library import Library  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_real_ollama(monkeypatch):
+    """Tests never start, query or download into the real Ollama on this computer."""
+    monkeypatch.setattr("jarvis_books.studio.OllamaClient", lambda *a, **k: FakeOllama(online=False))
 
 
 @pytest.fixture

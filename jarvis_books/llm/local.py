@@ -1,0 +1,425 @@
+"""LFM3 (or any model) running on this computer through Ollama, behind the same request API as Gemini.
+
+The engine adapts to the machine the way the Gemini engine adapts to the API: it reads the model's real
+context window and tool support from Ollama, sizes the context to the RAM that is free, and keeps measuring
+how fast this CPU reads prompts and writes answers so every request fits a time budget.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Optional
+
+import requests
+
+from jarvis_books.llm.errors import InvalidStructuredOutput, LLMError
+from jarvis_books.llm.hardware import probe_hardware
+from jarvis_books.llm.models import HardwareProfile, LLMRequest, LLMResponse, ModelBudget, RuntimeConfig
+from jarvis_books.llm.policy import TEXT_ROLES
+from jarvis_books.llm.prompt import _cut, fit_sections
+from jarvis_books.llm.schema import parse_json, validate
+from jarvis_books.llm.sizing import estimate_tokens
+
+log = logging.getLogger(__name__)
+
+DEFAULT_MODEL = "hf.co/LiquidAI/LFM3-1.7B-GGUF:Q4_K_M"
+DEFAULT_URL = "http://127.0.0.1:11434"
+LABEL = "LFM3"
+
+
+def to_json_schema(schema: dict) -> dict:
+    """Gemini's upper-case schema subset to standard JSON Schema (what Ollama expects)."""
+    out: dict = {}
+    for key, value in schema.items():
+        if key == "type":
+            out["type"] = str(value).lower()
+        elif key == "properties":
+            out["properties"] = {k: to_json_schema(v) for k, v in value.items()}
+        elif key == "items":
+            out["items"] = to_json_schema(value)
+        elif key in ("required", "enum", "description", "minItems", "maxItems"):
+            out[key] = value
+    return out
+
+
+def to_messages(system: str, contents: list[dict]) -> list[dict]:
+    """Gemini 'contents' turns (text, functionCall, functionResponse parts) to Ollama chat messages."""
+    messages = [{"role": "system", "content": system}] if system else []
+    for turn in contents:
+        parts = turn.get("parts") or []
+        text = "".join(p.get("text", "") for p in parts if "text" in p)
+        calls = [p["functionCall"] for p in parts if "functionCall" in p]
+        replies = [p["functionResponse"] for p in parts if "functionResponse" in p]
+        if turn.get("role") == "model":
+            msg: dict = {"role": "assistant", "content": text}
+            if calls:
+                msg["tool_calls"] = [{"function": {"name": c.get("name", ""), "arguments": c.get("args") or {}}}
+                                     for c in calls]
+            messages.append(msg)
+        else:
+            for r in replies:
+                messages.append({"role": "tool", "tool_name": r.get("name", ""),
+                                 "content": json.dumps(r.get("response", {}), ensure_ascii=False)})
+            if text:
+                messages.append({"role": "user", "content": text})
+    return messages
+
+
+def to_tools(declarations: list[dict]) -> list[dict]:
+    return [{"type": "function", "function": {"name": d["name"], "description": d.get("description", ""),
+                                              "parameters": to_json_schema(d.get("parameters") or {"type": "OBJECT"})}}
+            for d in declarations]
+
+
+def _strip_thinking(text: str) -> str:
+    while "<think>" in text and "</think>" in text:
+        start, end = text.index("<think>"), text.index("</think>") + len("</think>")
+        text = text[:start] + text[end:]
+    return text.strip()
+
+
+def find_ollama() -> Optional[str]:
+    found = shutil.which("ollama")
+    if found:
+        return found
+    if sys.platform == "win32":
+        exe = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+        if exe.exists():
+            return str(exe)
+    return None
+
+
+class OllamaClient:
+    """Ollama's REST API (/api/chat, /api/tags, /api/show, /api/pull)."""
+
+    provider = "local"
+
+    def __init__(self, base_url: str = DEFAULT_URL, session: Optional[requests.Session] = None,
+                 timeout_s: float = 600.0, launcher: Optional[Callable[[], bool]] = None):
+        self.base_url = base_url.rstrip("/")
+        self.session = session or requests.Session()
+        self.timeout_s = timeout_s
+        self.launcher = launcher if launcher is not None else self._launch
+        self._launched = False
+
+    def _launch(self) -> bool:
+        """Start Ollama in the background if it is installed but not running (once per app run)."""
+        exe = find_ollama()
+        if not exe or self._launched:
+            return False
+        self._launched = True
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+        for _ in range(20):
+            time.sleep(0.5)
+            try:
+                self.session.get(self.base_url + "/api/version", timeout=2)
+                return True
+            except requests.RequestException:
+                continue
+        return False
+
+    def _call(self, method: str, path: str, payload: Optional[dict] = None, timeout: Optional[float] = None,
+              stream: bool = False):
+        for attempt in (1, 2):
+            try:
+                resp = self.session.request(method, self.base_url + path, json=payload, stream=stream,
+                                            timeout=timeout or self.timeout_s)
+                break
+            except requests.Timeout as exc:
+                raise LLMError(f"{LABEL} took too long to answer", kind="network") from exc
+            except requests.RequestException as exc:
+                if attempt == 1 and self.launcher():
+                    continue
+                raise LLMError(f"{LABEL} isn't running on this computer (Ollama is not answering)",
+                               kind="unavailable") from exc
+        if resp.status_code == 404:
+            raise LLMError(f"{LABEL} isn't downloaded yet", kind="unavailable", status=404)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("error", resp.text)
+            except ValueError:
+                detail = resp.text
+            kind = "unavailable" if "architecture" in str(detail) or "not found" in str(detail) else "unknown"
+            raise LLMError(f"{LABEL} error: {str(detail)[:300]}", kind=kind, status=resp.status_code)
+        return resp
+
+    def version(self) -> str:
+        return self._call("GET", "/api/version", timeout=5).json().get("version", "")
+
+    def list_models(self) -> list[dict]:
+        return self._call("GET", "/api/tags", timeout=10).json().get("models", [])
+
+    def show(self, model: str) -> dict:
+        return self._call("POST", "/api/show", {"model": model}, timeout=30).json()
+
+    def chat(self, payload: dict, timeout: Optional[float] = None) -> dict:
+        return self._call("POST", "/api/chat", dict(payload, stream=False), timeout=timeout).json()
+
+    def pull(self, model: str, progress: Optional[Callable[[float, str], None]] = None,
+             cancel: Optional[Callable[[], bool]] = None) -> None:
+        resp = self._call("POST", "/api/pull", {"model": model, "stream": True}, timeout=3600, stream=True)
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            msg = json.loads(line)
+            if msg.get("error"):
+                raise LLMError(f"download failed: {msg['error']}", kind="unknown")
+            if progress and msg.get("total"):
+                progress(min(0.99, msg.get("completed", 0) / msg["total"]), msg.get("status", ""))
+            if cancel and cancel():
+                resp.close()
+                raise LLMError("download cancelled", kind="unknown")
+        if progress:
+            progress(1.0, "done")
+
+
+@dataclass
+class LocalProfile:
+    model: str
+    context_window: int
+    supports_tools: bool
+    size_bytes: int
+    supports_thinking: bool
+    kv_bytes_per_token: int
+
+
+@dataclass
+class Speed:
+    """Measured on this computer; starts at conservative CPU guesses and moves toward real numbers."""
+    prompt_tps: float = 40.0
+    output_tps: float = 6.0
+    samples: int = 0
+
+    def update(self, prompt_tps: Optional[float], output_tps: Optional[float]) -> None:
+        a = 0.5 if self.samples < 3 else 0.25
+        if prompt_tps:
+            self.prompt_tps = (1 - a) * self.prompt_tps + a * prompt_tps
+        if output_tps:
+            self.output_tps = (1 - a) * self.output_tps + a * output_tps
+        self.samples += 1
+
+
+class LocalEngine:
+    """Adaptive engine for a model served by Ollama. Same generate()/get_runtime_configuration() as Gemini's."""
+
+    MIN_CTX, MAX_CTX = 4096, 65536
+    HEADROOM = 1_500_000_000  # RAM left for Windows and the app itself
+
+    def __init__(self, client: OllamaClient, model: str = DEFAULT_MODEL, state_path: Optional[Path] = None,
+                 hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
+                 answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0):
+        self.client = client
+        self.model = model
+        self.state_path = state_path
+        self.hardware_probe = hardware_probe
+        self.answer_budget_s = answer_budget_s
+        self.prompt_budget_s = prompt_budget_s
+        self.profile: Optional[LocalProfile] = None
+        self.hardware: Optional[HardwareProfile] = None
+        self.speed = Speed()
+        self.problem = "not checked yet"
+        self.num_ctx = self.MIN_CTX
+        self._lock = threading.Lock()
+        self._load_state()
+
+    # ---- state -------------------------------------------------------------------
+    def _load_state(self) -> None:
+        if self.state_path and self.state_path.exists():
+            try:
+                data = json.loads(self.state_path.read_text(encoding="utf-8"))
+                self.speed = Speed(**data.get("speed", {}))
+            except (ValueError, TypeError, OSError):
+                log.warning("local model state unreadable; measuring again")
+
+    def _save_state(self) -> None:
+        if self.state_path:
+            try:
+                self.state_path.write_text(json.dumps({"model": self.model, "speed": self.speed.__dict__}),
+                                           encoding="utf-8")
+            except OSError:
+                log.debug("could not save local model state", exc_info=True)
+
+    # ---- discovery and sizing -------------------------------------------------------
+    @property
+    def available(self) -> bool:
+        return self.profile is not None
+
+    def installed(self) -> bool:
+        names = {m.get("name") or m.get("model") for m in self.client.list_models()}
+        return self.model in names or f"{self.model}:latest" in names
+
+    def initialize(self) -> bool:
+        """Find the model, read its real limits and size it to this computer. False (with .problem) if unusable."""
+        try:
+            self.hardware = self.hardware_probe()
+            if not self.installed():
+                self.profile, self.problem = None, f"{LABEL} isn't downloaded yet"
+                return False
+            info = self.client.show(self.model)
+        except LLMError as exc:
+            self.profile, self.problem = None, str(exc)
+            return False
+        model_info = info.get("model_info") or {}
+        ctx = next((int(v) for k, v in model_info.items() if k.endswith(".context_length")), None) or 32768
+        caps = info.get("capabilities")
+        tools = "tools" in caps if isinstance(caps, list) else "tools" in str(info.get("template", ""))
+        size = next((int(m.get("size", 0)) for m in self.client.list_models()
+                     if (m.get("name") or m.get("model")) in (self.model, f"{self.model}:latest")), 0)
+        thinking = isinstance(caps, list) and "thinking" in caps
+        self.profile = LocalProfile(self.model, ctx, tools, size, thinking, _kv_bytes(model_info))
+        self.problem = ""
+        self._size()
+        log.info("local model %s ready: context %d (window %d), tools %s", self.model, self.num_ctx, ctx, tools)
+        return True
+
+    def _size(self) -> None:
+        p = self.profile
+        free = (self.hardware.available_ram_bytes if self.hardware else None) or 4 * 1024 ** 3
+        kv_room = max(0, free - p.size_bytes - self.HEADROOM)
+        by_ram = kv_room // max(1, p.kv_bytes_per_token)
+        by_time = int(self.speed.prompt_tps * self.prompt_budget_s) + self.output_tokens()
+        ctx = min(p.context_window, self.MAX_CTX, by_ram, max(self.MIN_CTX, by_time))
+        self.num_ctx = max(self.MIN_CTX, int(ctx) // 1024 * 1024)
+
+    def output_tokens(self) -> int:
+        return max(256, min(4096, int(self.speed.output_tps * self.answer_budget_s)))
+
+    def input_tokens(self) -> int:
+        return max(1024, self.num_ctx - self.output_tokens() - 128)
+
+    THINK_ROLES = ("planner", "editor", "writer")
+    THINK_MIN_TPS = 20.0  # thinking costs ~10x the tokens; only worth it where this computer writes fast
+
+    def thinks(self, role: str) -> bool:
+        return bool(self.profile and self.profile.supports_thinking and role in self.THINK_ROLES
+                    and self.speed.output_tps >= self.THINK_MIN_TPS)
+
+    def get_runtime_configuration(self) -> RuntimeConfig:
+        if not self.available:
+            raise LLMError(self.problem or f"{LABEL} is not ready", kind="unavailable")
+        out = self.output_tokens()
+        budget = ModelBudget(self.model, self.input_tokens(), out, True, 60, None, None)
+        return RuntimeConfig(version=0, routes={r: (self.model,) for r in TEXT_ROLES}, budgets={self.model: budget},
+                             memory_budget_tokens=int(self.input_tokens() * 0.35), history_turns=8,
+                             words_per_call=max(200, int(out / 1.35 * 0.6)), scene_words=max(200, int(out / 1.35 * 0.5)),
+                             concurrency=1, tts_workers=1, embed_batch=1, max_retries=1, adaptive=True,
+                             reason=f"{LABEL} on this computer")
+
+    def status(self) -> dict:
+        return {"model": self.model, "ready": self.available, "problem": self.problem, "context": self.num_ctx,
+                "tools": bool(self.profile and self.profile.supports_tools),
+                "reads_tokens_per_s": round(self.speed.prompt_tps, 1),
+                "writes_tokens_per_s": round(self.speed.output_tps, 1)}
+
+    def download(self, progress=None, cancel=None) -> bool:
+        self.client.pull(self.model, progress, cancel)
+        return self.initialize()
+
+    # ---- generation -------------------------------------------------------------------
+    def build(self, request: LLMRequest) -> dict:
+        budget_in, out = self.input_tokens(), self.output_tokens()
+        system = request.system
+        if estimate_tokens(system) > budget_in * 0.5:
+            system = _cut(system, int(budget_in * 0.5), 4.0, "start")
+        history = list(request.history[-8:]) if request.history else []
+        while history and history[0].get("role") != "user":
+            history = history[1:]
+        used = estimate_tokens(system) + sum(estimate_tokens(json.dumps(t.get("parts", ""))) for t in history)
+        while history and used > budget_in * 0.8:  # oldest turns go first
+            used -= estimate_tokens(json.dumps(history.pop(0).get("parts", "")))
+            while history and history[0].get("role") != "user":
+                used -= estimate_tokens(json.dumps(history.pop(0).get("parts", "")))
+        contents = list(history)
+        if request.instruction or request.sections:
+            instruction = request.instruction
+            if request.json_schema:
+                instruction += "\n\nAnswer with JSON only."
+            fit = fit_sections(instruction, request.sections, max(512, budget_in - used), 4.0)
+            contents.append({"role": "user", "parts": [{"text": fit.text}]})
+        if not contents:
+            raise LLMError("empty request", kind="invalid")
+        payload: dict = {"model": self.model, "messages": to_messages(system, contents),
+                         "options": {"num_ctx": self.num_ctx,
+                                     "num_predict": min(request.max_output_tokens or out, out)}}
+        if request.temperature is not None:
+            payload["options"]["temperature"] = float(request.temperature)
+        if self.profile and self.profile.supports_thinking:
+            payload["think"] = self.thinks(request.role)
+        if request.tools and self.profile and self.profile.supports_tools:
+            payload["tools"] = to_tools(request.tools)
+        if request.json_schema:
+            payload["format"] = to_json_schema(request.json_schema)
+        return payload
+
+    def generate(self, request: LLMRequest) -> LLMResponse:
+        if not self.available and not self.initialize():
+            raise LLMError(self.problem, kind="unavailable")
+        with self._lock:  # one request at a time: a small CPU gets slower, not faster, with two
+            payload = self.build(request)
+            for attempt in (1, 2):
+                start = time.perf_counter()
+                body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
+                latency = time.perf_counter() - start
+                self._measure(body)
+                msg = body.get("message") or {}
+                text = _strip_thinking(msg.get("content") or "")
+                calls = [{"name": c["function"]["name"], "args": c["function"].get("arguments") or {}}
+                         for c in msg.get("tool_calls") or [] if c.get("function")]
+                data = None
+                if request.json_schema and not calls:
+                    try:
+                        data = parse_json(text)
+                        errors = validate(data, request.json_schema)
+                    except ValueError as exc:
+                        errors = [str(exc)]
+                    if errors:
+                        if attempt == 1:
+                            payload["messages"].append({"role": "user", "content": (
+                                "That did not match the JSON format (" + "; ".join(errors)[:300] +
+                                "). Return only valid JSON matching the schema.")})
+                            continue
+                        raise InvalidStructuredOutput("; ".join(errors)[:300])
+                parts = ([{"text": text}] if text else []) + [{"functionCall": c} for c in calls]
+                return LLMResponse(text=text, model=f"{LABEL} ({self.model})", data=data, function_calls=calls,
+                                   content={"role": "model", "parts": parts},
+                                   finish_reason=body.get("done_reason"), prompt_tokens=body.get("prompt_eval_count"),
+                                   output_tokens=body.get("eval_count"), latency_s=latency, attempts=attempt)
+        raise LLMError("generation failed", kind="unknown")
+
+    def _measure(self, body: dict) -> None:
+        def rate(count, ns):
+            return count / (ns / 1e9) if count and ns else None
+        self.speed.update(rate(body.get("prompt_eval_count"), body.get("prompt_eval_duration")),
+                          rate(body.get("eval_count"), body.get("eval_duration")))
+        if self.profile:
+            self._size()
+        self._save_state()
+
+
+def _kv_bytes(model_info: dict) -> int:
+    """Bytes of KV cache per token: attention layers x kv heads x head size x 2 (K and V) x 2 bytes (f16)."""
+    def get(suffix):
+        return next((v for k, v in model_info.items() if k.endswith(suffix)), None)
+    layers, kv, embed, heads = get(".block_count"), get(".attention.head_count_kv"), get(".embedding_length"), \
+        get(".attention.head_count")
+    try:
+        if isinstance(kv, list):  # hybrid models: layers without attention have 0 kv heads
+            kv_total = sum(int(x) for x in kv)
+        else:
+            kv_total = int(kv) * int(layers)
+        head_dim = int(get(".attention.key_length") or (int(embed) // int(heads)))
+        return max(1024, kv_total * head_dim * 2 * 2)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 128 * 1024  # unknown layout: assume a generous 128 KB per token
+
+
+__all__ = ["OllamaClient", "LocalEngine", "DEFAULT_MODEL", "LABEL", "find_ollama"]

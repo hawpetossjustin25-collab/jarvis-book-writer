@@ -98,3 +98,68 @@ def sample_for(schema: dict):
     if "enum" in schema:
         return schema["enum"][0]
     return "x"
+
+
+LFM3_SHOW = {
+    "capabilities": ["completion", "tools", "thinking"],
+    "model_info": {"lfm2.context_length": 262144, "lfm2.block_count": 16, "lfm2.embedding_length": 2048,
+                   "lfm2.attention.head_count": 32,
+                   "lfm2.attention.head_count_kv": [0, 0, 8, 0, 0, 8, 0, 0, 8, 0, 8, 0, 8, 0, 8, 0]},
+}
+
+
+class FakeOllama:
+    """Ollama's API as the local engine sees it. online=False behaves like Ollama not running."""
+
+    provider = "local"
+
+    def __init__(self, online: bool = True, installed: bool = True, model: str = "hf.co/LiquidAI/LFM3-1.7B-GGUF:Q4_K_M"):
+        self.online, self.installed, self.model = online, installed, model
+        self.replies: list = []
+        self.chats: list[dict] = []
+        self.pulls: list[str] = []
+
+    def _check(self):
+        if not self.online:
+            raise LLMError("LFM3 isn't running on this computer (Ollama is not answering)", kind="unavailable")
+
+    def version(self):
+        self._check()
+        return "0.12.0"
+
+    def list_models(self):
+        self._check()
+        return [{"name": self.model, "size": 1_100_000_000}] if self.installed else []
+
+    def show(self, model):
+        self._check()
+        if not self.installed:
+            raise LLMError("LFM3 isn't downloaded yet", kind="unavailable", status=404)
+        return LFM3_SHOW
+
+    def reply(self, text="", calls=None, prompt_tokens=200, output_tokens=40):
+        msg = {"role": "assistant", "content": text}
+        if calls:
+            msg["tool_calls"] = [{"function": c} for c in calls]
+        self.replies.append({"message": msg, "done_reason": "stop", "prompt_eval_count": prompt_tokens,
+                             "prompt_eval_duration": int(prompt_tokens / 50 * 1e9), "eval_count": output_tokens,
+                             "eval_duration": int(output_tokens / 8 * 1e9)})
+
+    def chat(self, payload, timeout=None):
+        self._check()
+        self.chats.append(payload)
+        if not self.replies:
+            return {"message": {"role": "assistant", "content": "ok from LFM3"}, "prompt_eval_count": 100,
+                    "prompt_eval_duration": int(2e9), "eval_count": 16, "eval_duration": int(2e9)}
+        r = self.replies.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    def pull(self, model, progress=None, cancel=None):
+        self._check()
+        self.pulls.append(model)
+        if progress:
+            progress(0.5, "pulling")
+            progress(1.0, "done")
+        self.installed = True

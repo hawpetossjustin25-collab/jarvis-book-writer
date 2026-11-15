@@ -23,6 +23,7 @@ from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import GEMINI_CATALOG, NARRATOR, describe_voice, who
 from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
+from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
 from jarvis_books.ui.approval import ApprovalBar
@@ -35,6 +36,8 @@ from jarvis_books.warroom import WAR_ROOM_GUIDE
 from jarvis_books.writer import prompts
 
 log = logging.getLogger(__name__)
+
+NO_BRAIN = f"Add your Gemini API key in Settings, or download {LABEL} there so Jarvis can think on this computer."
 
 STYLE = """
 QWidget { background:#11151c; color:#e6e9ef; font-size:14px; }
@@ -84,6 +87,7 @@ class NewBookDialog(QDialog):
 class MainWindow(QMainWindow):
     _perm_event = pyqtSignal(str, object)
     _ui_call = pyqtSignal(object)
+    _brain_event = pyqtSignal(str, str, str)
 
     def __init__(self, studio: Studio):
         super().__init__()
@@ -123,6 +127,8 @@ class MainWindow(QMainWindow):
         self._closed = False
         self._perm_event.connect(self._on_permission)
         self._ui_call.connect(self._run_ui_call)
+        self._brain_event.connect(self._on_brain_switch)
+        studio.brain.subscribe(lambda new, old, why: None if self._closed else self._brain_event.emit(new, old, why))
         studio.tools.app_handler = studio.war_tools.app_handler = self._app_tool
         studio.gate.subscribe(lambda event, info: self._perm_event.emit(event, info))
         self._expire_timer = QTimer(self)
@@ -148,7 +154,10 @@ class MainWindow(QMainWindow):
         if self._closed:  # startup finished after the window closed: don't open the mic or touch storage
             return
         if error or self.studio.engine is None or self.studio.engine._config is None:
-            self.statusBar().showMessage(error or self.studio.start_error or "Gemini is not connected")
+            msg = error or self.studio.start_error or "Gemini is not connected"
+            if self.studio.local.available and self.studio.brain.automatic():
+                msg += f" Jarvis is thinking with {LABEL} on this computer meanwhile."
+            self.statusBar().showMessage(msg)
             self.tabs.setCurrentIndex(5)
         else:
             cfg = self.studio.engine.get_runtime_configuration()
@@ -485,8 +494,8 @@ class MainWindow(QMainWindow):
         text = self.chat_input.text().strip()
         if not text:
             return
-        if self.studio.engine is None:
-            QMessageBox.warning(self, "Gemini", "Add your Gemini API key in Settings first.")
+        if not self.studio.brain.ready():
+            QMessageBox.warning(self, "Jarvis", NO_BRAIN)
             return
         self.chat_input.clear()
         self._chat_append("You", text)
@@ -610,8 +619,8 @@ class MainWindow(QMainWindow):
         return tools.war_session_id
 
     def _war_ready(self) -> bool:
-        if self.studio.engine is None:
-            QMessageBox.warning(self, "Gemini", "Add your Gemini API key in Settings first.")
+        if not self.studio.brain.ready():
+            QMessageBox.warning(self, "Jarvis", NO_BRAIN)
             return False
         if not self._war_book_id():
             QMessageBox.information(self, "War Room", "Create or pick a book first.")
@@ -677,7 +686,7 @@ class MainWindow(QMainWindow):
 
     def _war_end(self) -> None:
         sid = self.studio.war_tools.war_session_id
-        if sid is None or self.studio.engine is None:
+        if sid is None or not self.studio.brain.ready():
             self.war_state.setText("No session to wrap up yet.")
             return
         if self.war_voice.active:
@@ -1537,6 +1546,27 @@ class MainWindow(QMainWindow):
         self.jarvis_voice.currentTextChanged.connect(lambda v: self.studio.set_setting("jarvis_voice", v))
         form.addRow("Jarvis voice", self.jarvis_voice)
         lay.addLayout(form)
+        lay.addWidget(QLabel(f"<b>Jarvis's brain</b> (Gemini online, or {LABEL} running on this computer)"))
+        brow = QHBoxLayout()
+        self.brain_choice = QComboBox()
+        self.brain_choice.addItem("Gemini (online, best writing)", "gemini")
+        self.brain_choice.addItem(f"{LABEL} (this computer, works offline)", "local")
+        self.brain_choice.setCurrentIndex(max(0, self.brain_choice.findData(s["brain"])))
+        self.brain_choice.currentIndexChanged.connect(
+            lambda _: (self.studio.set_setting("brain", self.brain_choice.currentData()), self._refresh_brain()))
+        self.brain_auto = QCheckBox("Switch automatically when one isn't working")
+        self.brain_auto.setChecked(s["brain_auto"] == "1")
+        self.brain_auto.toggled.connect(
+            lambda on: (self.studio.set_setting("brain_auto", "1" if on else "0"), self._refresh_brain()))
+        self.brain_download = QPushButton(f"Download {LABEL}")
+        self.brain_download.clicked.connect(self._download_local)
+        brow.addWidget(self.brain_choice)
+        brow.addWidget(self.brain_auto)
+        brow.addWidget(self.brain_download)
+        lay.addLayout(brow)
+        self.brain_state = QLabel()
+        self.brain_state.setWordWrap(True)
+        lay.addWidget(self.brain_state)
         lay.addWidget(QLabel("<b>Adaptive Gemini engine</b>"))
         self.engine_view = QTextBrowser()
         lay.addWidget(self.engine_view, 1)
@@ -1659,6 +1689,51 @@ class MainWindow(QMainWindow):
         run_async(lambda: self.studio.set_api_key(key), lambda _: self._on_started(None),
                   lambda e: QMessageBox.warning(self, "Gemini key", f"That key did not work: {e}"))
 
+    def _refresh_brain(self) -> None:
+        st = self.studio.brain.status()
+        lfm = st["lfm3"] or {}
+        if lfm.get("ready"):
+            local = (f"{LABEL} ready: {lfm['context']:,} token memory, reads about {lfm['reads_tokens_per_s']:.0f} "
+                     f"and writes about {lfm['writes_tokens_per_s']:.0f} tokens a second here")
+        else:
+            local = lfm.get("problem") or f"{LABEL} is not ready"
+        now = st["answering_now"] or st["first_choice"]
+        self.brain_state.setText(f"Answering now: {now}. Gemini: {st['gemini']}. {local}. Voice chat and "
+                                 f"audiobook voices always use Gemini.")
+        self.brain_download.setVisible(not lfm.get("ready"))
+        for box, value in ((self.brain_choice, self.brain_choice.findData(self.studio.settings()["brain"])),):
+            if box.currentIndex() != value:
+                box.blockSignals(True)
+                box.setCurrentIndex(value)
+                box.blockSignals(False)
+        auto = self.studio.brain.automatic()
+        if self.brain_auto.isChecked() != auto:
+            self.brain_auto.blockSignals(True)
+            self.brain_auto.setChecked(auto)
+            self.brain_auto.blockSignals(False)
+
+    def _download_local(self) -> None:
+        self.brain_download.setEnabled(False)
+        try:
+            self.studio.download_local()
+        except Exception as exc:
+            QMessageBox.warning(self, LABEL, str(exc))
+        finally:
+            self.brain_download.setEnabled(True)
+
+    def _on_brain_switch(self, new: str, old: str, why: str) -> None:
+        if self._closed:
+            return
+        if new == "local":
+            msg = f"Gemini isn't working right now ({why[:120]}), so Jarvis switched to {LABEL} on this computer."
+        elif old == "local" and self.studio.settings()["brain"] == "gemini":
+            msg = "Gemini is working again, so Jarvis switched back to it."
+        else:
+            msg = f"{LABEL} isn't working ({why[:120]}), so Jarvis is using Gemini."
+        self.statusBar().showMessage(msg, 15000)
+        self.chat_view.append(f"<i style='color:#718096'>{html.escape(msg)}</i>")
+        self._refresh_brain()
+
     def _toggle_adaptive(self, on: bool) -> None:
         if self.studio.engine is not None:
             self.studio.engine.set_adaptive(on)
@@ -1761,6 +1836,7 @@ class MainWindow(QMainWindow):
             self._refresh_memories()
 
     def _refresh_settings(self) -> None:
+        self._refresh_brain()
         engine = self.studio.engine
         if engine is None or engine._config is None:
             self.engine_view.setHtml(f"<p>{html.escape(self.studio.start_error or 'Not connected yet.')}</p>")
@@ -1805,6 +1881,10 @@ class MainWindow(QMainWindow):
             self.job_bar.hide()
         if job.status in ("done", "failed", "cancelled") and job.kind == "upgrade":
             self._refresh_upgrades()
+        if job.status in ("done", "failed", "cancelled") and job.kind == "download":
+            self._refresh_brain()
+            if job.status == "failed":
+                self.statusBar().showMessage(f"{LABEL} download failed: {job.message}", 15000)
         if job.status in ("done", "failed", "cancelled") and job.kind == "cast":
             self.cast_button.setEnabled(True)
             self._refresh_cast()
