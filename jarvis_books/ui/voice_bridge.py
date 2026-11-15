@@ -3,6 +3,7 @@ with an optional on-device "Hey Jarvis" wake word."""
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Optional
 
@@ -142,6 +143,8 @@ class VoiceBridge(QObject):
 
     # ---- wake word -----------------------------------------------------------------
     def enable_wake_word(self, on: bool) -> bool:
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return False  # headless tests: never open real microphones or speakers
         if not on:
             self.wake = None
             if self.session is None:
