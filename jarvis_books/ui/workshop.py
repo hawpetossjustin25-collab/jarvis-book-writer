@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QDir, QFileSystemWatcher, QRegularExpression, Qt, pyqtSignal
+from PyQt6.QtCore import QDir, QFileSystemWatcher, QRegularExpression, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFileSystemModel, QFont, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QFileDialog, QPlainTextEdit, QPushButton, QSplitter,
                              QTreeView, QVBoxLayout, QWidget)
@@ -189,6 +189,11 @@ class Workshop(QWidget):
 
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._changed_on_disk)
+        self._watch_mtime: Optional[float] = None
+        self._poll = QTimer(self)
+        self._poll.setInterval(500)
+        self._poll.timeout.connect(self._poll_disk)
+        self._poll.start()
         self.open_folder(str(Path.home()))
         self._update_title()
 
@@ -236,6 +241,10 @@ class Workshop(QWidget):
         if self.path is not None and str(self.path) in self.watcher.files():
             self.watcher.removePath(str(self.path))
         self.path = p
+        try:
+            self._watch_mtime = p.stat().st_mtime
+        except OSError:
+            self._watch_mtime = None
         self.saved_text = data.decode("utf-8", errors="replace")
         self.editor.setPlainText(self.saved_text)
         self.watcher.addPath(str(p))
@@ -265,6 +274,18 @@ class Workshop(QWidget):
         if self.path is not None:
             self.editor.setPlainText(self.saved_text)
             self._update_title()
+
+    def _poll_disk(self) -> None:
+        """Windows QFileSystemWatcher can miss writes; poll the open file's mtime as a fallback."""
+        if self.path is None or not self.path.exists():
+            return
+        try:
+            m = self.path.stat().st_mtime
+        except OSError:
+            return
+        if self._watch_mtime is not None and m != self._watch_mtime:
+            self._changed_on_disk(str(self.path))
+        self._watch_mtime = m
 
     def _changed_on_disk(self, path: str) -> None:
         """Jarvis (or another program) changed the open file: show it, unless the author has unsaved edits."""
@@ -424,6 +445,7 @@ class Workshop(QWidget):
     def shutdown(self) -> None:
         self._closing = True
         self.stop()
+        self._poll.stop()
         if self.watcher.files():
             self.watcher.removePaths(self.watcher.files())
 
