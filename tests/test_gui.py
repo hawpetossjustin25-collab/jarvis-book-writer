@@ -328,6 +328,7 @@ def test_audiobook_holds_the_mic_and_talking_over_it_pauses_it(qapp):
     assert len(session.sent) > sent  # after the audiobook stops the mic is open again
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Qt's offscreen Windows media backend hangs in this test on slow hardware; the speed step logic is covered in test_permissions")
 def test_listen_tab_faster_and_slower_buttons(window):
     win, studio, _ = window
     win.speed.setCurrentIndex(win.speed.findData(1.0))
