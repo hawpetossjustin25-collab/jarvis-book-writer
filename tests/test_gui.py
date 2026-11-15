@@ -44,6 +44,10 @@ def window(qapp, tmp_path):
     pump(qapp, lambda: "Ready" in win.statusBar().currentMessage() or win.engine_view.toPlainText().strip())
     yield win, studio, book
     win.close()
+    qapp.processEvents()
+    win.deleteLater()
+    studio.close()
+    qapp.processEvents()
 
 
 def test_tabs_and_library(window, qapp):

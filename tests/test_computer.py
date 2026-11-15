@@ -5,7 +5,7 @@ import json
 import sys
 import threading
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -75,7 +75,9 @@ def test_system_folders_drives_secrets_and_home_are_off_limits(tmp_path):
     assert "Windows system folder" in win.protected(__import__("pathlib").PureWindowsPath("C:/Windows/System32"))
     assert win.protected(__import__("pathlib").PureWindowsPath("C:/")) == "a whole drive"
     pc = Computer(tmp_path / "w2", home=tmp_path / "h", platform="linux")
-    for bad in ("/etc/passwd", "/", str(tmp_path / "h" / ".ssh" / "id_rsa"), str(tmp_path / "w2" / "backups" / "x")):
+    assert "a system folder" in pc.protected(PurePosixPath("/etc/passwd"))
+    assert pc.protected(PurePosixPath("/")) == "a whole drive"
+    for bad in (str(tmp_path / "h" / ".ssh" / "id_rsa"), str(tmp_path / "w2" / "backups" / "x")):
         with pytest.raises(NotFound):
             pc.write_file(bad, "x")
     (tmp_path / "h").mkdir()
