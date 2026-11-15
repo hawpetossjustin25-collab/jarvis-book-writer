@@ -88,7 +88,7 @@ class Terminal:
         return p
 
     def run(self, command: str, cwd: str = "", timeout_s: int = 120,
-            cancel: Optional[threading.Event] = None) -> dict:
+            cancel=None) -> dict:
         command = (command or "").strip()
         if not command:
             raise ValueError("no command given")
@@ -107,7 +107,7 @@ class Terminal:
                 out, err = proc.communicate(timeout=0.5)
                 break
             except subprocess.TimeoutExpired:
-                if cancel is not None and cancel.is_set():
+                if cancel is not None and (cancel() if callable(cancel) else cancel.is_set()):
                     stopped = "cancelled"
                 elif time.monotonic() - start > timeout_s:
                     stopped = f"stopped after {timeout_s}s (time limit)"

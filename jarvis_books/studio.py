@@ -6,6 +6,9 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from jarvis_books.computer.files import Computer
+from jarvis_books.computer.terminal import Terminal
+from jarvis_books.computer.web import Web
 from jarvis_books.assistant import Assistant, ToolBox
 from jarvis_books.assistant.permissions import PermissionGate
 from jarvis_books.audio import Narrator
@@ -89,6 +92,12 @@ class Studio:
         self.gate.subscribe(self.memory.on_permission)
         self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
+        # Jarvis's hands on this computer (every change waits for the author's yes) and the internet.
+        self.computer = Computer(self.home / "computer")
+        self.terminal = Terminal(self.home / "computer")
+        self.web = Web()
+        self.tools.computer, self.tools.terminal = self.computer, self.terminal
+        self.tools.web = self.war_tools.web = self.web
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

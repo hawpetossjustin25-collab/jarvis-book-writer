@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import itertools
 import logging
+import time
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
@@ -26,7 +28,11 @@ from jarvis_books.writer.pipeline import BookWriter
 log = logging.getLogger(__name__)
 
 # In the War Room canon changes go through proposals, so the direct-edit tools are withheld.
-WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline")
+COMPUTER_TOOLS = ("list_folder", "read_file", "write_file", "edit_file", "make_folder", "move_path", "delete_path",
+                  "computer_log", "run_command", "command_output", "download_file", "github_download")
+WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline") + COMPUTER_TOOLS
+COMPUTER_PINS = ("write_file", "edit_file", "make_folder", "move_path", "delete_path", "run_command",
+                 "download_file", "github_download")
 S = {"type": "STRING"}
 I = {"type": "INTEGER"}
 
@@ -55,6 +61,54 @@ def step_speed(rate: float, steps: int) -> float:
     return next((v for v in reversed(SPEEDS) if v < rate - 1e-9), SPEEDS[0])
 _ON = {"1", "on", "true", "yes", "enable", "enabled"}
 _OFF = {"0", "off", "false", "no", "disable", "disabled"}
+
+PATH = {"type": "STRING", "description": "A file or folder on the author's computer. Full paths like "
+        "C:\\Users\\hawpe\\Documents\\notes.txt, or relative to the author's user folder; %VARS% and ~ work."}
+COMPUTER_DECLARATIONS = [
+    _decl("list_folder", "List what is in a folder on the author's computer (default: their user folder).",
+          {"path": PATH}),
+    _decl("read_file", "Read a text file on the author's computer, with line numbers. Long files come in parts: "
+          "pass start_line to read further.", {"path": PATH, "start_line": I}, ["path"]),
+    _decl("write_file", "Create a file or replace its whole content on the author's computer (or add to the end "
+          "with mode=append). Backed up first so 'undo that' works. Needs the author's yes.",
+          {"path": PATH, "content": S, "mode": {"type": "STRING", "enum": ["replace", "append"]}},
+          ["path", "content"]),
+    _decl("edit_file", "Change part of a text file: replace the exact text 'find' (copied from read_file, without "
+          "line numbers) with 'replace'. It must match once unless all_matches is 'yes'. Backed up first. Needs "
+          "the author's yes.", {"path": PATH, "find": S, "replace": S,
+                                "all_matches": {"type": "STRING", "enum": ["yes", "no"]}},
+          ["path", "find", "replace"]),
+    _decl("make_folder", "Make a folder (and any missing parents). Needs the author's yes.", {"path": PATH}, ["path"]),
+    _decl("move_path", "Move or rename a file or folder. Never overwrites. Needs the author's yes.",
+          {"source": PATH, "destination": PATH}, ["source", "destination"]),
+    _decl("delete_path", "Delete a file or folder. It is kept in Jarvis's backups so 'undo that' brings it back. "
+          "Needs the author's yes.", {"path": PATH}, ["path"]),
+    _decl("computer_log", "The latest changes Jarvis made to files on the computer and the commands he ran."),
+    _decl("run_command", "Run a command in the author's terminal (PowerShell on Windows) and get its output and "
+          "exit code. Use it to install programs (winget), run code and tests, git, pip and anything the "
+          "terminal can do. Every command needs the author's yes. Commands that could wipe a drive or break "
+          "Windows are refused. If it is still running after a few seconds you get a job_id: use command_output.",
+          {"command": S, "folder": {"type": "STRING", "description": "Folder to run it in (default: user folder)."},
+           "timeout_seconds": {"type": "INTEGER", "description": "Stop it after this long (default 120, max 1800)."}},
+          ["command"]),
+    _decl("command_output", "The output of a terminal command that was still running (by job_id).",
+          {"job_id": S}, ["job_id"]),
+    _decl("web_search", "Search the internet. Returns titles, links and snippets.", {"query": S}, ["query"]),
+    _decl("read_web_page", "Read a web page (or text/JSON file) on the internet as plain text.", {"url": S}, ["url"]),
+    _decl("hf_search", "Search Hugging Face for models, datasets or spaces.",
+          {"query": S, "kind": {"type": "STRING", "enum": ["models", "datasets", "spaces"]}}, ["query"]),
+    _decl("hf_model_info", "A Hugging Face model's details: task, license, size of each file and its model card.",
+          {"repo": {"type": "STRING", "description": "owner/name, e.g. LiquidAI/LFM3-1.7B"}}, ["repo"]),
+    _decl("github_search", "Search GitHub repositories.", {"query": S}, ["query"]),
+    _decl("github_read", "List a folder or read a file in a GitHub repository.",
+          {"repo": {"type": "STRING", "description": "owner/name or a github.com link"}, "path": S, "ref": S},
+          ["repo"]),
+    _decl("download_file", "Download a file from the internet to the author's computer (default folder: "
+          "Downloads). For a Hugging Face file use hf://owner/repo/path. Needs the author's yes.",
+          {"url": S, "folder": PATH, "name": S}, ["url"]),
+    _decl("github_download", "Download a whole GitHub repository into a folder (default: Downloads). Needs the "
+          "author's yes.", {"repo": S, "folder": PATH, "ref": S}, ["repo"]),
+]
 
 DECLARATIONS = [
     _decl("list_books", "List all of the user's books with status and progress."),
@@ -165,6 +219,7 @@ DECLARATIONS = [
            "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
 ]
 
+DECLARATIONS += COMPUTER_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -195,6 +250,9 @@ class ToolBox:
         self.upgrader = None  # set by the Studio
         self.director = None  # set by the Studio (voice cast)
         self.memory = None  # set by the Studio (Jarvis's long-term memory)
+        self.computer = None  # set by the Studio (files on the author's computer)
+        self.terminal = None  # set by the Studio
+        self.web = None  # set by the Studio
         self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
         self._undo_ids = itertools.count(1)
 
@@ -244,6 +302,24 @@ class ToolBox:
             "brain_status": ("brain", "gemini", "lfm", "local model", "offline", "which model", "switch"),
             "switch_brain": ("brain", "gemini", "lfm", "local model", "offline", "switch", "use the"),
             "voice_cast": ("voice", "cast", "narrator", "sound", "who reads"),
+            "list_folder": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
+            "read_file": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
+            "write_file": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
+            "edit_file": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
+            "make_folder": ("folder", "directory", "make a", "create a"),
+            "move_path": ("move", "rename", "file", "folder"),
+            "delete_path": ("delete", "remove", "trash", "get rid of", "clean up"),
+            "computer_log": ("what did you change", "what did you run", "log", "history", "undo"),
+            "run_command": ("terminal", "command", "powershell", "cmd", "run ", "install", "winget", "pip", "git ", "script", "program", "test", "code", "my computer", "laptop"),
+            "command_output": ("output", "result", "finished", "done", "command", "terminal", "install"),
+            "web_search": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news"),
+            "read_web_page": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news", "read", "link", "article"),
+            "hf_search": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
+            "hf_model_info": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
+            "github_search": ("github", "repo", "repository", "git ", "source code"),
+            "github_read": ("github", "repo", "repository", "git ", "source code"),
+            "download_file": ("download", "get the file", "save the file", "grab", "hugging", "model"),
+            "github_download": ("github", "repo", "clone", "download"),
             "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
             "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
         }
@@ -309,6 +385,8 @@ class ToolBox:
             args.update(self._voice_change(args))
         if decl["name"] == "forget_memory":
             self.library.get_memory(args["memory_id"])
+        if decl["name"] in COMPUTER_PINS:
+            args.update(self._pin_computer(decl["name"], args))
         if decl["name"] == "undo_upgrade" and not args.get("upgrade_id"):
             args["upgrade_id"] = self._upgrader().last_installed()["id"]
         return args
@@ -318,6 +396,8 @@ class ToolBox:
         book = args.get("book", "")
         extra = (args.get("instructions") or "").strip()
         extra = f" ({truncate_words(extra, 25)})" if extra else ""
+        if name in COMPUTER_PINS:
+            return self._describe_computer(name, args)
         if name == "forget_memory":
             text = self.library.get_memory(args["memory_id"])["text"]
             return f"Forget this memory: '{truncate_words(text, 30)}'"
@@ -879,3 +959,185 @@ class ToolBox:
         if action == "open_book_folder":
             args["book_id"] = self._book(book).id
         return self._ui("action", args)
+
+
+    # ---- the author's computer: files, terminal, internet ----------------------------------------------
+    def _computer(self):
+        if self.computer is None:
+            raise NotFound("Jarvis can't touch files from here")
+        return self.computer
+
+    def _terminal(self):
+        if self.terminal is None:
+            raise NotFound("the terminal isn't available here")
+        return self.terminal
+
+    def _web(self):
+        if self.web is None:
+            raise NotFound("the internet isn't available here")
+        return self.web
+
+    def _download_folder(self, folder: str) -> str:
+        pc = self._computer()
+        target = pc.resolve(folder) if folder else pc.home / "Downloads"
+        why = pc.protected(target)
+        if why:
+            raise NotFound(f"{target} is {why}; pick another folder")
+        return str(target)
+
+    def _pin_computer(self, name: str, args: dict) -> dict:
+        """Turn every path into a full path now, so the yes runs exactly what was shown."""
+        if name == "run_command":
+            from jarvis_books.computer.terminal import assess
+            blocked, _ = assess(args["command"])
+            if blocked:
+                raise ValueError(f"Jarvis won't run that command: it {blocked}")
+            return {"folder": str(self._terminal().folder(args.get("folder", "")))}
+        if name in ("download_file", "github_download"):
+            return {"folder": self._download_folder(args.get("folder", ""))}
+        pc = self._computer()
+        if name == "move_path":
+            return {"source": str(pc.resolve(args["source"])), "destination": str(pc.resolve(args["destination"]))}
+        return {"path": str(pc.resolve(args["path"]))}
+
+    def _describe_computer(self, name: str, args: dict) -> str:
+        pc = self.computer
+        if name == "write_file":
+            plan = pc.plan_write(args["path"], args["content"], args.get("mode") == "append")
+            verb = "Add to" if args.get("mode") == "append" else ("Replace" if plan["old"] is not None else "Create")
+            lines = plan["new"].count("\n") + 1
+            return f"{verb} the file {plan['path']} ({lines} lines; a backup is kept)" + _diff_tail(plan["diff"])
+        if name == "edit_file":
+            plan = pc.plan_edit(args["path"], args["find"], args["replace"], args.get("all_matches") == "yes")
+            return f"Edit the file {plan['path']} (a backup is kept)" + _diff_tail(plan["diff"])
+        if name == "make_folder":
+            pc._changeable(args["path"])
+            return f"Make the folder {args['path']}"
+        if name == "move_path":
+            pc._changeable(args["source"]), pc._changeable(args["destination"])
+            return f"Move {args['source']} to {args['destination']}"
+        if name == "delete_path":
+            target = pc._changeable(args["path"])
+            if not target.exists():
+                raise NotFound(f"nothing at {target}")
+            kind = "folder" if target.is_dir() else "file"
+            return f"Delete the {kind} {target} (kept in Jarvis's backups, so it can be undone)"
+        if name == "run_command":
+            from jarvis_books.computer.terminal import assess
+            _, warnings = assess(args["command"])
+            warn = "".join(f" WARNING: this {w}." for w in warnings)
+            return f"Run in {self._terminal().shell} (in {args['folder']}): {args['command']}" + warn
+        if name == "download_file":
+            from jarvis_books.computer.web import hf_url
+            return f"Download {hf_url(args['url'])} into {args['folder']}"
+        return f"Download the GitHub repository {args['repo']} into {args['folder']}"
+
+    def _t_list_folder(self, path: str = "") -> dict:
+        return self._computer().list_folder(path)
+
+    def _t_read_file(self, path: str, start_line: int = 1) -> dict:
+        return self._computer().read_file(path, start_line)
+
+    def _t_write_file(self, path: str, content: str, mode: str = "replace") -> dict:
+        out = self._computer().write_file(path, content, append=mode == "append")
+        self._push_undo(f"writing {out['written']}", lambda: self.computer.restore(out["backup"], out["written"]))
+        return out
+
+    def _t_edit_file(self, path: str, find: str, replace: str, all_matches: str = "no") -> dict:
+        out = self._computer().edit_file(path, find, replace, all_matches == "yes")
+        self._push_undo(f"editing {out['written']}", lambda: self.computer.restore(out["backup"], out["written"]))
+        return out
+
+    def _t_make_folder(self, path: str) -> dict:
+        out = self._computer().make_folder(path)
+        if not out["existed"]:
+            self._push_undo(f"making the folder {out['folder']}",
+                            lambda: self.computer.restore(None, out["folder"]))
+        return out
+
+    def _t_move_path(self, source: str, destination: str) -> dict:
+        out = self._computer().move(source, destination)
+        self._push_undo(f"moving {out['moved']} to {out['to']}",
+                        lambda: self.computer.move(out["to"], out["moved"]))
+        return out
+
+    def _t_delete_path(self, path: str) -> dict:
+        out = self._computer().delete(path)
+        self._push_undo(f"deleting {out['deleted']}", lambda: self.computer.restore(out["backup"], out["deleted"]))
+        return out
+
+    def _t_computer_log(self) -> dict:
+        out = {"files": self._computer().recent(15)}
+        term = self.terminal
+        if term is not None and term.log_path.exists():
+            import json as _json
+            out["commands"] = [_json.loads(x) for x in term.log_path.read_text(encoding="utf-8").splitlines()[-15:]
+                               if x.strip()]
+        return out
+
+    COMMAND_WAIT_S = 3.0
+
+    def _t_run_command(self, command: str, folder: str = "", timeout_seconds: int = 120) -> dict:
+        term = self._terminal()
+        job = self.jobs.submit("command", f"Running: {truncate_words(command, 12)}",
+                               lambda progress, cancel: term.run(command, folder, timeout_seconds, cancel))
+        deadline = time.monotonic() + self.COMMAND_WAIT_S
+        while time.monotonic() < deadline and job.status in ("queued", "running"):
+            time.sleep(0.05)
+        if job.status in ("queued", "running"):
+            return {"running": True, "job_id": job.id,
+                    "note": "Still running in the background; use command_output with this job_id for the result."}
+        return self._t_command_output(job.id)
+
+    def _t_command_output(self, job_id: str) -> dict:
+        job = self.jobs.get(job_id)
+        if job is None or job.kind != "command":
+            raise NotFound("no terminal command with that job id")
+        if job.status in ("queued", "running"):
+            return {"running": True, "job_id": job.id, "title": job.title}
+        if job.status == "failed":
+            return {"error": job.error or "the command could not start", "job_id": job.id}
+        if job.status == "cancelled" or job.result is None:
+            return {"cancelled": True, "job_id": job.id}
+        return {"job_id": job.id, **job.result}
+
+    def _t_web_search(self, query: str) -> dict:
+        return self._web().search(query)
+
+    def _t_read_web_page(self, url: str) -> dict:
+        return self._web().read_page(url)
+
+    def _t_hf_search(self, query: str, kind: str = "models") -> dict:
+        return self._web().hf_search(query, kind)
+
+    def _t_hf_model_info(self, repo: str) -> dict:
+        return self._web().hf_model(repo)
+
+    def _t_github_search(self, query: str) -> dict:
+        return self._web().github_search(query)
+
+    def _t_github_read(self, repo: str, path: str = "", ref: str = "") -> dict:
+        return self._web().github_read(repo, path, ref)
+
+    def _t_download_file(self, url: str, folder: str = "", name: str = "") -> dict:
+        web, target = self._web(), self._download_folder(folder)
+        job = self.jobs.submit("download", f"Downloading {truncate_words(url, 8)}",
+                               lambda progress, cancel: web.download(url, Path(target), name, progress, cancel.is_set))
+        return {"started": True, "job_id": job.id, "folder": target,
+                "note": "Downloading in the background; job_status shows progress."}
+
+    def _t_github_download(self, repo: str, folder: str = "", ref: str = "") -> dict:
+        web, target = self._web(), self._download_folder(folder)
+        job = self.jobs.submit("download", f"Downloading {repo} from GitHub",
+                               lambda progress, cancel: web.github_download(repo, Path(target), ref,
+                                                                            progress=progress, cancel=cancel.is_set))
+        return {"started": True, "job_id": job.id, "folder": target,
+                "note": "Downloading in the background; job_status shows progress."}
+
+
+def _diff_tail(diff_text: str, max_lines: int = 14) -> str:
+    lines = diff_text.splitlines()[2:]  # skip the --- / +++ header
+    if not lines:
+        return ""
+    more = f"\n... {len(lines) - max_lines} more lines" if len(lines) > max_lines else ""
+    return "\n" + "\n".join(lines[:max_lines]) + more

@@ -36,6 +36,11 @@ TOOL_LEVELS: dict[str, str] = {
     "publish_audiobook": OUTSIDE,
     "list_upgrades": READ,
     "brain_status": READ, "switch_brain": SAFE,
+    "list_folder": READ, "read_file": READ, "computer_log": READ, "command_output": READ,
+    "web_search": READ, "read_web_page": READ, "hf_search": READ, "hf_model_info": READ,
+    "github_search": READ, "github_read": READ,
+    "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
+    "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,
     "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE,
     "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
 }
