@@ -34,6 +34,7 @@ class AudiobookPlayer(QObject):
         self.player.errorOccurred.connect(lambda e, msg: self._give_up(f"Could not play audio: {msg}"))
         self._ready.connect(self._on_ready)
         self._failed.connect(self._on_failed)
+        self.speed = 1.0
         self.book_id: Optional[str] = None
         self.segments: list[Segment] = []
         self.index = 0
@@ -48,7 +49,15 @@ class AudiobookPlayer(QObject):
         return self.playing and self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
     def set_speed(self, rate: float) -> None:
-        self.player.setPlaybackRate(max(0.5, min(3.0, rate)))
+        # Kept here and handed to Qt only once audio is loaded: on Windows, changing the rate of a player
+        # with no media can crash the media backend.
+        self.speed = max(0.5, min(3.0, rate))
+        if not self.player.source().isEmpty():
+            self.player.setPlaybackRate(self.speed)
+
+    def _set_source(self, path) -> None:
+        self.player.setSource(QUrl.fromLocalFile(str(path)))
+        self.player.setPlaybackRate(self.speed)
 
     def set_volume(self, value: float) -> None:
         self.output.setVolume(max(0.0, min(1.0, value)))
@@ -127,7 +136,7 @@ class AudiobookPlayer(QObject):
         path = self.narrator.cached_path(seg)
         if path:
             self._waiting = False
-            self.player.setSource(QUrl.fromLocalFile(str(path)))
+            self._set_source(path)
             self.player.play()
             self.state_changed.emit("playing")
         else:
@@ -159,7 +168,7 @@ class AudiobookPlayer(QObject):
     def _on_ready(self, i: int, path: str) -> None:
         if self._waiting and self.playing and i == self.index:
             self._waiting = False
-            self.player.setSource(QUrl.fromLocalFile(path))
+            self._set_source(path)
             self.player.play()
             self.state_changed.emit("playing")
 

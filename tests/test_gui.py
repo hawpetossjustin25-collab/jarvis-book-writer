@@ -327,7 +327,7 @@ def test_listen_tab_faster_and_slower_buttons(window):
     win.speed.setCurrentIndex(win.speed.findData(1.0))
     win.faster_btn.click()
     assert studio.settings()["narration_speed"] == "1.1"
-    assert abs(win.player.player.playbackRate() - 1.1) < 1e-6
+    assert abs(win.player.speed - 1.1) < 1e-6
     win.slower_btn.click()
     win.slower_btn.click()
     assert studio.settings()["narration_speed"] == "0.9"
@@ -407,3 +407,18 @@ def test_brain_settings_switch_and_switch_notice(window, qapp):
     assert "switched to LFM3" in win.chat_view.toPlainText()
     win._on_brain_switch("gemini", "local", "back")
     assert "working again" in win.statusBar().currentMessage()
+
+
+def test_speed_waits_for_audio_then_applies(window, tmp_path):
+    win, studio, _ = window
+    player = win.player
+    player.set_speed(1.5)
+    assert player.speed == 1.5  # nothing loaded: Qt's rate isn't touched
+    wav = tmp_path / "a.wav"
+    from jarvis_books.llm.gemini import pcm_to_wav
+    wav.write_bytes(pcm_to_wav(b"\x00\x00" * 2400))
+    player._set_source(wav)
+    assert abs(player.player.playbackRate() - 1.5) < 1e-6
+    player.set_speed(2.0)
+    assert abs(player.player.playbackRate() - 2.0) < 1e-6
+    player.player.setSource(__import__("PyQt6.QtCore", fromlist=["QUrl"]).QUrl())
