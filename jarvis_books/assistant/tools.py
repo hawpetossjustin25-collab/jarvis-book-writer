@@ -95,6 +95,8 @@ COMPUTER_DECLARATIONS = [
           {"job_id": S}, ["job_id"]),
     _decl("web_search", "Search the internet. Returns titles, links and snippets.", {"query": S}, ["query"]),
     _decl("read_web_page", "Read a web page (or text/JSON file) on the internet as plain text.", {"url": S}, ["url"]),
+    _decl("scrape_web_page", "Scrape a web page for its structure: title, links, headings, tables and list "
+          "items, plus its plain text.", {"url": S}, ["url"]),
     _decl("hf_search", "Search Hugging Face for models, datasets or spaces.",
           {"query": S, "kind": {"type": "STRING", "enum": ["models", "datasets", "spaces"]}}, ["query"]),
     _decl("hf_model_info", "A Hugging Face model's details: task, license, size of each file and its model card.",
@@ -314,6 +316,7 @@ class ToolBox:
             "command_output": ("output", "result", "finished", "done", "command", "terminal", "install"),
             "web_search": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news"),
             "read_web_page": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news", "read", "link", "article"),
+            "scrape_web_page": ("internet", "online", "web", "scrape", "scrape data", "get data", "collect", "extract", "grab data", "website", "table", "links", "list"),
             "hf_search": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "hf_model_info": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "github_search": ("github", "repo", "repository", "git ", "source code"),
@@ -1106,6 +1109,9 @@ class ToolBox:
 
     def _t_read_web_page(self, url: str) -> dict:
         return self._web().read_page(url)
+
+    def _t_scrape_web_page(self, url: str) -> dict:
+        return self._web().scrape(url)
 
     def _t_hf_search(self, query: str, kind: str = "models") -> dict:
         return self._web().hf_search(query, kind)

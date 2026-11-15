@@ -12,8 +12,9 @@ import socket
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urljoin
 from typing import Callable, Optional
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import urljoin, parse_qs, quote, unquote, urlparse
 
 import requests
 
@@ -60,6 +61,101 @@ class _Text(HTMLParser):
         joined = "".join(self.out)
         lines = (re.sub(r"[ \t\r\f\v]+", " ", x).strip() for x in joined.split("\n"))
         return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+class _Scrape(HTMLParser):
+    """Pull the structured bits out of a page: title, links, headings, tables, list items."""
+    SKIP = {"script", "style", "noscript", "svg", "head", "nav", "footer", "form"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.skip = 0
+        self.title = ""
+        self._in_title = False
+        self.links: list[dict] = []
+        self.headings: list[str] = []
+        self.lists: list[str] = []
+        self.tables: list[list[list[str]]] = []
+        self._href = ""
+        self._a: list[str] = []
+        self._heading = ""
+        self._li = ""
+        self._table = None
+        self._row = None
+        self._cell: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self._in_title = True
+            return
+        if tag in self.SKIP:
+            self.skip += 1
+            return
+        if self.skip:
+            return
+        a = dict(attrs)
+        if tag == "a":
+            self._href = a.get("href", "")
+            self._a = []
+        elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            self._heading = tag
+            self._a_head = []
+        elif tag == "li":
+            self._li = tag
+            self._a_li = []
+        elif tag == "table":
+            self._table = []
+        elif tag == "tr" and self._table is not None:
+            self._row = []
+        elif tag in ("td", "th") and self._row is not None:
+            self._cell = []
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+            return
+        if tag in self.SKIP and self.skip:
+            self.skip -= 1
+            return
+        if self.skip:
+            return
+        if tag == "a":
+            text = re.sub(r"\s+", " ", "".join(self._a)).strip()
+            if self._href and text:
+                self.links.append({"text": text[:120], "url": self._href})
+            self._href = ""
+        elif tag == self._heading:
+            self.headings.append(re.sub(r"\s+", " ", "".join(self._a_head)).strip()[:200])
+            self._heading = ""
+        elif tag == "li" and self._li:
+            self.lists.append(re.sub(r"\s+", " ", "".join(self._a_li)).strip()[:200])
+            self._li = ""
+        elif tag in ("td", "th") and self._cell is not None:
+            self._row.append(re.sub(r"\s+", " ", "".join(self._cell)).strip()[:120])
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if self._row:
+                self._table.append(self._row)
+            self._row = None
+        elif tag == "table" and self._table is not None:
+            if self._table:
+                self.tables.append(self._table[:50])
+            self._table = None
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+            return
+        if self.skip:
+            return
+        if self._cell is not None:
+            self._cell.append(data)
+        if self._href:
+            self._a.append(data)
+        if self._heading:
+            self._a_head.append(data)
+        if self._li:
+            self._a_li.append(data)
 
 
 def page_text(markup: str) -> tuple[str, str]:
@@ -136,6 +232,25 @@ class Web:
         elif not ("text" in kind or "json" in kind or "xml" in kind):
             return {"url": resp.url, "type": kind, "note": "this isn't a web page; use download_file to save it"}
         return {"url": resp.url, "title": title, "text": text[:max_chars], "more": len(text) > max_chars}
+
+    def scrape(self, url: str, max_chars: int = MAX_TEXT) -> dict:
+        """Read a public page and return its structure: title, links, headings, tables, list items and text."""
+        resp = self._get(url, stream=True)
+        data = resp.raw.read(MAX_PAGE_BYTES + 1, decode_content=True) if hasattr(resp, "raw") and resp.raw else resp.content
+        kind = resp.headers.get("Content-Type", "")
+        markup = data[:MAX_PAGE_BYTES].decode(resp.encoding or "utf-8", errors="replace")
+        if not ("html" in kind or markup.lstrip().lower().startswith(("<!doctype html", "<html"))):
+            return {"url": resp.url, "type": kind, "note": "this isn't a web page; use download_file to save it"}
+        p = _Scrape()
+        p.feed(markup)
+        _, text = page_text(markup)
+        links = []
+        for link in p.links[:100]:
+            u = urljoin(resp.url, link["url"])
+            links.append({"text": link["text"], "url": u})
+        return {"url": resp.url, "title": p.title.strip(), "headings": p.headings[:50],
+                "links": links, "tables": p.tables[:10], "list_items": p.lists[:100],
+                "text": text[:max_chars]}
 
     # ---- Hugging Face ---------------------------------------------------------------------------------
     def hf_search(self, query: str, kind: str = "models", limit: int = 10) -> dict:

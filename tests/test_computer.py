@@ -228,6 +228,26 @@ def test_local_and_home_network_addresses_are_refused():
             _public(bad)
 
 
+def test_scrapes_links_headings_tables_and_lists():
+    page = (b'<html><head><title>Catalog</title></head><body>'
+            b'<h1>Books</h1><ul><li>Item one</li><li>Item two</li></ul>'
+            b'<table><tr><th>Name</th><th>Price</th></tr><tr><td>Desk</td><td>$9</td></tr></table>'
+            b'<a href="/about">About us</a><script>evil()</script></body></html>')
+    out = web({"x.org": Resp(body=page, headers={"Content-Type": "text/html"})}).scrape("https://x.org/c")
+    assert out["title"] == "Catalog" and out["headings"] == ["Books"]
+    assert out["tables"] == [[["Name", "Price"], ["Desk", "$9"]]]
+    assert out["list_items"] == ["Item one", "Item two"]
+    assert out["links"] == [{"text": "About us", "url": "https://x.org/about"}]
+    assert "evil" not in out["text"]
+
+
+def test_scrape_refuses_non_page_and_bad_addresses():
+    w = web({"x.org": Resp(body=b"PK\x03\x04zip", headers={"Content-Type": "application/zip"})})
+    assert "isn't a web page" in w.scrape("https://x.org/f.zip")["note"]
+    with pytest.raises((ValueError, NotFound)):
+        web({}).scrape("http://127.0.0.1/x")
+
+
 def test_web_search_parses_results():
     html_page = (b'<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fhuggingface.co'
                  b'%2FLiquidAI&rut=1">Liquid <b>AI</b></a><a class="result__snippet" href="x">Small models</a>'
