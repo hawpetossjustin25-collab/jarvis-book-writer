@@ -68,3 +68,13 @@ def make_engine(tmp_path, clock):
 @pytest.fixture
 def engine(make_engine, fake):
     return make_engine(fake)
+
+import gc as _gc
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _gc_between_tests():
+    """Free Qt/native objects between tests so teardown can't crash the next test."""
+    yield
+    _gc.collect()
