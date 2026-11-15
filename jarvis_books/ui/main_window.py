@@ -31,6 +31,7 @@ from jarvis_books.upgrade import app_root, describe as describe_upgrade
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
+from jarvis_books.ui.workshop import Workshop
 from jarvis_books.voice.live import LiveSession
 from jarvis_books.warroom import WAR_ROOM_GUIDE
 from jarvis_books.writer import prompts
@@ -120,6 +121,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._settings_tab(), "Settings")
         self.tabs.addTab(self._war_tab(), "War Room")
         self.tabs.addTab(self._publish_tab(), "Publish")
+        self.workshop = Workshop(self.studio)
+        self.tabs.addTab(self.workshop, "Workshop")
         self.job_bar = QProgressBar()
         self.job_bar.setMaximumWidth(380)
         self.job_bar.hide()
@@ -1914,6 +1917,7 @@ class MainWindow(QMainWindow):
         self.voice.enable_wake_word(False)
         self.voice.stop()
         self.war_voice.stop()
+        self.workshop.shutdown()
         wait_for_tasks()
         self.studio.close()
         super().closeEvent(event)

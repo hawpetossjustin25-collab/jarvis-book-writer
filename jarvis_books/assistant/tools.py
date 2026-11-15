@@ -45,7 +45,7 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
-TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish")
+TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
@@ -288,7 +288,7 @@ class ToolBox:
             "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
             "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
             "app_status": ("status", "what's playing", "doing", "app", "storage", "space", "running"),
-            "open_tab": ("open", "go to", "show", "tab", "switch", "take me"),
+            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor"),
             "get_settings": ("setting", "voice", "speed", "wake", "mute", "author name"),
             "change_setting": ("setting", "voice", "speed", "faster", "slower", "wake", "auto-mute", "auto mute",
                                "author name", "my name", "turn on", "turn off"),

@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 import pytest
@@ -48,7 +49,8 @@ def window(qapp, tmp_path):
 def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
-        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish"]
+        ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish",
+         "Workshop"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
@@ -422,3 +424,99 @@ def test_speed_waits_for_audio_then_applies(window, tmp_path):
     player.set_speed(2.0)
     assert abs(player.player.playbackRate() - 2.0) < 1e-6
     player.player.setSource(__import__("PyQt6.QtCore", fromlist=["QUrl"]).QUrl())
+
+
+def _gemini_answers(studio, data):
+    import json
+    from fakes import body
+    studio.engine.client.responder = lambda model, payload: body(json.dumps(data))
+
+
+# ---- Workshop -------------------------------------------------------------------------------------------
+def _project(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "hello.py").write_text("print('hello')\n")
+    (proj / "test_hello.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
+    return proj
+
+
+def test_workshop_opens_edits_saves_with_backup_and_undo(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    assert ws.open_folder(str(proj)) and ws.open_file(str(proj / "hello.py"))
+    assert ws.editor.toPlainText() == "print('hello')\n" and not ws.save_btn.isEnabled()
+    ws.editor.setPlainText("print('bye')\n")
+    assert ws.dirty and ws.save_btn.isEnabled() and ws.file_label.text().startswith("●")
+    assert not ws.open_file(str(proj / "test_hello.py"))  # unsaved edits block switching files
+    assert ws.save() and (proj / "hello.py").read_text() == "print('bye')\n" and not ws.dirty
+    studio.tools.run("undo_last_change")
+    assert (proj / "hello.py").read_text() == "print('hello')\n"
+    (proj / ".env").write_text("KEY=1")
+    assert not ws.open_file(str(proj / ".env")) and "passwords" in ws.status.text()
+
+
+def test_workshop_reloads_a_file_jarvis_changed(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    ws.open_file(str(proj / "hello.py"))
+    studio.tools.run("write_file", {"path": str(proj / "hello.py"), "content": "print('from jarvis')\n"})
+    assert pump(qapp, lambda: ws.editor.toPlainText() == "print('from jarvis')\n", timeout=5)
+
+
+def test_workshop_runs_files_commands_and_tests(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    ws.open_folder(str(proj))
+    ws.open_file(str(proj / "hello.py"))
+    results = []
+    ws.command_finished.connect(results.append)
+    ws.run_file()
+    assert pump(qapp, lambda: results, timeout=20)
+    assert results[-1]["ok"] and "hello" in ws.output.toPlainText()
+    ws.run_tests()
+    assert pump(qapp, lambda: len(results) == 2, timeout=60)
+    assert results[-1]["ok"] and "1 passed" in results[-1]["output"]
+    ws.run_command("python3 -c \"import sys; sys.exit(4)\"" if sys.platform != "win32" else "exit 4")
+    assert pump(qapp, lambda: len(results) == 3, timeout=20)
+    assert results[-1]["exit_code"] == 4 and "failed: exit code 4" in ws.output.toPlainText()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash command")
+def test_workshop_stop_button_ends_a_long_command(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws = win.workshop
+    results = []
+    ws.command_finished.connect(results.append)
+    ws.run_command("sleep 30")
+    assert ws.stop_btn.isEnabled() and not ws.run_command("echo second")  # one command at a time
+    ws.stop()
+    assert pump(qapp, lambda: results, timeout=10) and results[0]["stopped"] == "cancelled"
+
+
+def test_jarvis_proposes_code_as_a_diff_to_apply_or_discard(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    ws.open_file(str(proj / "hello.py"))
+    _gemini_answers(studio, {"summary": "Greets by name.", "content": "name = 'Justin'\nprint('hello', name)\n"})
+    ws.ask_edit.setText("greet me by name")
+    assert ws.ask_jarvis()
+    assert pump(qapp, lambda: ws.pending is not None, timeout=10)
+    assert "Greets by name." in ws.change_label.text() and "+print('hello', name)" in ws.change_view.toPlainText()
+    assert (proj / "hello.py").read_text() == "print('hello')\n"  # nothing changes before Apply
+    assert ws.apply_change() and (proj / "hello.py").read_text() == "name = 'Justin'\nprint('hello', name)\n"
+    _gemini_answers(studio, {"summary": "x", "content": "```python\nprint(1)\n```"})
+    ws.ask_jarvis()
+    assert pump(qapp, lambda: ws.pending is not None, timeout=10)
+    assert ws.pending["new"] == "print(1)"
+    ws.discard_change()
+    assert ws.pending is None and ws.change_box.isHidden() and "Justin" in (proj / "hello.py").read_text()
+
+
+def test_workshop_code_needs_gemini_not_lfm3(window, qapp, tmp_path, monkeypatch):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    ws.open_file(str(proj / "hello.py"))
+    monkeypatch.setattr(studio.engine, "_config", None)
+    ws.ask_edit.setText("anything")
+    assert not ws.ask_jarvis() and "needs Gemini" in ws.status.text()
