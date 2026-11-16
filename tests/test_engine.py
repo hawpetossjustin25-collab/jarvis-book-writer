@@ -120,6 +120,18 @@ def test_history_never_starts_with_orphan_tool_reply(engine):
     assert payload["contents"][0]["parts"][0] == {"text": "hi"}
 
 
+
+def test_long_tool_run_keeps_the_question_and_earlier_conversation(engine):
+    turns = engine.get_runtime_configuration().history_turns
+    earlier = [{"role": "user", "parts": [{"text": "Mara is the hero"}]}, {"role": "model", "parts": [{"text": "noted"}]}]
+    run = [{"role": "user", "parts": [{"text": "research lighthouses"}]}]
+    for i in range(turns):  # more tool rounds than the history window holds
+        run += [{"role": "model", "parts": [{"functionCall": {"name": "research_web", "args": {"question": str(i)}}}]},
+                {"role": "user", "parts": [{"functionResponse": {"name": "research_web", "response": {"i": i}}}]}]
+    payload, _, _ = engine.optimize_request(LLMRequest(role="chat", history=earlier + run), "gemini-9.0-flash-lite")
+    contents = payload["contents"]
+    assert contents[:2] == earlier and contents[2:] == run
+
 def test_adaptation_reduces_words_on_truncation_and_rolls_back(engine, fake):
     cfg = engine.get_runtime_configuration()
     fake.responder = lambda m, p: body("cut off text", finish="MAX_TOKENS")

@@ -144,6 +144,21 @@ def test_requests_pick_the_right_tools(box):
     assert {"hf_search", "download_file"} <= pick("download that model from hugging face")
     assert {"github_search", "github_read"} <= pick("find a github repo for epub tools")
     assert "run_command" not in pick("write chapter 3")
+    assert {"research_web", "web_search", "read_web_page"} <= pick("find information about the history of lighthouses")
+    assert "research_web" in pick("what's the price of a kindle paperwhite right now")
+    assert "explore_website" in pick("dig through that website for their submission rules")
+    assert "research_web" not in pick("write chapter 3")
+
+
+def test_research_needs_no_yes_and_reports_sources(box):
+    tools, gate, _ = box
+    body = b'<a class="result__a" href="https://a.org/1">A</a><a class="result__snippet" href="x">s</a>'
+    page = b"<html><title>A</title><body><p>" + b"fact " * 80 + b"</p></body></html>"
+    tools.web = Web(Session({"duckduckgo": Resp(body=body), "a.org/1": Resp(body=page, headers={"Content-Type": "text/html"},
+                                                                                url="https://a.org/1")}),
+                    check_address=lambda u: u)
+    out = tools.call("research_web", {"question": "a fact"})
+    assert out["sources"][0]["url"] == "https://a.org/1" and gate.pending is None
 
 
 def test_the_studio_wires_the_computer(tmp_path):

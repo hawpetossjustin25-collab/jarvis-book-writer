@@ -11,8 +11,8 @@ import shutil
 import socket
 import zipfile
 from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.parse import urljoin
 from typing import Callable, Optional
 from urllib.parse import urljoin, parse_qs, quote, unquote, urlparse
 
@@ -20,9 +20,13 @@ import requests
 
 from jarvis_books.errors import NotFound
 
+BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/130.0 Safari/537.36")
 UA = "JarvisBookWriter/1.0 (+https://github.com/hawpetossjustin25-collab/jarvis-book-writer)"
 MAX_PAGE_BYTES = 3_000_000
 MAX_TEXT = 15_000
+RESEARCH_CHARS = 4_000  # per page when several pages are read at once
+THIN_PAGE = 200  # fewer characters than this: the page needs JavaScript or is a wall
 KEEP_FREE_BYTES = 2 * 1024 ** 3
 
 
@@ -82,7 +86,7 @@ class _Scrape(HTMLParser):
         self._li = ""
         self._table = None
         self._row = None
-        self._cell: list[str] = []
+        self._cell: Optional[list[str]] = None
 
     def handle_starttag(self, tag, attrs):
         if tag == "title":
@@ -130,7 +134,7 @@ class _Scrape(HTMLParser):
         elif tag == "li" and self._li:
             self.lists.append(re.sub(r"\s+", " ", "".join(self._a_li)).strip()[:200])
             self._li = ""
-        elif tag in ("td", "th") and self._cell is not None:
+        elif tag in ("td", "th") and self._cell is not None and self._row is not None:
             self._row.append(re.sub(r"\s+", " ", "".join(self._cell)).strip()[:120])
             self._cell = None
         elif tag == "tr" and self._row is not None:
@@ -180,11 +184,44 @@ def _public(url: str) -> str:
     return url.strip()
 
 
+_STOP = set("what which when where who whom whose why how does did do is are was were the a an of in on at to for "
+             "from with and or about into than that this these those there their them they can could should would "
+             "will much many most best tell me find look up search information info please".split())
+
+
+def _keywords(query: str) -> str:
+    return " ".join(w for w in re.findall(r"[\w'-]+", query) if w.lower() not in _STOP)
+
+
+def _relevant(query: str, result: dict) -> bool:
+    """Bing sometimes answers robots with unrelated pages; keep results that share the query's key words."""
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", query.lower()) if w not in _STOP}
+    if not words:
+        return True
+    hay = " ".join((result.get("title", ""), result.get("snippet", ""), result.get("url", ""))).lower()
+    return sum(w in hay for w in words) >= min(2, len(words))
+
+
+def _bing_target(href: str) -> str:
+    """Bing wraps results in bing.com/ck/a?...&u=a1<base64 of the real address>."""
+    if "bing.com/ck/a" not in href:
+        return href
+    u = parse_qs(urlparse(href).query).get("u", [""])[0]
+    if not u.startswith("a1"):
+        return href
+    raw = u[2:]
+    try:
+        return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return href
+
+
 class Web:
     def __init__(self, session: Optional[requests.Session] = None, check_address: Callable[[str], str] = _public,
                  timeout_s: float = 20.0):
         self.session = session or requests.Session()
-        self.session.headers.setdefault("User-Agent", UA)
+        if "python-requests" in str(self.session.headers.get("User-Agent", "python-requests")):
+            self.session.headers["User-Agent"] = UA  # sites like Wikipedia refuse the default one
         self.check = check_address
         self.timeout_s = timeout_s
 
@@ -205,6 +242,41 @@ class Web:
 
     # ---- the web ------------------------------------------------------------------------------
     def search(self, query: str, limit: int = 8) -> dict:
+        """DuckDuckGo first; when it answers with a robot check (or nothing), Bing."""
+        first_error = None
+        try:
+            results, engine = self._duckduckgo(query, limit), "duckduckgo"
+        except NotFound as exc:
+            results, first_error = [], exc
+        keywords = _keywords(query)
+        for q in dict.fromkeys((query, keywords)):  # plain questions first, then just the key words
+            if results or not q:
+                break
+            try:
+                results, engine = [r for r in self._bing(q, limit) if _relevant(query, r)], "bing"
+            except NotFound:
+                results = []
+        if not results:
+            try:
+                results, engine = self._wikipedia(keywords or query, limit), "wikipedia"
+            except NotFound as exc:
+                if first_error is not None:  # nothing answered: most likely no internet
+                    raise first_error from exc
+                results = []
+        return {"query": query, "engine": engine, "results": results}
+
+    def _wikipedia(self, query: str, limit: int) -> list[dict]:
+        resp = self._get("https://en.wikipedia.org/w/api.php",
+                         params={"action": "query", "list": "search", "srsearch": query, "format": "json",
+                                 "srlimit": min(limit, 10), "utf8": 1})
+        try:
+            hits = resp.json()["query"]["search"]
+        except (ValueError, KeyError, TypeError):
+            return []
+        return [{"title": h["title"], "url": "https://en.wikipedia.org/wiki/" + quote(h["title"].replace(" ", "_")),
+                 "snippet": page_text(h.get("snippet", ""))[1]} for h in hits[:limit]]
+
+    def _duckduckgo(self, query: str, limit: int) -> list[dict]:
         resp = self._get("https://html.duckduckgo.com/html/", params={"q": query})
         results = []
         for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>(.*?)'
@@ -214,12 +286,28 @@ class Web:
                 href = unquote(parse_qs(urlparse(href).query).get("uddg", [href])[0])
             if "duckduckgo.com/y.js" in href:  # ads
                 continue
-            title = page_text(m.group(2))[1]
-            snippet = page_text(m.group(4) or "")[1]
-            results.append({"title": title, "url": href, "snippet": snippet})
+            results.append({"title": page_text(m.group(2))[1], "url": href, "snippet": page_text(m.group(4) or "")[1]})
             if len(results) >= limit:
                 break
-        return {"query": query, "results": results}
+        return results
+
+    def _bing(self, query: str, limit: int) -> list[dict]:
+        resp = self._get("https://www.bing.com/search", params={"q": query, "setlang": "en", "cc": "US", "adlt": "strict"},
+                         headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.8"})
+        results = []
+        for block in re.findall(r'<li class="b_algo".*?</li>', resp.text, re.S):
+            a = re.search(r'<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+            if not a:
+                continue
+            href = _bing_target(html.unescape(a.group(1)))
+            if not href.startswith(("http://", "https://")):
+                continue
+            snip = re.search(r'<p[^>]*>(.*?)</p>', block, re.S)
+            results.append({"title": page_text(a.group(2))[1], "url": href,
+                            "snippet": page_text(snip.group(1))[1] if snip else ""})
+            if len(results) >= limit:
+                break
+        return results
 
     def read_page(self, url: str, max_chars: int = MAX_TEXT) -> dict:
         resp = self._get(url, stream=True)
@@ -251,6 +339,74 @@ class Web:
         return {"url": resp.url, "title": p.title.strip(), "headings": p.headings[:50],
                 "links": links, "tables": p.tables[:10], "list_items": p.lists[:100],
                 "text": text[:max_chars]}
+
+    def _page(self, url: str, max_chars: int) -> dict:
+        """read_page that reports a source it couldn't read instead of failing the whole search."""
+        try:
+            out = self.read_page(url, max_chars)
+        except (NotFound, ValueError, requests.RequestException) as exc:
+            return {"url": url, "error": str(exc)}
+        if "note" in out:
+            return {"url": url, "error": out["note"]}
+        if len(out.get("text", "").strip()) < THIN_PAGE:
+            return {"url": out["url"], "error": "almost no text (the page may need JavaScript)"}
+        return out
+
+    def _read_many(self, urls: list[str], want: int, max_chars: int) -> tuple[list[dict], list[dict], list[str]]:
+        """Read pages in parallel, in order, until `want` of them gave real text. Returns (read, skipped, unread)."""
+        read, skipped, queue = [], [], list(urls)
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="web-read") as pool:
+            while queue and len(read) < want:
+                batch, queue = queue[:want - len(read)], queue[want - len(read):]
+                for page in pool.map(lambda u: self._page(u, max_chars), batch):
+                    if page.get("error"):
+                        skipped.append({"url": page["url"], "why": page["error"]})
+                    else:
+                        read.append(page)
+        return read, skipped, queue
+
+    def research(self, question: str, pages: int = 4, max_chars: int = RESEARCH_CHARS) -> dict:
+        """Search the web and read the best few results, so Jarvis can answer from real pages with sources."""
+        want = max(1, min(int(pages or 4), 8))
+        results, seen = [], set()
+        for r in self.search(question, limit=12)["results"]:
+            u = r["url"].split("#")[0]
+            if u.startswith(("http://", "https://")) and u not in seen:
+                seen.add(u)
+                results.append(r)
+        by_url = {r["url"].split("#")[0]: r for r in results}
+        read, skipped, unread = self._read_many(list(by_url), want, max_chars)
+        sources = [{"title": p.get("title") or by_url.get(p["url"], {}).get("title", ""), "url": p["url"],
+                    "text": p["text"]} for p in read]
+        out = {"question": question, "sources": sources, "skipped": skipped[:8],
+               "other_results": [by_url[u] for u in unread[:6]]}
+        if not sources:
+            out["note"] = ("no page could be read; try other words, or use the snippets in other_results"
+                           if results else "the search found nothing; try other words")
+        return out
+
+    def explore_site(self, url: str, look_for: str = "", pages: int = 5, max_chars: int = RESEARCH_CHARS) -> dict:
+        """Open a page, then follow its links on the same site (the ones matching look_for first)."""
+        want = max(1, min(int(pages or 5), 10))
+        start = self.scrape(url, max_chars)
+        if "note" in start:
+            return start
+        host = urlparse(start["url"]).hostname
+        words = set(re.findall(r"\w{3,}", (look_for or "").lower()))
+        seen, links = {start["url"].split("#")[0]}, []
+        for link in start["links"]:
+            u = link["url"].split("#")[0]
+            if urlparse(u).hostname == host and u.startswith(("http://", "https://")) and u not in seen:
+                seen.add(u)
+                hay = (link["text"] + " " + u).lower()
+                links.append((-sum(w in hay for w in words), len(links), link["text"], u))
+        links.sort()
+        read, skipped, unread = self._read_many([u for *_, u in links], want - 1, max_chars)
+        first = {"title": start["title"], "url": start["url"], "text": start["text"], "headings": start["headings"]}
+        names = {u: t for _, _, t, u in links}
+        return {"site": host, "pages": [first] + [{"title": p.get("title", ""), "url": p["url"], "text": p["text"]}
+                                                  for p in read],
+                "skipped": skipped[:8], "more_links": [{"text": names[u], "url": u} for u in unread[:20]]}
 
     # ---- Hugging Face ---------------------------------------------------------------------------------
     def hf_search(self, query: str, kind: str = "models", limit: int = 10) -> dict:

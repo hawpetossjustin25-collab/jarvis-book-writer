@@ -248,6 +248,49 @@ def test_scrape_refuses_non_page_and_bad_addresses():
         web({}).scrape("http://127.0.0.1/x")
 
 
+def _results(*urls):
+    return "".join(f'<a rel="nofollow" class="result__a" href="{u}">Title {i}</a>'
+                   f'<a class="result__snippet" href="x">Snippet {i}</a>' for i, u in enumerate(urls)).encode()
+
+
+def _page(url, title, words="lighthouse keepers trimmed the lamp wicks every night "):
+    return Resp(body=f"<html><title>{title}</title><body><p>{words * 8}</p></body></html>".encode(),
+                headers={"Content-Type": "text/html"}, url=url)
+
+
+def test_research_reads_the_best_pages_and_skips_ones_it_cant_read():
+    session = Session({"duckduckgo": Resp(body=_results("https://a.org/1", "https://b.org/2", "https://c.org/3",
+                                                        "https://d.org/4", "https://e.org/5", "https://a.org/1#x")),
+                       "a.org/1": _page("https://a.org/1", "A"), "c.org/3": _page("https://c.org/3", "C", "hi"),
+                       "d.org/4": _page("https://d.org/4", "D")})
+    out = Web(session, check_address=lambda u: u).research("history of lighthouses", pages=2)
+    assert [(x["title"], x["url"]) for x in out["sources"]] == [("A", "https://a.org/1"), ("D", "https://d.org/4")]
+    assert "lighthouse keepers" in out["sources"][0]["text"] and len(out["sources"][0]["text"]) <= 4000
+    assert [x["url"] for x in out["skipped"]] == ["https://b.org/2", "https://c.org/3"]
+    assert "JavaScript" in out["skipped"][1]["why"]
+    assert [x["url"] for x in out["other_results"]] == ["https://e.org/5"]  # the #x duplicate isn't read twice
+    assert "e.org" not in " ".join(u for u, _ in session.seen)
+
+
+def test_research_says_when_nothing_could_be_read():
+    out = web({"duckduckgo": Resp(body=_results("https://b.org/2"))}).research("anything")
+    assert out["sources"] == [] and "other words" in out["note"] and out["skipped"][0]["url"] == "https://b.org/2"
+    assert "found nothing" in web({"duckduckgo": Resp(body=b"")}).research("zzz")["note"]
+
+
+def test_explore_site_follows_same_site_links_that_match_first():
+    home = (b'<html><title>Shop</title><body><h1>Welcome</h1><a href="/about">About us</a>'
+            b'<a href="/prices">Prices and plans</a><a href="https://other.org/x">Elsewhere</a>'
+            b'<a href="/home#top">Top</a><a href="/blog">Blog</a><td>stray cell</td></body></html>')
+    session = Session({"s.org/home": Resp(body=home, headers={"Content-Type": "text/html"}, url="https://s.org/home"),
+                       "s.org/prices": _page("https://s.org/prices", "Prices", "the basic plan costs nine dollars a month ")})
+    out = Web(session, check_address=lambda u: u).explore_site("https://s.org/home", "prices", pages=2)
+    assert out["site"] == "s.org" and [x["title"] for x in out["pages"]] == ["Shop", "Prices"]
+    assert out["pages"][0]["headings"] == ["Welcome"] and "nine dollars" in out["pages"][1]["text"]
+    assert [x["url"] for x in out["more_links"]] == ["https://s.org/about", "https://s.org/blog"]
+    assert not any("other.org" in u for u, _ in session.seen)
+
+
 def test_web_search_parses_results():
     html_page = (b'<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fhuggingface.co'
                  b'%2FLiquidAI&rut=1">Liquid <b>AI</b></a><a class="result__snippet" href="x">Small models</a>'
@@ -255,6 +298,52 @@ def test_web_search_parses_results():
     out = web({"duckduckgo": Resp(body=html_page)}).search("liquid ai")
     assert out["results"][0] == {"title": "Liquid AI", "url": "https://huggingface.co/LiquidAI", "snippet": "Small models"}
     assert out["results"][1]["url"] == "https://github.com/x/y"
+
+
+def test_web_search_falls_back_to_bing_when_duckduckgo_wants_a_robot_check():
+    import base64
+    target = base64.urlsafe_b64encode(b"https://www.liquid.ai/models").decode().rstrip("=")
+    bing = (f'<ol><li class="b_algo" data-id><link rel="stylesheet" href="x.css"/><h2><a target="_blank" '
+            f'href="https://www.bing.com/ck/a?!&amp;&amp;p=ab&amp;u=a1{target}&amp;ntb=1">Liquid <strong>Models</strong></a>'
+            f'</h2><p class="b_lineclamp2">Small fast models.</p></li>'
+            f'<li class="b_algo"><h2><a href="https://plain.org/x">Liquid models compared</a></h2></li>'
+            f'<li class="b_algo"><h2><a href="https://game.org/x">Dead Space</a></h2></li></ol>').encode()
+    session = Session({"duckduckgo": Resp(202, b"<form>anomaly challenge</form>"), "bing.com/search": Resp(body=bing)})
+    out = Web(session, check_address=lambda u: u).search("liquid models")
+    assert out["engine"] == "bing"
+    assert out["results"] == [{"title": "Liquid Models", "url": "https://www.liquid.ai/models", "snippet": "Small fast models."},
+                              {"title": "Liquid models compared", "url": "https://plain.org/x", "snippet": ""}]
+
+
+def test_off_topic_bing_results_are_dropped_and_wikipedia_answers_last():
+    junk = (b'<li class="b_algo"><h2><a href="https://game.org/dead-space">Dead Space</a></h2>'
+            b'<p>A horror game.</p></li>')
+    wiki = json.dumps({"query": {"search": [{"title": "Jeddah Light", "snippet": "the <b>tallest</b> lighthouse"}]}})
+    session = Session({"duckduckgo": Resp(202, b"anomaly"), "bing.com/search": Resp(body=junk),
+                       "wikipedia.org/w/api.php": Resp(body=wiki.encode())})
+    out = Web(session, check_address=lambda u: u).search("what is the tallest lighthouse in the world")
+    assert out["engine"] == "wikipedia"
+    assert out["results"] == [{"title": "Jeddah Light", "url": "https://en.wikipedia.org/wiki/Jeddah_Light",
+                               "snippet": "the tallest lighthouse"}]
+
+
+def test_requests_name_the_app_and_bing_is_strictly_safe():
+    import requests
+    assert Web(requests.Session()).session.headers["User-Agent"].startswith("JarvisBookWriter/")
+    session = Session({"duckduckgo": Resp(body=b""), "bing.com/search": Resp(body=b"")})
+    session.headers = {}
+    Web(session, check_address=lambda u: u).search("lighthouses")
+    assert [params for url, params in session.seen if "bing" in url][0]["adlt"] == "strict"
+
+
+def test_search_with_no_internet_says_so():
+    import requests
+
+    class Down(Session):
+        def get(self, url, params=None, **kw):
+            raise requests.ConnectionError("no route")
+    with pytest.raises(NotFound, match="internet"):
+        Web(Down({}), check_address=lambda u: u).search("anything")
 
 
 def test_hugging_face_search_and_model_page():

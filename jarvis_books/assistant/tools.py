@@ -33,6 +33,12 @@ COMPUTER_TOOLS = ("list_folder", "read_file", "write_file", "edit_file", "make_f
 WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline") + COMPUTER_TOOLS
 COMPUTER_PINS = ("write_file", "edit_file", "make_folder", "move_path", "delete_path", "run_command",
                  "download_file", "github_download")
+# Asking to find out about the world brings in the internet tools.
+WEB_WORDS = ("internet", "online", "web", "search", "look up", "google", "website", "page", "http", "www", ".com",
+             "news", "find", "research", "information", "info", "look into", "learn about", "tell me about",
+             "what is", "what's", "what are", "who is", "who was", "who are", "when did", "when is", "where is",
+             "where can", "how do", "how does", "how to", "how much", "how many", "latest", "current", "today",
+             "price", "cost", "weather", "review", "facts", "source", "check if", "is it true")
 S = {"type": "STRING"}
 I = {"type": "INTEGER"}
 
@@ -95,6 +101,14 @@ COMPUTER_DECLARATIONS = [
           {"job_id": S}, ["job_id"]),
     _decl("web_search", "Search the internet. Returns titles, links and snippets.", {"query": S}, ["query"]),
     _decl("read_web_page", "Read a web page (or text/JSON file) on the internet as plain text.", {"url": S}, ["url"]),
+    _decl("research_web", "Find information on the internet about anything outside the author's books: searches, "
+          "reads the best few pages and returns their text with links, so you can answer with facts and sources.",
+          {"question": {"type": "STRING", "description": "what to find, in search words"},
+           "pages": {"type": "INTEGER", "description": "how many pages to read, 1-8 (default 4)"}}, ["question"]),
+    _decl("explore_website", "Dig through one website: opens the page and follows its links on the same site "
+          "(those matching look_for first), returning each page's text.",
+          {"url": S, "look_for": {"type": "STRING", "description": "what you're after, to pick which links to follow"},
+           "pages": {"type": "INTEGER", "description": "how many pages to read, 1-10 (default 5)"}}, ["url"]),
     _decl("scrape_web_page", "Scrape a web page for its structure: title, links, headings, tables and list "
           "items, plus its plain text.", {"url": S}, ["url"]),
     _decl("hf_search", "Search Hugging Face for models, datasets or spaces.",
@@ -314,9 +328,11 @@ class ToolBox:
             "computer_log": ("what did you change", "what did you run", "log", "history", "undo"),
             "run_command": ("terminal", "command", "powershell", "cmd", "run ", "install", "winget", "pip", "git ", "script", "program", "test", "code", "my computer", "laptop"),
             "command_output": ("output", "result", "finished", "done", "command", "terminal", "install"),
-            "web_search": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news"),
-            "read_web_page": ("internet", "online", "web", "search for", "look up", "google", "website", "page", "http", "news", "read", "link", "article"),
-            "scrape_web_page": ("internet", "online", "web", "scrape", "scrape data", "get data", "collect", "extract", "grab data", "website", "table", "links", "list"),
+            "web_search": WEB_WORDS,
+            "research_web": WEB_WORDS,
+            "read_web_page": WEB_WORDS + ("read", "link", "article"),
+            "explore_website": WEB_WORDS + ("site", "explore", "dig", "more pages", "follow", "link"),
+            "scrape_web_page": WEB_WORDS + ("scrape", "get data", "collect", "extract", "grab data", "table", "links", "list"),
             "hf_search": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "hf_model_info": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "github_search": ("github", "repo", "repository", "git ", "source code"),
@@ -1112,6 +1128,12 @@ class ToolBox:
 
     def _t_scrape_web_page(self, url: str) -> dict:
         return self._web().scrape(url)
+
+    def _t_research_web(self, question: str, pages: int = 4) -> dict:
+        return self._web().research(question, pages)
+
+    def _t_explore_website(self, url: str, look_for: str = "", pages: int = 5) -> dict:
+        return self._web().explore_site(url, look_for, pages)
 
     def _t_hf_search(self, query: str, kind: str = "models") -> dict:
         return self._web().hf_search(query, kind)

@@ -12,7 +12,7 @@ from jarvis_books.storage.library import Library
 from jarvis_books.writer import prompts
 
 log = logging.getLogger(__name__)
-MAX_TOOL_ROUNDS = 6
+MAX_TOOL_ROUNDS = 10  # research can take a few searches and pages
 
 
 class Assistant:
