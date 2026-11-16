@@ -263,6 +263,10 @@ class Workshop(QWidget):
             self.status.setText(f"Not saved: {exc}")
             return False
         self.saved_text = text
+        try:
+            self._watch_mtime = self.path.stat().st_mtime  # our own save isn't a change from outside
+        except OSError:
+            pass
         path, backup = out["written"], out["backup"]
         self.studio.tools._push_undo(f"saving {path} in the Workshop",
                                      lambda: self.studio.computer.restore(backup, path))
