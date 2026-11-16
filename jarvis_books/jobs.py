@@ -41,6 +41,7 @@ class JobManager:
         self._futures: dict[str, Future] = {}
         self._listeners: list[JobListener] = []
         self._lock = threading.Lock()
+        self.closing = False  # True once the app is shutting down (jobs stop, but long runs resume next start)
         # Jobs that were running when the app closed are marked interrupted (their saved work is kept).
         library.db.execute("UPDATE jobs SET status='interrupted', updated_at=? WHERE status IN ('queued','running')",
                            (time.time(),))
@@ -115,6 +116,7 @@ class JobManager:
         return self._jobs[job_id]
 
     def shutdown(self, wait: bool = False) -> None:
+        self.closing = True
         for event in self._cancel.values():
             event.set()
         self._pool.shutdown(wait=wait, cancel_futures=True)

@@ -9,6 +9,11 @@ from jarvis_books.storage.library import Library
 from jarvis_books.text import truncate_words
 
 
+RECENT_SUMMARIES = 60  # chapter summaries in full before the one being written
+MILESTONES = 40  # summaries sampled from the rest of a long book
+OUTLINE_SPAN = 30  # outline chapters either side of the one being written
+
+
 class ContextBuilder:
     def __init__(self, library: Library, index: StoryIndex):
         self.library = library
@@ -46,23 +51,35 @@ class ContextBuilder:
             lines.append(f"- [{e.kind}] {e.name}: {e.summary}" + (f" ({facts})" if facts else ""))
         return "\n".join(lines)
 
-    def outline_text(self, book_id: str) -> str:
-        chapters = self.library.list_chapters(book_id)
+    def outline_text(self, book_id: str, around: int | None = None, span: int = OUTLINE_SPAN) -> str:
+        """The outline; for a long book only the chapters around `around` (the engine can't hold thousands)."""
         book = self.library.get_book(book_id)
-        structure = get_structure(book.structure)
-        lines = [structure.name]
-        for c in chapters:
-            lines.append(f"Ch {c.number} {c.title}: {c.outline}")
+        total = self.library.chapter_count(book_id)
+        lines = [get_structure(book.structure).name]
+        if around is not None and total > 2 * span + 1:
+            first, last = max(1, around - span), min(total, around + span)
+            lines.append(f"(chapters {first}-{last} of {total})")
+        else:
+            first, last = 1, total
+        for c in self.library.chapter_digest(book_id, first, last):
+            lines.append(f"Ch {c['number']} {c['title']}: {c['outline']}")
         return "\n".join(lines)
 
-    def story_so_far(self, book_id: str, before: int) -> str:
+    def story_so_far(self, book_id: str, before: int, recent: int = RECENT_SUMMARIES) -> str:
+        """Summaries of the last `recent` chapters, plus milestone summaries further back in a long book."""
+        first = max(1, before - recent)
         parts = []
-        for c in self.library.list_chapters(book_id):
-            if c.number >= before:
-                break
-            summary = c.summary or (truncate_words(c.text, 120) if c.text else c.outline)
+        if first > 1:
+            every = max(1, (first - 1) // MILESTONES)
+            older = self.library.chapter_digest(book_id, 1, first - 1, every=every)
+            if older:
+                parts.append("Earlier milestones:")
+                parts += [f"Ch {c['number']} {c['title']}: {c['summary'] or c['outline']}" for c in older]
+                parts.append("Most recent chapters:")
+        for c in self.library.chapter_digest(book_id, first, before - 1):
+            summary = c["summary"] or c["outline"]
             if summary:
-                parts.append(f"Ch {c.number} {c.title}: {summary}")
+                parts.append(f"Ch {c['number']} {c['title']}: {summary}")
         return "\n".join(parts)
 
     def chapter_sections(self, book_id: str, number: int) -> list[PromptSection]:
@@ -73,7 +90,7 @@ class ContextBuilder:
             PromptSection("Story bible", self.bible_text(book_id, chapter.outline), priority=75),
             PromptSection("Story so far (chapter summaries)", self.story_so_far(book_id, number), priority=70,
                           trim_from="start"),
-            PromptSection("Full outline", self.outline_text(book_id), priority=55),
+            PromptSection("Outline", self.outline_text(book_id, around=number), priority=55),
         ]
         if number > 1:
             try:

@@ -30,7 +30,7 @@ TOOL_LEVELS: dict[str, str] = {
     "remember": SAFE, "forget_memory": CHANGE,
     "add_note": SAFE, "play_audiobook": SAFE, "stop_audiobook": SAFE, "reading_speed": SAFE, "cancel_job": SAFE, "propose_idea": SAFE,
     "open_tab": SAFE, "app_action": SAFE,
-    "create_book": CHANGE, "write_chapters": CHANGE, "rewrite_chapter": CHANGE, "update_story_bible": CHANGE,
+    "create_book": CHANGE, "write_chapters": CHANGE, "set_book_length": CHANGE, "stop_writing": SAFE, "rewrite_chapter": CHANGE, "update_story_bible": CHANGE,
     "change_outline": CHANGE, "export_book": CHANGE, "decide_proposal": CHANGE,
     "change_setting": CHANGE, "undo_last_change": CHANGE,
     "publish_audiobook": OUTSIDE, "send_api": OUTSIDE,

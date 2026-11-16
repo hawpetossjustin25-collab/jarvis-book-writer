@@ -146,6 +146,11 @@ class Studio:
             log.exception("LFM3 start failed")
         if self.engine is not None and not self.start_error:
             self.memory.catch_up()
+        if self.brain.ready():
+            try:
+                self.tools.resume_writing()
+            except Exception:
+                log.exception("could not resume writing runs")
         if probe and self.engine is not None and not self.start_error:
             self.engine.refine()
 

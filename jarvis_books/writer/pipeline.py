@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.craft.structures import STRUCTURES
 from jarvis_books.craft.manuscript import SCENE_BREAK
+from jarvis_books.llm.errors import LLMError
 from jarvis_books.llm.models import LLMRequest, PromptSection
 from jarvis_books.memory.context import ContextBuilder
 from jarvis_books.memory.index import StoryIndex
@@ -24,6 +25,14 @@ from jarvis_books.writer.continuity import check_chapter
 
 log = logging.getLogger(__name__)
 Progress = Callable[[float, str], None]
+
+
+MAX_CHAPTERS = 8000  # a book (or long serial) can be this long; writing runs continuously to the end
+OUTLINE_BATCH = 25  # chapters outlined per call: a long book is outlined ahead of the writing, batch by batch
+WAIT_KINDS = ("rate", "quota", "unavailable", "overload", "network")
+ODD_TRIES = 3  # an unexplained error (e.g. a garbled answer) is retried a few times, not waited out for a day
+WAITS_S = (60, 300, 900, 1800)  # when neither brain answers: wait, then retry the step (finished chapters stay saved)
+MAX_WAITS = 60  # about a day of waiting (Gemini's daily limit resets) before a run gives up
 
 
 class Cancelled(Exception):
@@ -57,6 +66,51 @@ class BookWriter:
     def _config(self):
         return self.engine.get_runtime_configuration()
 
+    @staticmethod
+    def _wait(cancel: Optional[threading.Event], seconds: float) -> bool:
+        """Sleep, waking early if the job is cancelled. True means cancelled."""
+        if cancel is not None:
+            return cancel.wait(seconds)
+        threading.Event().wait(seconds)
+        return False
+
+    def _patiently(self, step: Callable[[], object], what: str, progress: Progress,
+                   cancel: Optional[threading.Event]):
+        """Run one step of a long run; when no brain can answer (limits, offline), wait and try it again."""
+        for attempt in range(MAX_WAITS + 1):
+            self._check(cancel)
+            try:
+                return step()
+            except LLMError as exc:
+                odd = exc.kind == "unknown" and attempt + 1 < ODD_TRIES
+                if (exc.kind not in WAIT_KINDS and not odd) or attempt == MAX_WAITS:
+                    raise
+                delay = max(WAITS_S[min(attempt, len(WAITS_S) - 1)], float(exc.retry_after_s or 0))
+                log.warning("%s failed (%s); retrying in %ss", what, exc, delay)
+                progress(-1, f"Waiting to continue {what}: {str(exc)[:160]}. Trying again in "
+                             f"{max(1, round(delay / 60))} min (finished chapters are saved).")
+                if self._wait(cancel, delay):
+                    raise Cancelled()
+        raise AssertionError("unreachable")
+
+    def planned_chapters(self, book_id: str) -> int:
+        """How long the book will be: the outlined chapters, or more when the author asked for a longer book."""
+        book = self.library.get_book(book_id)
+        return max(self.library.chapter_count(book_id), int(book.settings.get("planned_chapters") or 0))
+
+    def set_length(self, book_id: str, chapters: int) -> int:
+        book = self.library.get_book(book_id)
+        have = self.library.chapter_count(book_id)
+        chapters = int(chapters)
+        if not 1 <= chapters <= MAX_CHAPTERS:
+            raise ValueError(f"a book can have 1 to {MAX_CHAPTERS:,} chapters")
+        if chapters < have:
+            raise ValueError(f"'{book.title}' already has {have:,} outlined chapters; it can only get longer here")
+        per = (book.chapter_words_min + book.chapter_words_max) // 2 or 2500
+        self.library.update_book(book_id, settings={"planned_chapters": chapters}, target_words=chapters * per,
+                                 **({"status": "drafting"} if book.status == "complete" and chapters > have else {}))
+        return chapters
+
     # ---- book planning ------------------------------------------------------------
     def create_book(self, idea: str, title: str = "", genre: str = "", chapters: int = 0,
                     progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None) -> Book:
@@ -74,7 +128,7 @@ class BookWriter:
                         "locations, and 3-6 plot threads.", sections=[PromptSection("Brief", "\n".join(brief), 100, True)],
         )).data
         self._check(cancel)
-        n = chapters or profile.suggested_chapters
+        n = max(1, min(MAX_CHAPTERS, int(chapters or profile.suggested_chapters)))
         ch_words = profile.target_chapter_words
         book = self.library.create_book(
             title or plan["title"], plan.get("genre") or profile.name, idea.strip(), logline=plan["logline"],
@@ -99,6 +153,11 @@ class BookWriter:
         return self.library.get_book(book.id)
 
     def outline_book(self, book_id: str, chapters: int, cancel: Optional[threading.Event] = None) -> list[Chapter]:
+        chapters = max(1, min(MAX_CHAPTERS, int(chapters)))
+        self.library.update_book(book_id, settings={"planned_chapters": chapters})
+        if chapters > OUTLINE_BATCH:  # outline the opening now; the rest is outlined as the writing gets there
+            self.extend_outline(book_id, cancel=cancel)
+            return self.library.list_chapters(book_id)
         book = self.library.get_book(book_id)
         structure = get_structure(book.structure)
         target = (book.chapter_words_min + book.chapter_words_max) // 2 or 2500
@@ -120,6 +179,56 @@ class BookWriter:
             if item.get("beat"):
                 item["outline"] = f"{item['outline']} [Beat: {item['beat']}]"
         return self.library.set_outline(book_id, items)
+
+    def extend_outline(self, book_id: str, cancel: Optional[threading.Event] = None) -> list[dict]:
+        """Outline the next batch of a long book, continuing from what is written and the direction set so far."""
+        book = self.library.get_book(book_id)
+        have, total = self.library.chapter_count(book_id), self.planned_chapters(book_id)
+        if have >= total:
+            return []
+        start, end = have + 1, min(total, have + OUTLINE_BATCH)
+        target = (book.chapter_words_min + book.chapter_words_max) // 2 or 2500
+        structure = get_structure(book.structure)
+        beats = [line for line in structure.outline_guide(total).splitlines()[1:]
+                 if start <= int(line.split(":")[0].split()[-1]) <= end]
+        beat_text = (f"{structure.name}, over {total:,} chapters. Beats due in chapters {start}-{end}:\n"
+                     + "\n".join(beats) if beats else
+                     f"{structure.name}, over {total:,} chapters. No major beat falls in chapters {start}-{end}: "
+                     "develop the story with complications, subplots, reversals and character turns.")
+        sections = [PromptSection("Book", self.context.book_brief(book_id), 100, True),
+                    PromptSection("Story bible", self.context.bible_text(book_id), 80),
+                    PromptSection("Story so far", self.context.story_so_far(book_id, start), 85, trim_from="start"),
+                    PromptSection("Structure", beat_text, 90, True)]
+        if have:
+            sections.append(PromptSection("Outline so far", self.context.outline_text(book_id, around=have), 75,
+                                          trim_from="start"))
+        notes = self.library.list_notes(book_id)[:15]
+        if notes:
+            sections.append(PromptSection("Author's direction and notes", "\n".join(f"- {n.text}" for n in notes), 95))
+        ending = ("These are the last chapters: bring the main threads to their resolution and end the book."
+                  if end == total else "The book does not end in these chapters; keep threads moving toward later ones.")
+        result = self.engine.generate(LLMRequest(
+            role="planner", system=self._system(prompts.OUTLINER, book_id), json_schema=schemas.OUTLINE,
+            purpose="outline", sections=sections,
+            instruction=f"Write the chapter-by-chapter outline for chapters {start}-{end} (exactly {end - start + 1} "
+                        f"chapters, numbered {start}-{end}) of this {total:,}-chapter book. "
+                        + (f"Continue straight on from chapter {have}, following the direction the author set. "
+                           if have else "") + ending +
+                        f" Each outline is 3-5 sentences naming who, what happens, what changes and the ending hook. "
+                        f"target_words about {target}.",
+        )).data
+        self._check(cancel)
+        items = sorted(result.get("chapters") or [], key=lambda c: int(c.get("number") or 0))[:end - start + 1]
+        if not items:
+            raise LLMError("the outline came back empty", kind="unknown")
+        lo, hi = book.chapter_words_min or 1000, book.chapter_words_max or 6000
+        for i, item in enumerate(items, start=start):
+            item["number"] = i
+            item["target_words"] = max(lo, min(hi, int(item.get("target_words") or target)))
+            if item.get("beat"):
+                item["outline"] = f"{item['outline']} [Beat: {item['beat']}]"
+        self.library.set_outline(book_id, items)
+        return items
 
     # ---- chapters -------------------------------------------------------------------
     def plan_chapter(self, book_id: str, number: int) -> Chapter:
@@ -275,19 +384,43 @@ class BookWriter:
         return chapter
 
     def next_unwritten(self, book_id: str) -> Optional[Chapter]:
-        return next((c for c in self.library.list_chapters(book_id) if c.status != "accepted"), None)
+        return self.library.first_unaccepted(book_id)
+
+    def remaining(self, book_id: str) -> int:
+        """Chapters still to write, counting the ones not outlined yet."""
+        accepted = self.library.book_stats(book_id)["accepted"]
+        return max(0, self.planned_chapters(book_id) - accepted)
 
     def write_next_chapters(self, book_id: str, count: int = 1, instructions: str = "",
-                            progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None) -> list[Chapter]:
+                            progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None,
+                            on_chapter: Optional[Callable[[Chapter], None]] = None) -> list[Chapter]:
+        """Write chapter after chapter (up to MAX_CHAPTERS in one run), outlining ahead and waiting out limits."""
         progress = progress or (lambda p, m: None)
-        done = []
-        for i in range(max(1, count)):
+        count = max(1, min(MAX_CHAPTERS, int(count)))
+        done: list[Chapter] = []
+        last = [0.0]
+
+        def report(p: float, m: str) -> None:
+            last[0] = last[0] if p < 0 else p  # p < 0: a status message that doesn't move the bar
+            progress(last[0], m)
+
+        for i in range(count):
+            self._check(cancel)
             chapter = self.next_unwritten(book_id)
+            if chapter is None and self.planned_chapters(book_id) > self.library.chapter_count(book_id):
+                report(-1, f"Outlining the next chapters ({len(done)} of {count} written)")
+                self._patiently(lambda: self.extend_outline(book_id, cancel), "the outline", report, cancel)
+                chapter = self.next_unwritten(book_id)
             if chapter is None:
-                self.library.update_book(book_id, status="complete")
                 break
-            done.append(self.write_chapter(book_id, chapter.number, instructions, cancel=cancel,
-                                           progress=lambda p, m, i=i: progress((i + p) / count, m)))
-        if self.next_unwritten(book_id) is None:
+            number = chapter.number
+            written = self._patiently(
+                lambda: self.write_chapter(book_id, number, instructions, cancel=cancel,
+                                           progress=lambda p, m: report((i + p) / count, f"[{i + 1}/{count}] {m}")),
+                f"chapter {number}", report, cancel)
+            done.append(written)
+            if on_chapter is not None:
+                on_chapter(written)
+        if self.next_unwritten(book_id) is None and self.remaining(book_id) == 0:
             self.library.update_book(book_id, status="complete")
         return done

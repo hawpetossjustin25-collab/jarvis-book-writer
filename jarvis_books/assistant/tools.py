@@ -23,7 +23,7 @@ from jarvis_books.memory.index import StoryIndex
 from jarvis_books.storage.library import Library
 from jarvis_books.text import paragraphs, truncate_words
 from jarvis_books.upgrade import describe as describe_upgrade
-from jarvis_books.writer.pipeline import BookWriter
+from jarvis_books.writer.pipeline import MAX_CHAPTERS, BookWriter, Cancelled
 
 log = logging.getLogger(__name__)
 
@@ -150,11 +150,19 @@ DECLARATIONS = [
           {"book": BOOK}, ["book"]),
     _decl("create_book", "Start a new book from the user's story idea. Designs characters, world and a full "
           "chapter outline in the background.",
-          {"idea": S, "title": S, "genre": S, "chapters": {"type": "INTEGER", "description": "0 = recommended"}},
+          {"idea": S, "title": S, "genre": S, "chapters": {"type": "INTEGER", "description": "0 = recommended; "
+                                                                             "up to 8000 for a long serial"}},
           ["idea"]),
     _decl("write_chapters", "Write the next unwritten chapter(s) of a book in the background (plan, draft, "
-          "edit, continuity check).",
-          {"book": BOOK, "count": I, "instructions": {"type": "STRING", "description": "Author's direction"}}),
+          "edit, continuity check), one after another without stopping: up to 8000 in one run. Outlines ahead "
+          "as it goes, waits out Gemini limits, and carries on after the app restarts.",
+          {"book": BOOK, "count": {"type": "INTEGER", "description": "how many chapters (1-8000); 0 = keep going "
+                                                                       "to the end of the book"},
+           "instructions": {"type": "STRING", "description": "Author's direction"}}),
+    _decl("set_book_length", "Make a book longer: set how many chapters it will have in total (up to 8000). "
+          "The new chapters are outlined as the writing reaches them, following the story so far.",
+          {"book": BOOK, "chapters": I}, ["chapters"]),
+    _decl("stop_writing", "Stop a book's running chapter-writing run (finished chapters are kept).", {"book": BOOK}),
     _decl("rewrite_chapter", "Revise a chapter following the author's instructions (keeps the old version).",
           {"book": BOOK, "chapter": I, "instructions": S}, ["chapter", "instructions"]),
     _decl("read_chapter", "Get the text of a chapter to read aloud or discuss.",
@@ -298,7 +306,7 @@ class ToolBox:
     def select(self, user_text: str) -> list[dict]:
         """Adaptive tool selection: always the core tools, plus the rest only when the request needs them."""
         core = ["list_books", "open_book", "read_chapter", "search_books", "add_note", "write_chapters",
-                "create_book", "job_status"]
+                "create_book", "job_status", "set_book_length", "stop_writing"]
         t = f" {(user_text or '').lower()} "  # padded so whole-word keywords match at either end
         extra = {
             "rewrite_chapter": ("rewrite", "revise", "change", "fix", "edit", "redo"),
@@ -454,8 +462,12 @@ class ToolBox:
         if name == "create_book":
             return f"Start a new book: {truncate_words(args.get('idea', ''), 25)}"
         if name == "write_chapters":
-            n = max(1, int(args.get("count") or 1))
-            return f"Write the next {n} chapter{'s' if n > 1 else ''} of '{book}'{extra}"
+            n = int(args.get("count") if args.get("count") is not None else 1)
+            if n <= 0:
+                return f"Keep writing '{book}' chapter after chapter until it is finished{extra}"
+            return f"Write the next {n:,} chapter{'s' if n > 1 else ''} of '{book}'{extra}"
+        if name == "set_book_length":
+            return f"Make '{book}' {int(args.get('chapters') or 0):,} chapters long"
         if name == "rewrite_chapter":
             return f"Rewrite chapter {args.get('chapter')} of '{book}'{extra}"
         if name == "update_story_bible":
@@ -542,14 +554,83 @@ class ToolBox:
 
     def _t_write_chapters(self, book: str = "", count: int = 1, instructions: str = "") -> dict:
         b = self._book(book)
+        left = self.writer.remaining(b.id)
+        if left == 0:
+            return {"error": f"every chapter of {b.title} is already written; set_book_length makes it longer"}
+        running = self._writing_job(b.id)
+        if running is not None:
+            return {"error": f"{b.title} is already being written ({running.message})", "job_id": running.id}
+        count = left if int(count) <= 0 else min(int(count), MAX_CHAPTERS)
         nxt = self.writer.next_unwritten(b.id)
-        if nxt is None:
-            return {"error": f"every chapter of {b.title} is already written"}
-        count = max(1, min(10, count))
-        job = self.jobs.submit("write", f"Writing {b.title}: {count} chapter(s) from {nxt.heading}",
-                               lambda p, c: [ch.number for ch in self.writer.write_next_chapters(
-                                   b.id, count, instructions, progress=p, cancel=c)], book_id=b.id)
-        return {"started": True, "job_id": job.id, "first_chapter": nxt.number, "count": count}
+        first = nxt.number if nxt else self.library.chapter_count(b.id) + 1
+        job = self._start_writing(b.id, first, count, instructions)
+        out = {"started": True, "job_id": job.id, "first_chapter": first, "count": count,
+               "chapters_left_in_book": left}
+        if count > left:
+            out["note"] = (f"the book has only {left} chapter(s) left to write; it stops at the end. "
+                           "Use set_book_length to make it longer.")
+        if count > 1:
+            out["continuous"] = ("runs chapter after chapter in the background; it waits out Gemini limits and "
+                                 "carries on if the app restarts")
+        return out
+
+    def _writing_job(self, book_id: str):
+        return next((j for j in self.jobs.active() if j.kind == "write" and j.book_id == book_id), None)
+
+    def _start_writing(self, book_id: str, first: int, count: int, instructions: str):
+        """A writing run is saved with the book, so it picks up where it was if the app closes."""
+        until = first + count - 1
+        self.library.update_book(book_id, settings={"writing_run": {"until": until, "instructions": instructions}})
+        title = self.library.get_book(book_id).title
+
+        def run(progress, cancel):
+            try:
+                done = self.writer.write_next_chapters(book_id, count, instructions, progress=progress, cancel=cancel)
+            except Cancelled:
+                if not self.jobs.closing:  # the author stopped it; an app restart resumes it
+                    self.library.update_book(book_id, settings={"writing_run": None})
+                raise
+            except Exception:
+                self.library.update_book(book_id, settings={"writing_run": None})
+                raise
+            self.library.update_book(book_id, settings={"writing_run": None})
+            return [ch.number for ch in done]
+
+        label = f"chapter {first}" if count == 1 else f"chapters {first:,}-{until:,}"
+        return self.jobs.submit("write", f"Writing {title}: {label}", run, book_id=book_id)
+
+    def resume_writing(self) -> list[str]:
+        """Restart the writing runs that were going when the app closed. Returns their job ids."""
+        started = []
+        for b in self.library.list_books():
+            run = b.settings.get("writing_run") or {}
+            if not run or self._writing_job(b.id) is not None:
+                continue
+            nxt = self.writer.next_unwritten(b.id)
+            first = nxt.number if nxt else self.library.chapter_count(b.id) + 1
+            count = min(int(run.get("until") or 0) - first + 1, self.writer.remaining(b.id))
+            if count <= 0:
+                self.library.update_book(b.id, settings={"writing_run": None})
+                continue
+            started.append(self._start_writing(b.id, first, count, run.get("instructions") or "").id)
+        return started
+
+    def _t_set_book_length(self, chapters: int, book: str = "") -> dict:
+        b = self._book(book)
+        try:
+            total = self.writer.set_length(b.id, chapters)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"book": b.title, "chapters": total, "outlined": self.library.chapter_count(b.id),
+                "left_to_write": self.writer.remaining(b.id)}
+
+    def _t_stop_writing(self, book: str = "") -> dict:
+        b = self._book(book)
+        job = self._writing_job(b.id)
+        if job is None:
+            return {"error": f"{b.title} isn't being written right now"}
+        self.jobs.cancel(job.id)
+        return {"stopping": True, "job_id": job.id, "note": "it stops after the current step; finished chapters stay"}
 
     def _t_rewrite_chapter(self, chapter: int, instructions: str, book: str = "") -> dict:
         b = self._book(book)

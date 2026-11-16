@@ -138,6 +138,22 @@ class Library:
         return [Chapter.from_row(r) for r in self.db.query(
             "SELECT * FROM chapters WHERE book_id=? ORDER BY number", (book_id,))]
 
+    def chapter_digest(self, book_id: str, first: int = 1, last: int | None = None, every: int = 1) -> list[dict]:
+        """Number, title, outline, summary, status and words of chapters first..last, without their text."""
+        rows = self.db.query(
+            "SELECT number, title, outline, summary, status, word_count, target_words FROM chapters "
+            "WHERE book_id=? AND number BETWEEN ? AND ? AND (number % ?) = 0 ORDER BY number",
+            (book_id, int(first), int(last if last is not None else 2 ** 31), max(1, int(every))))
+        return [dict(r) for r in rows]
+
+    def chapter_count(self, book_id: str) -> int:
+        return int(self.db.query_one("SELECT COUNT(*) FROM chapters WHERE book_id=?", (book_id,))[0])
+
+    def first_unaccepted(self, book_id: str) -> Chapter | None:
+        row = self.db.query_one("SELECT * FROM chapters WHERE book_id=? AND status != 'accepted' "
+                                "ORDER BY number LIMIT 1", (book_id,))
+        return Chapter.from_row(row) if row else None
+
     def get_chapter(self, book_id: str, number: int) -> Chapter:
         row = self.db.query_one("SELECT * FROM chapters WHERE book_id=? AND number=?", (book_id, int(number)))
         if not row:

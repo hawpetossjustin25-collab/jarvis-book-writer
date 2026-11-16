@@ -55,11 +55,11 @@ class WarRoom:
 
     # ---- material -------------------------------------------------------------------
     def _sections(self, book_id: str) -> list[PromptSection]:
-        last = self.library.list_chapters(book_id)
-        before = (max((c.number for c in last), default=0)) + 1
+        before = self.library.chapter_count(book_id) + 1
+        nxt = self.library.first_unaccepted(book_id)
         return [PromptSection("Book", self.context.book_brief(book_id), 100, True),
                 PromptSection("Story bible", self.context.bible_text(book_id), 80),
-                PromptSection("Outline", self.context.outline_text(book_id), 90),
+                PromptSection("Outline", self.context.outline_text(book_id, around=nxt.number if nxt else before), 90),
                 PromptSection("Story so far (written chapters)", self.context.story_so_far(book_id, before), 70,
                               trim_from="start")]
 

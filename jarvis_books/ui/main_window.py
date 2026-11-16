@@ -26,6 +26,7 @@ from jarvis_books.errors import JarvisError
 from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count
+from jarvis_books.writer.pipeline import MAX_CHAPTERS
 from jarvis_books.ui.approval import ApprovalBar
 from jarvis_books.upgrade import app_root, describe as describe_upgrade
 from jarvis_books.ui.player import AudiobookPlayer
@@ -58,6 +59,8 @@ QLabel#orb { font-size:20px; padding:30px; border-radius:90px; background:#1e3a5
 """
 
 
+BOOK_ROWS = 300  # chapters listed on the Books tab (a long serial lists the rest as a count)
+
 class NewBookDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,7 +76,7 @@ class NewBookDialog(QDialog):
         for g in GENRES.values():
             self.genre.addItem(g.name, g.name)
         self.chapters = QSpinBox()
-        self.chapters.setRange(0, 80)
+        self.chapters.setRange(0, MAX_CHAPTERS)
         self.chapters.setSpecialValueText("Recommended for the genre")
         form.addRow("Story idea", self.idea)
         form.addRow("Title", self.title)
@@ -1024,6 +1027,7 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         for label, slot in (("Write next chapter", lambda: self._write_next(1)),
                             ("Write next 3", lambda: self._write_next(3)),
+                            ("Write to the end", lambda: self._write_next(0)),
                             ("Open in editor", self._open_in_editor), ("Listen", self._listen_selected)):
             b = QPushButton(label)
             b.clicked.connect(slot)
@@ -1089,8 +1093,15 @@ class MainWindow(QMainWindow):
             return
         b = self.studio.library.get_book(book_id)
         self.studio.tools.current_book_id = b.id
-        rows = "".join(f"<tr><td>{c.number}</td><td>{html.escape(c.title)}</td><td>{c.status}</td>"
-                       f"<td align='right'>{c.word_count:,}</td></tr>" for c in self.studio.library.list_chapters(b.id))
+        digest = self.studio.library.chapter_digest(b.id)
+        planned = self.studio.writer.planned_chapters(b.id)
+        rows = "".join(f"<tr><td>{c['number']}</td><td>{html.escape(c['title'])}</td><td>{c['status']}</td>"
+                       f"<td align='right'>{c['word_count']:,}</td></tr>" for c in digest[:BOOK_ROWS])
+        if len(digest) > BOOK_ROWS:
+            rows += f"<tr><td></td><td colspan=3><i>...and {len(digest) - BOOK_ROWS:,} more outlined chapters</i></td></tr>"
+        if planned > len(digest):
+            rows += (f"<tr><td></td><td colspan=3><i>{planned - len(digest):,} more chapters planned; they are "
+                     f"outlined as the writing reaches them</i></td></tr>")
         chars = ", ".join(html.escape(e.name) for e in self.studio.library.list_bible(b.id, "character")[:12])
         self.book_info.setHtml(
             f"<h2>{html.escape(b.title)}</h2><p><i>{html.escape(b.logline or b.premise)}</i></p>"
