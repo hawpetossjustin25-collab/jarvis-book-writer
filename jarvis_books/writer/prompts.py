@@ -60,6 +60,12 @@ ASSISTANT = (
 )
 
 ASSISTANT += (
+    "\n\nPlanner and reminders: the Planner tab holds the author's tasks, writing sessions and reminders. "
+    "'Remind me ...' = set_reminder (it rings an alarm); 'put X on my plan' = add_to_planner; 'what's on today' "
+    "= show_planner; 'snooze' / 'stop the alarm' = snooze_reminder / stop_alarm. Pass times the way the author "
+    "said them ('in 20 minutes', 'friday at 3 pm') and read back the day and time the tool answers with.")
+
+ASSISTANT += (
     "\n\nPermissions: anything that changes a book, a setting, the outside world or the app waits for the "
     "author's yes. When a tool answers needs_approval, say in one short sentence what you want to do and ask "
     "yes or no, then stop. Never call it again yourself; the app hears the author's answer and tells you what "

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Callable, Optional
 
 from jarvis_books.assistant.permissions import outcome_note
@@ -17,6 +18,11 @@ SEARCH_TOOLS = ("research_web", "web_search")
 MAX_SEARCHES = 3  # per question: more searches mostly repeat the same pages and make the author wait
 SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
                      "and say plainly anything you couldn't confirm")
+
+
+def now_line() -> str:
+    """Jarvis needs today's date and the time for reminders and the planner ("in 20 minutes", "friday")."""
+    return "Right now it is " + datetime.now().strftime("%A %B %d %Y, %I:%M %p") + " (the author's local time)."
 
 
 class Assistant:
@@ -39,7 +45,7 @@ class Assistant:
 
     def _situation(self) -> str:
         books = self.library.list_books()
-        lines = [f"The user has {len(books)} book(s): " + ", ".join(f"'{b.title}' ({b.status})" for b in books[:20])]
+        lines = [now_line(), f"The user has {len(books)} book(s): " + ", ".join(f"'{b.title}' ({b.status})" for b in books[:20])]
         if self.tools.current_book_id:
             try:
                 b = self.library.get_book(self.tools.current_book_id)

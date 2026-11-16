@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
+from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, GEMINI_CATALOG, GENDERS, NARRATOR, default_style, describe_voice, \
     edge_matching, who
@@ -53,7 +54,7 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
-TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop")
+TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
@@ -261,7 +262,7 @@ DECLARATIONS = [
            "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -273,7 +274,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox:
+class ToolBox(PlannerTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -331,7 +332,7 @@ class ToolBox:
             "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
             "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
             "app_status": ("status", "what's playing", "doing", "app", "storage", "space", "running"),
-            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor"),
+            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor", "planner"),
             "get_settings": ("setting", "voice", "speed", "wake", "mute", "author name"),
             "change_setting": ("setting", "voice", "speed", "faster", "slower", "wake", "auto-mute", "auto mute",
                                "author name", "my name", "turn on", "turn off"),
@@ -371,6 +372,7 @@ class ToolBox:
             "github_download": ("github", "repo", "clone", "download"),
             "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
             "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
+            **{d["name"]: PLANNER_WORDS for d in PLANNER_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -452,6 +454,9 @@ class ToolBox:
         extra = f" ({truncate_words(extra, 25)})" if extra else ""
         if name in COMPUTER_PINS:
             return self._describe_computer(name, args)
+        planned = self.describe_planner(name, args)
+        if planned:
+            return planned
         if name == "send_api":
             body = (args.get("body") or "").strip()
             sent = f" with: {body[:400]}{'...' if len(body) > 400 else ''}" if body else ""
@@ -1077,6 +1082,7 @@ class ToolBox:
         if self.app_handler is not None:
             out.update(self._ui("status"))
         out["undo_available"] = self.undo[-1]["summary"] if self.undo else None
+        out.update(self.planner_status())
         return out
 
     def _t_open_tab(self, tab: str, book: str = "") -> dict:

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (QTableWidgetItem, QTableWidget, QCheckBox, QComboBo
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
                              QTextBrowser, QVBoxLayout, QWidget)
 
+from jarvis_books.assistant.chat import now_line
 from jarvis_books.assistant.permissions import LEVEL_LABELS, outcome_note
 from jarvis_books.assistant.tools import SPEEDS, step_speed
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
@@ -29,6 +30,7 @@ from jarvis_books.text import word_count
 from jarvis_books.writer.pipeline import MAX_CHAPTERS
 from jarvis_books.ui.approval import ApprovalBar
 from jarvis_books.upgrade import app_root, describe as describe_upgrade
+from jarvis_books.ui.planner import AlarmCenter, PlannerTab
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
@@ -126,6 +128,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._publish_tab(), "Publish")
         self.workshop = Workshop(self.studio)
         self.tabs.addTab(self.workshop, "Workshop")
+        self.planner_tab = PlannerTab(self.studio)
+        self.tabs.addTab(self.planner_tab, "Planner")
+        self.alarms = AlarmCenter(studio.planner, self, studio.home / "alarm.wav", tell_jarvis=self._alarm_to_jarvis)
         self.job_bar = QProgressBar()
         self.job_bar.setMaximumWidth(380)
         self.job_bar.hide()
@@ -238,7 +243,7 @@ class MainWindow(QMainWindow):
         system = prompts.ASSISTANT + "\n\nYou are speaking out loud. Keep answers to a few sentences. To read " \
             "a book aloud use play_audiobook (character voices); if you quote a line yourself, say it exactly as " \
             "written.\nBooks: " + \
-            ", ".join(f"'{b.title}'" for b in books[:30])
+            ", ".join(f"'{b.title}'" for b in books[:30]) + "\n" + now_line()
         system += self._voice_memory(("chat", "voice"), self.studio.tools.current_book_id)
         return LiveSession(self.studio.client.live_url, self.studio.client.live_headers(), model, system,
                            self.studio.tools.declarations(),
@@ -1050,9 +1055,16 @@ class MainWindow(QMainWindow):
         item = self.book_list.currentItem()
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
+    def _alarm_to_jarvis(self, note: str) -> None:
+        for bridge in (self.voice, self.war_voice):
+            if bridge.active:
+                bridge.send_text(note)
+
     def refresh_books(self) -> None:
         if self._closed:
             return
+        if getattr(self, "planner_tab", None) is not None:
+            self.planner_tab.refresh_books()
         current = self.selected_book_id()
         books = self.studio.library.list_books()
         for combo in (getattr(self, "write_book", None), getattr(self, "listen_book", None),
@@ -1976,6 +1988,8 @@ class MainWindow(QMainWindow):
         self.voice.stop()
         self.war_voice.stop()
         self.workshop.shutdown()
+        self.planner_tab.shutdown()
+        self.alarms.shutdown()
         wait_for_tasks()
         self.studio.close()
         super().closeEvent(event)

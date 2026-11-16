@@ -292,6 +292,33 @@ MIGRATIONS: dict[int, str] = {
         detail TEXT NOT NULL,
         created_at REAL NOT NULL
     );
+    """,    9: """
+    CREATE TABLE plan_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        book_id TEXT REFERENCES books(id) ON DELETE SET NULL,
+        due_at REAL,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        done_at REAL,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE INDEX idx_plan_items_due ON plan_items(due_at);
+    CREATE TABLE reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        scheduled_at REAL NOT NULL,
+        due_at REAL NOT NULL,
+        repeat TEXT NOT NULL DEFAULT 'none',
+        alarm INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'pending',
+        plan_item_id INTEGER REFERENCES plan_items(id) ON DELETE CASCADE,
+        book_id TEXT REFERENCES books(id) ON DELETE SET NULL,
+        fired_at REAL,
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX idx_reminders_due ON reminders(status, due_at);
     """,
 }
 

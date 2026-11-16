@@ -42,6 +42,10 @@ TOOL_LEVELS: dict[str, str] = {
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,
     "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE,
+    "show_planner": READ, "list_reminders": READ,
+    "add_to_planner": SAFE, "update_planner_item": SAFE, "set_reminder": SAFE, "change_reminder": SAFE,
+    "cancel_reminder": SAFE, "snooze_reminder": SAFE, "stop_alarm": SAFE,
+    "delete_planner_item": CHANGE, "plan_writing_schedule": CHANGE,
     "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
 }
 

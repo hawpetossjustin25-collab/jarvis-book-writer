@@ -26,6 +26,7 @@ from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
+from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
@@ -99,6 +100,9 @@ class Studio:
         self.web = Web()
         self.tools.computer, self.tools.terminal = self.computer, self.terminal
         self.tools.web = self.war_tools.web = self.web
+        self.planner = Planner(self.db)
+        self.reminder_clock = ReminderClock(self.planner)
+        self.tools.planner = self.war_tools.planner = self.planner
         self.api_keys = ApiKeys(self.home)
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.ready = threading.Event()
@@ -126,6 +130,7 @@ class Studio:
     def start(self, probe: bool = True) -> None:
         """Slow startup work (model discovery and probes). Run it off the UI thread."""
         self.mirror.start()
+        self.reminder_clock.start()  # reminders that came due while the app was closed ring now
         try:
             self.backups.backup_if_due()
             self.capacity.enforce()
@@ -212,6 +217,7 @@ class Studio:
         return {"saved": str(path)}
 
     def close(self) -> None:
+        self.reminder_clock.stop()
         self.memory.shutdown()
         self.jobs.shutdown(wait=False)
         self.mirror.stop()

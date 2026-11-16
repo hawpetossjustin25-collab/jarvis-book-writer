@@ -54,7 +54,7 @@ def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
         ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish",
-         "Workshop"]
+         "Workshop", "Planner"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
@@ -549,3 +549,61 @@ def test_api_keys_are_saved_in_settings_and_never_shown(window, qapp):
     win.api_name_edit.setText("openweather")
     win._remove_api_key()
     assert studio.api_keys.names() == [] and "No API keys" in win.api_keys_label.text()
+
+
+def test_planner_tab_adds_items_reminders_and_a_writing_schedule(window, qapp):
+    from PyQt6.QtCore import QDate, Qt
+    win, studio, book = window
+    tab = win.planner_tab
+    tomorrow = QDate.currentDate().addDays(1)
+    tab.calendar.setSelectedDate(tomorrow)
+    tab.item_title.setText("Edit chapter 2")
+    tab.item_remind.setChecked(True)
+    tab._add_item()
+    assert "Edit chapter 2" in tab.items.item(0).text() and "9:00 AM" in tab.items.item(0).text()
+    assert any("Edit chapter 2" in tab.reminders.item(i).text() for i in range(tab.reminders.count()))
+    tab.items.item(0).setCheckState(Qt.CheckState.Checked)
+    pump(qapp, lambda: studio.planner.items(start=0, end=None)[0].done)
+    assert studio.planner.reminders() == []  # done tasks don't ring
+    tab.rem_text.setText("Stretch")
+    tab._add_reminder()
+    assert "Reminder set for" in tab.status.text() and studio.planner.reminders()[0].text == "Stretch"
+    tab.sched_book.setCurrentIndex(tab.sched_book.findData(book.id))
+    tab._make_schedule()
+    assert "Planned 2 writing sessions" in tab.status.text()
+    assert "planner" in [win.tabs.tabText(i).lower() for i in range(win.tabs.count())]
+
+
+def test_a_due_reminder_rings_the_alarm_until_snoozed_or_stopped(window, qapp):
+    import time as _time
+    win, studio, _ = window
+    told = []
+    win.alarms.tell_jarvis = told.append
+    studio.planner.add_reminder("Send the draft", _time.time())
+    studio.planner.fire_due()
+    assert pump(qapp, lambda: win.alarms.dialogs)
+    rid, dlg = next(iter(win.alarms.dialogs.items()))
+    assert dlg.isVisible() and dlg.text.text() == "Send the draft" and win.alarms.sound_on
+    assert "Send the draft" in told[0] and win.alarms.notified == ["Reminder: Send the draft"]
+    dlg.snooze_btn.click()
+    assert pump(qapp, lambda: not win.alarms.dialogs) and not win.alarms.sound_on
+    assert studio.planner.get_reminder(rid).status == "pending"
+    studio.planner.update_reminder(rid, due_at=_time.time())
+    studio.planner.fire_due()
+    assert pump(qapp, lambda: win.alarms.dialogs)
+    win.alarms.dialogs[rid].stop_btn.click()
+    assert pump(qapp, lambda: not win.alarms.dialogs)
+    assert studio.planner.get_reminder(rid).status == "done" and not win.alarms.sound_on
+    studio.planner.add_reminder("Quiet one", _time.time(), alarm=False)
+    studio.planner.fire_due()
+    assert pump(qapp, lambda: win.alarms.dialogs) and not win.alarms.sound_on
+    assert studio.tools.call("stop_alarm")["stopped"] == [{"text": "Quiet one"}]
+    assert pump(qapp, lambda: not win.alarms.dialogs)
+
+
+def test_alarm_sound_file_is_a_real_wav(tmp_path):
+    import wave
+    from jarvis_books.ui.planner import make_alarm_sound
+    path = make_alarm_sound(tmp_path / "alarm.wav")
+    with wave.open(str(path)) as w:
+        assert w.getframerate() == 22050 and 1.5 < w.getnframes() / w.getframerate() < 3
