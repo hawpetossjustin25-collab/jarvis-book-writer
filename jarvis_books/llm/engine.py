@@ -17,6 +17,7 @@ from jarvis_books.llm.controller import AdaptationController, Proposal
 from jarvis_books.llm.errors import InvalidStructuredOutput, LLMError, NoModelAvailable
 from jarvis_books.llm.gemini import GeminiClient, build_payload, parse_response
 from jarvis_books.llm.hardware import probe_hardware
+from jarvis_books.llm.history import window
 from jarvis_books.llm.models import HardwareProfile, LLMRequest, LLMResponse, ModelProfile, RuntimeConfig
 from jarvis_books.llm.monitor import RuntimeMonitor
 from jarvis_books.llm.policy import ROLE_TIERS, EnginePolicy
@@ -212,20 +213,8 @@ class AdaptiveLLMEngine:
         config = self.get_runtime_configuration()
         budget = config.budgets[model_id]
         cpt = self._chars_per_token(model_id)
-        full = request.history or []
-
-        def plain_user(turn: dict) -> bool:
-            return turn.get("role") == "user" and not any("functionResponse" in p for p in turn.get("parts", []))
-
-        # The request being answered (its user turn plus any tool calls since) is always sent whole;
-        # history_turns limits only the earlier conversation, so a long research run can't push it out.
-        current = max((i for i, t in enumerate(full) if plain_user(t)), default=0)
-        earlier = full[:current][-config.history_turns:]
-        while earlier and not plain_user(earlier[0]):
-            earlier = earlier[1:]  # a window must start on a plain user turn (no orphaned tool replies)
-        history = earlier + full[current:]
-        while history and not plain_user(history[0]):
-            history = history[1:]
+        history = window(request.history, config.history_turns,
+                         answering=not (request.instruction or request.sections))
         fixed = estimate_tokens(request.system, cpt) + sum(
             estimate_tokens(str(t.get("parts", "")), cpt) for t in history)
         available = int((budget.input_budget_tokens - fixed) * shrink)

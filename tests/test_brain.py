@@ -131,6 +131,23 @@ def test_long_history_is_trimmed_to_fit(tmp_path):
     assert sent[1]["role"] == "user"
 
 
+
+def test_a_long_research_run_is_shortened_but_never_loses_the_question(tmp_path):
+    client = FakeOllama()
+    eng = local(tmp_path, client)
+    eng.initialize()
+    page = {"sources": [{"url": f"https://site{i}.example", "text": "fact " * 800} for i in range(4)]}
+    history = [{"role": "user", "parts": [{"text": "earlier chat " * 400}]}, {"role": "model", "parts": [{"text": "ok"}]},
+               {"role": "user", "parts": [{"text": "research lighthouses"}]}]
+    for _ in range(6):
+        history += [{"role": "model", "parts": [{"functionCall": {"name": "research_web", "args": {"question": "q"}}}]},
+                    {"role": "user", "parts": [{"functionResponse": {"name": "research_web", "response": page}}]}]
+    eng.generate(LLMRequest(role="chat", system="s", history=history))
+    sent = client.chats[-1]["messages"]
+    assert sent[1] == {"role": "user", "content": "research lighthouses"}
+    assert sum(m["role"] == "tool" for m in sent) == 6
+    assert sum(len(m["content"]) for m in sent) / 4 < eng.input_tokens()
+
 def test_message_conversion_keeps_text_and_tool_results():
     msgs = to_messages("", [{"role": "user", "parts": [{"functionResponse": {"name": "a", "response": {"x": 1}}},
                                                         {"text": "and?"}]}])

@@ -22,6 +22,7 @@ import requests
 
 from jarvis_books.llm.errors import InvalidStructuredOutput, LLMError
 from jarvis_books.llm.hardware import probe_hardware
+from jarvis_books.llm.history import fit as fit_turns, window
 from jarvis_books.llm.models import HardwareProfile, LLMRequest, LLMResponse, ModelBudget, RuntimeConfig
 from jarvis_books.llm.policy import TEXT_ROLES
 from jarvis_books.llm.prompt import _cut, fit_sections
@@ -330,14 +331,11 @@ class LocalEngine:
         system = request.system
         if estimate_tokens(system) > budget_in * 0.5:
             system = _cut(system, int(budget_in * 0.5), 4.0, "start")
-        history = list(request.history[-8:]) if request.history else []
-        while history and history[0].get("role") != "user":
-            history = history[1:]
+        answering = not (request.instruction or request.sections)
+        history = window(request.history, 8, answering)
+        room = int(budget_in * 0.8) - estimate_tokens(system)
+        history = fit_turns(history, room, lambda t: estimate_tokens(json.dumps(t.get("parts", ""))), answering)
         used = estimate_tokens(system) + sum(estimate_tokens(json.dumps(t.get("parts", ""))) for t in history)
-        while history and used > budget_in * 0.8:  # oldest turns go first
-            used -= estimate_tokens(json.dumps(history.pop(0).get("parts", "")))
-            while history and history[0].get("role") != "user":
-                used -= estimate_tokens(json.dumps(history.pop(0).get("parts", "")))
         contents = list(history)
         if request.instruction or request.sections:
             instruction = request.instruction
