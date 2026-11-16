@@ -462,6 +462,17 @@ def test_workshop_opens_edits_saves_with_backup_and_undo(window, qapp, tmp_path)
     assert not ws.open_file(str(proj / ".env")) and "passwords" in ws.status.text()
 
 
+def test_workshop_treats_crlf_files_as_unchanged(window, qapp, tmp_path):
+    """Windows text files carry \r\n; Qt shows \n — that must not read as unsaved edits."""
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    (proj / "crlf.py").write_bytes(b"print('hi')\r\n")
+    assert ws.open_file(str(proj / "crlf.py"))
+    assert not ws.dirty and not ws.save_btn.isEnabled()
+    studio.tools.run("write_file", {"path": str(proj / "crlf.py"), "content": "print('new')\n"})
+    assert pump(qapp, lambda: ws.editor.toPlainText() == "print('new')\n", timeout=15)
+
+
 def test_workshop_reloads_a_file_jarvis_changed(window, qapp, tmp_path):
     win, studio, _ = window
     ws, proj = win.workshop, _project(tmp_path)

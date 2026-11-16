@@ -245,7 +245,7 @@ class Workshop(QWidget):
             self._watch_mtime = p.stat().st_mtime
         except OSError:
             self._watch_mtime = None
-        self.saved_text = data.decode("utf-8", errors="replace")
+        self.saved_text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         self.editor.setPlainText(self.saved_text)
         self.watcher.addPath(str(p))
         self.discard_change()
@@ -293,7 +293,7 @@ class Workshop(QWidget):
             return
         if str(self.path) not in self.watcher.files():
             self.watcher.addPath(str(self.path))
-        text = self.path.read_text(encoding="utf-8", errors="replace")
+        text = self.path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         if text == self.saved_text:
             return
         if self.dirty:
