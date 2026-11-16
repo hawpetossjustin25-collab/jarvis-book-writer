@@ -1,6 +1,8 @@
 """The yes/no gate: Jarvis can't change anything important without the author's own yes."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from jarvis_books.assistant.chat import Assistant
@@ -302,3 +304,40 @@ def test_reading_speed_changes_straight_away_and_can_be_undone(box):
     assert store.values["narration_speed"] == "2.5"  # undo puts back the speed before 'normal'
     assert step_speed(1.3, 1) == 1.5 and step_speed(1.3, -1) == 1.25 and step_speed(0.5, -1) == 0.5
     assert "reading_speed" in [d["name"] for d in tools.select("read a bit faster please")]
+
+
+class SearchHappyEngine:
+    """Gemini stand-in that keeps searching until the app tells it to stop."""
+
+    def __init__(self):
+        self.offered = []
+
+    def get_runtime_configuration(self):
+        return type("C", (), {"history_turns": 4})()
+
+    def generate(self, req):
+        from jarvis_books.llm.models import LLMResponse
+        self.offered.append({d["name"] for d in req.tools or []})
+        last = req.history[-1]["parts"]
+        if any("search limit" in json.dumps(p) for p in last):
+            return LLMResponse(text="The tallest is the Jeddah Light.", model="fake")
+        if len(self.offered) > 8:
+            return LLMResponse(text="gave up", model="fake")
+        return LLMResponse(text="", model="fake", function_calls=[
+            {"name": "research_web", "args": {"question": "tallest lighthouse"}},
+            {"name": "web_search", "args": {"query": "tallest lighthouse"}}])
+
+
+def test_one_question_gets_at_most_three_web_searches(box, library, monkeypatch):
+    from jarvis_books.assistant.chat import MAX_SEARCHES
+    tools = box[0]
+    ran = []
+    monkeypatch.setattr(tools, "_dispatch", lambda name, args: ran.append(name) or {"sources": []})
+    engine = SearchHappyEngine()
+    chat = Assistant(engine, library, tools)
+    assert chat.send("what is the tallest lighthouse in the world") == "The tallest is the Jeddah Light."
+    assert len(ran) == MAX_SEARCHES == 3
+    assert "research_web" in engine.offered[0] and "research_web" not in engine.offered[-1]
+    ran.clear()
+    chat.send("and the second tallest?")  # the limit is per question, not for the whole conversation
+    assert len(ran) == 3

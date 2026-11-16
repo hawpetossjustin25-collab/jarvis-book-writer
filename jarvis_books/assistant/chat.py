@@ -13,6 +13,10 @@ from jarvis_books.writer import prompts
 
 log = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 10  # research can take a few searches and pages
+SEARCH_TOOLS = ("research_web", "web_search")
+MAX_SEARCHES = 3  # per question: more searches mostly repeat the same pages and make the author wait
+SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
+                     "and say plainly anything you couldn't confirm")
 
 
 class Assistant:
@@ -63,6 +67,7 @@ class Assistant:
         if remembered:
             system += "\n\n" + remembered
         reply = ""
+        searches = 0
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
                                                    temperature=0.7, purpose="chat"))
@@ -72,11 +77,18 @@ class Assistant:
             contents.append(resp.content or {"role": "model", "parts": [{"functionCall": c} for c in resp.function_calls]})
             parts = []
             for call in resp.function_calls:
-                result = self.tools.call(call.get("name", ""), call.get("args") or {}, source="chat")
+                if call.get("name", "") in SEARCH_TOOLS:
+                    searches += 1
+                if call.get("name", "") in SEARCH_TOOLS and searches > MAX_SEARCHES:
+                    result = {"error": SEARCH_LIMIT_NOTE}
+                else:
+                    result = self.tools.call(call.get("name", ""), call.get("args") or {}, source="chat")
                 if on_tool:
                     on_tool(call.get("name", ""), call.get("args") or {}, result)
                 parts.append({"functionResponse": {"name": call.get("name", ""), "response": _clip(result)}})
             contents.append({"role": "user", "parts": parts})
+            if searches >= MAX_SEARCHES:
+                tools = [d for d in tools if d["name"] not in SEARCH_TOOLS]
         else:
             reply = "I ran out of steps working on that. Could you say it a different way?"
         self.library.add_message(self.channel, "assistant", reply or "(done)", self.tools.current_book_id)
