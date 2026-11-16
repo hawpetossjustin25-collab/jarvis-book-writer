@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from jarvis_books.computer.apikeys import ApiKeys
 from jarvis_books.computer.files import Computer
 from jarvis_books.computer.terminal import Terminal
 from jarvis_books.computer.web import Web
@@ -98,6 +99,8 @@ class Studio:
         self.web = Web()
         self.tools.computer, self.tools.terminal = self.computer, self.terminal
         self.tools.web = self.war_tools.web = self.web
+        self.api_keys = ApiKeys(self.home)
+        self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

@@ -200,6 +200,13 @@ class Session:
     def __init__(self, routes):
         self.routes, self.headers, self.seen = routes, {}, []
 
+    def request(self, method, url, **kw):
+        self.seen.append((method, url, kw))
+        for key, resp in self.routes.items():
+            if key in url:
+                return resp(method, url, kw) if callable(resp) else resp
+        return Resp(404)
+
     def get(self, url, params=None, **kw):
         self.seen.append((url, params))
         for key, resp in self.routes.items():
@@ -419,3 +426,75 @@ def test_github_download_unzips_safely(tmp_path):
 def test_page_text_helper():
     assert page_text("<title>T</title><p>a</p><p>b</p>") == ("T", "a\n\nb") or \
         page_text("<title>T</title><p>a</p><p>b</p>")[1].split() == ["a", "b"]
+
+
+def keys(tmp_path):
+    from jarvis_books.computer.apikeys import ApiKeys
+    k = ApiKeys(tmp_path)
+    k.save("weather", "SECRET-123456")
+    return k
+
+
+def test_api_keys_are_sealed_filled_and_scrubbed(tmp_path):
+    from jarvis_books.computer.apikeys import HIDDEN, ApiKeys
+    k = keys(tmp_path)
+    assert b"SECRET-123456" not in k.path.read_bytes()
+    again = ApiKeys(tmp_path)
+    assert again.names() == ["weather"]
+    assert again.fill({"h": ["Bearer {key:weather}"]}) == {"h": ["Bearer SECRET-123456"]}
+    assert again.scrub("token=SECRET-123456&x") == f"token={HIDDEN}&x"
+    with pytest.raises(NotFound):
+        again.fill("{key:nope}")
+    with pytest.raises(ValueError):
+        again.save("bad name!", "x")
+    assert again.remove("weather") and not again.remove("weather") and again.names() == []
+
+
+def test_call_api_puts_keys_in_and_never_shows_them(tmp_path):
+    k = keys(tmp_path)
+    echo = b'{"city": "Portland", "temp": 61, "echo": "SECRET-123456"}'
+    s = Session({"api.weather.org": Resp(body=echo, headers={"Content-Type": "application/json"},
+                                         url="https://api.weather.org/now?appid=SECRET-123456")})
+    out = Web(s, check_address=lambda u: u).call_api("https://api.weather.org/now?appid={key:weather}",
+                                                     headers="X-Mode: fast", keys=k)
+    method, url, kw = s.seen[-1]
+    assert method == "GET" and url.endswith("appid=SECRET-123456") and kw["headers"] == {"X-Mode": "fast"}
+    assert out["ok"] and out["json"]["temp"] == 61
+    assert "SECRET" not in json.dumps(out)
+
+
+def test_send_api_sends_json_or_text_and_reports_errors_without_raising():
+    s = Session({"api.x.org": Resp(status=422, body=b'{"error": "title missing"}',
+                                   headers={"Content-Type": "application/json"})})
+    w = Web(s, check_address=lambda u: u)
+    out = w.call_api("https://api.x.org/books", "post", body='{"author": "Justin"}')
+    assert s.seen[-1][0] == "POST" and s.seen[-1][2]["json"] == {"author": "Justin"}
+    assert out["status"] == 422 and not out["ok"] and out["json"]["error"] == "title missing"
+    w.call_api("https://api.x.org/notes", "PUT", body="plain words")
+    assert s.seen[-1][2]["data"] == b"plain words"
+    with pytest.raises(ValueError):
+        w.call_api("https://api.x.org", "TRACE")
+    with pytest.raises(ValueError):
+        w.call_api("https://api.x.org", headers="no colon here")
+
+
+def test_api_redirects_are_checked_at_every_hop():
+    from jarvis_books.computer.web import _public
+    hops = {"api.x.org/old": Resp(status=302, headers={"Location": "https://api.x.org/new"}),
+            "api.x.org/new": Resp(body=b"[1, 2]", headers={"Content-Type": "application/json"}),
+            "api.x.org/sneaky": Resp(status=307, headers={"Location": "http://127.0.0.1:11434/api/tags"})}
+
+    def check(u):
+        return u if "api.x.org" in u else _public(u)
+    w = Web(Session(hops), check_address=check)
+    assert w.call_api("https://api.x.org/old")["json"] == [1, 2]
+    with pytest.raises(ValueError):
+        w.call_api("https://api.x.org/sneaky")
+
+
+def test_api_html_and_files_are_handled():
+    w = web({"a.org/page": Resp(body=b"<html><title>T</title><p>hello</p></html>", headers={"Content-Type": "text/html"}),
+             "a.org/zip": Resp(body=b"PK\x03\x04", headers={"Content-Type": "application/zip"})})
+    page = w.call_api("https://a.org/page")
+    assert page["title"] == "T" and "hello" in page["text"]
+    assert "download_file" in w.call_api("https://a.org/zip")["note"]

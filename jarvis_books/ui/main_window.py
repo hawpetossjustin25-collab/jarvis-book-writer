@@ -1529,6 +1529,27 @@ class MainWindow(QMainWindow):
         krow.addWidget(self.key_edit, 1)
         krow.addWidget(save_key)
         form.addRow("Gemini key", krow)
+        self.api_name_edit = QLineEdit()
+        self.api_name_edit.setPlaceholderText("name, e.g. openweather")
+        self.api_value_edit = QLineEdit()
+        self.api_value_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_value_edit.setPlaceholderText("the key (saved encrypted; Jarvis never sees it)")
+        save_api = QPushButton("Save API key")
+        save_api.clicked.connect(self._save_api_key)
+        remove_api = QPushButton("Remove")
+        remove_api.clicked.connect(self._remove_api_key)
+        arow = QHBoxLayout()
+        arow.addWidget(self.api_name_edit)
+        arow.addWidget(self.api_value_edit, 1)
+        arow.addWidget(save_api)
+        arow.addWidget(remove_api)
+        self.api_keys_label = QLabel()
+        self.api_keys_label.setWordWrap(True)
+        acol = QVBoxLayout()
+        acol.addLayout(arow)
+        acol.addWidget(self.api_keys_label)
+        form.addRow("API keys", acol)
+        self._refresh_api_keys()
         s = self.studio.settings()
         self.author_edit = QLineEdit(s["author"])
         self.author_edit.editingFinished.connect(lambda: self.studio.set_setting("author", self.author_edit.text()))
@@ -1682,6 +1703,32 @@ class MainWindow(QMainWindow):
             return
         self._report(self.studio.tools.run("undo_upgrade", {}))
         self._refresh_upgrades()
+
+    def _refresh_api_keys(self) -> None:
+        names = self.studio.api_keys.names()
+        self.api_keys_label.setText("Saved: " + ", ".join(names) + ". Jarvis uses them as {key:NAME}." if names else
+                                    "No API keys saved. Jarvis can still call APIs that don't need one.")
+
+    def _save_api_key(self) -> None:
+        name, value = self.api_name_edit.text().strip(), self.api_value_edit.text().strip()
+        try:
+            self.studio.api_keys.save(name, value)
+        except ValueError as exc:
+            QMessageBox.warning(self, "API key", str(exc))
+            return
+        self.api_value_edit.clear()
+        self.api_name_edit.clear()
+        self._refresh_api_keys()
+        self.statusBar().showMessage(f"Saved the API key {name}")
+
+    def _remove_api_key(self) -> None:
+        name = self.api_name_edit.text().strip()
+        if self.studio.api_keys.remove(name):
+            self.api_name_edit.clear()
+            self.statusBar().showMessage(f"Removed the API key {name}")
+        else:
+            self.statusBar().showMessage("Type the name of a saved key to remove it")
+        self._refresh_api_keys()
 
     def _save_key(self) -> None:
         key = self.key_edit.text().strip()

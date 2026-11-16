@@ -30,9 +30,11 @@ log = logging.getLogger(__name__)
 # In the War Room canon changes go through proposals, so the direct-edit tools are withheld.
 COMPUTER_TOOLS = ("list_folder", "read_file", "write_file", "edit_file", "make_folder", "move_path", "delete_path",
                   "computer_log", "run_command", "command_output", "download_file", "github_download")
-WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline") + COMPUTER_TOOLS
+WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline", "send_api") + COMPUTER_TOOLS
 COMPUTER_PINS = ("write_file", "edit_file", "make_folder", "move_path", "delete_path", "run_command",
                  "download_file", "github_download")
+API_WORDS = (" api ", " api.", " api,", " api?", " apis", "api key", "endpoint", "json", "webhook", "{key:",
+             "post to", "send to", "request to")
 # Asking to find out about the world brings in the internet tools.
 WEB_WORDS = ("internet", "online", "web", "search", "look up", "google", "website", "page", "http", "www", ".com",
              "news", "find", "research", "information", "info", "look into", "learn about", "tell me about",
@@ -111,6 +113,22 @@ COMPUTER_DECLARATIONS = [
            "pages": {"type": "INTEGER", "description": "how many pages to read, 1-10 (default 5)"}}, ["url"]),
     _decl("scrape_web_page", "Scrape a web page for its structure: title, links, headings, tables and list "
           "items, plus its plain text.", {"url": S}, ["url"]),
+    _decl("call_api", "Get data from a web API (REST/JSON): weather, dictionaries, book databases like Open "
+          "Library or Google Books, any online service. Put the query in the address. For a service that needs "
+          "a key, write {key:NAME} where it goes (names from list_api_keys); the app puts the real key in. "
+          "Never ask the author to tell you a key.",
+          {"url": {"type": "STRING", "description": "full https address, with ?query=parameters"},
+           "headers": {"type": "STRING", "description": "optional headers, one 'Name: value' per line, "
+                                                        "e.g. Authorization: Bearer {key:openlibrary}"}},
+          ["url"]),
+    _decl("send_api", "Send to a web API: POST, PUT, PATCH or DELETE, to create, change or delete something on "
+          "an online service. Needs the author's yes. Keys go in as {key:NAME}, like call_api.",
+          {"url": S, "method": {"type": "STRING", "enum": ["POST", "PUT", "PATCH", "DELETE"]},
+           "headers": {"type": "STRING", "description": "optional, one 'Name: value' per line"},
+           "body": {"type": "STRING", "description": "what to send: JSON (sent as JSON) or plain text"}},
+          ["url", "method"]),
+    _decl("list_api_keys", "The names of the API keys the author saved for call_api and send_api (never the "
+          "keys themselves)."),
     _decl("hf_search", "Search Hugging Face for models, datasets or spaces.",
           {"query": S, "kind": {"type": "STRING", "enum": ["models", "datasets", "spaces"]}}, ["query"]),
     _decl("hf_model_info", "A Hugging Face model's details: task, license, size of each file and its model card.",
@@ -269,6 +287,7 @@ class ToolBox:
         self.computer = None  # set by the Studio (files on the author's computer)
         self.terminal = None  # set by the Studio
         self.web = None  # set by the Studio
+        self.api_keys = None
         self.undo = undo if undo is not None else []  # shared by every Jarvis, newest last
         self._undo_ids = itertools.count(1)
 
@@ -280,7 +299,7 @@ class ToolBox:
         """Adaptive tool selection: always the core tools, plus the rest only when the request needs them."""
         core = ["list_books", "open_book", "read_chapter", "search_books", "add_note", "write_chapters",
                 "create_book", "job_status"]
-        t = (user_text or "").lower()
+        t = f" {(user_text or '').lower()} "  # padded so whole-word keywords match at either end
         extra = {
             "rewrite_chapter": ("rewrite", "revise", "change", "fix", "edit", "redo"),
             "story_bible": ("character", "bible", "who is", "place", "world", "thread"),
@@ -333,6 +352,9 @@ class ToolBox:
             "read_web_page": WEB_WORDS + ("read", "link", "article"),
             "explore_website": WEB_WORDS + ("site", "explore", "dig", "more pages", "follow", "link"),
             "scrape_web_page": WEB_WORDS + ("scrape", "get data", "collect", "extract", "grab data", "table", "links", "list"),
+            "call_api": API_WORDS,
+            "send_api": API_WORDS,
+            "list_api_keys": API_WORDS,
             "hf_search": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "hf_model_info": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "github_search": ("github", "repo", "repository", "git ", "source code"),
@@ -406,6 +428,11 @@ class ToolBox:
             self.library.get_memory(args["memory_id"])
         if decl["name"] in COMPUTER_PINS:
             args.update(self._pin_computer(decl["name"], args))
+        if decl["name"] == "send_api":  # a bad address or missing key is said now, not after the yes
+            from jarvis_books.computer.web import api_headers
+            api_headers(args.get("headers", ""))
+            filled = self.api_keys.fill(args["url"]) if self.api_keys is not None else args["url"]
+            self._web().check(filled)
         if decl["name"] == "undo_upgrade" and not args.get("upgrade_id"):
             args["upgrade_id"] = self._upgrader().last_installed()["id"]
         return args
@@ -417,6 +444,10 @@ class ToolBox:
         extra = f" ({truncate_words(extra, 25)})" if extra else ""
         if name in COMPUTER_PINS:
             return self._describe_computer(name, args)
+        if name == "send_api":
+            body = (args.get("body") or "").strip()
+            sent = f" with: {body[:400]}{'...' if len(body) > 400 else ''}" if body else ""
+            return f"Send a {args['method']} request to {args['url']}{sent} (saved keys stay hidden)"
         if name == "forget_memory":
             text = self.library.get_memory(args["memory_id"])["text"]
             return f"Forget this memory: '{truncate_words(text, 30)}'"
@@ -1128,6 +1159,19 @@ class ToolBox:
 
     def _t_scrape_web_page(self, url: str) -> dict:
         return self._web().scrape(url)
+
+    def _t_call_api(self, url: str, headers: str = "") -> dict:
+        return self._web().call_api(url, "GET", headers, "", self.api_keys)
+
+    def _t_send_api(self, url: str, method: str, headers: str = "", body: str = "") -> dict:
+        return self._web().call_api(url, method, headers, body, self.api_keys)
+
+    def _t_list_api_keys(self) -> dict:
+        names = self.api_keys.names() if self.api_keys is not None else []
+        out: dict = {"names": names, "use": "write {key:NAME} in the address or a header"}
+        if not names:
+            out["note"] = "no API keys are saved; the author can add one in Settings > API keys"
+        return out
 
     def _t_research_web(self, question: str, pages: int = 4) -> dict:
         return self._web().research(question, pages)

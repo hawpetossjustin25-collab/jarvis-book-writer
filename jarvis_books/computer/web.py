@@ -5,6 +5,7 @@ import base64
 import hashlib
 import html
 import ipaddress
+import json
 import os
 import re
 import shutil
@@ -28,6 +29,8 @@ MAX_TEXT = 15_000
 RESEARCH_CHARS = 4_000  # per page when several pages are read at once
 THIN_PAGE = 200  # fewer characters than this: the page needs JavaScript or is a wall
 KEEP_FREE_BYTES = 2 * 1024 ** 3
+API_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+REDIRECTS = (301, 302, 303, 307, 308)
 
 
 class _Text(HTMLParser):
@@ -216,6 +219,33 @@ def _bing_target(href: str) -> str:
         return href
 
 
+def api_headers(text: str) -> dict:
+    """Headers as 'Name: value' lines or a JSON object."""
+    text = (text or "").strip()
+    if not text:
+        return {}
+    if text.startswith("{"):
+        try:
+            raw = json.loads(text)
+        except ValueError as exc:
+            raise ValueError(f"the headers aren't valid JSON: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise ValueError("headers must be a JSON object")
+        pairs = [(str(k), str(v)) for k, v in raw.items()]
+    else:
+        pairs = []
+        for line in text.splitlines():
+            if line.strip():
+                name, sep, value = line.partition(":")
+                if not sep:
+                    raise ValueError(f"a header line needs 'Name: value', not {line.strip()!r}")
+                pairs.append((name.strip(), value.strip()))
+    for name, value in pairs:
+        if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+", name) or "\n" in value or "\r" in value:
+            raise ValueError(f"{name!r} isn't a valid header")
+    return dict(pairs)
+
+
 class Web:
     def __init__(self, session: Optional[requests.Session] = None, check_address: Callable[[str], str] = _public,
                  timeout_s: float = 20.0):
@@ -239,6 +269,67 @@ class Web:
         if resp.status_code >= 400:
             raise NotFound(f"{urlparse(url).hostname} answered {resp.status_code}")
         return resp
+
+    # ---- web APIs -----------------------------------------------------------------------------
+    def _send(self, method: str, url: str, **kw) -> requests.Response:
+        """One request; redirects are followed by hand so every hop is checked to be on the internet."""
+        for _ in range(6):
+            self.check(url)
+            try:
+                resp = self.session.request(method, url, timeout=self.timeout_s, allow_redirects=False,
+                                            stream=True, **kw)
+            except requests.Timeout as exc:
+                raise NotFound(f"{urlparse(url).hostname} took too long to answer") from exc
+            except requests.ConnectionError as exc:
+                raise NotFound(f"couldn't reach {urlparse(url).hostname} (is the internet on?)") from exc
+            except requests.RequestException as exc:
+                raise ValueError(f"that request couldn't be sent ({type(exc).__name__})") from exc
+            where = resp.headers.get("Location")
+            if resp.status_code not in REDIRECTS or not where:
+                return resp
+            url = urljoin(url, where)
+            if resp.status_code == 303 or (resp.status_code in (301, 302) and method == "POST"):
+                method = "GET"
+                kw.pop("json", None), kw.pop("data", None)
+        raise NotFound("that API redirected too many times")
+
+    def call_api(self, url: str, method: str = "GET", headers: str = "", body: str = "", keys=None) -> dict:
+        """Call a web API. {key:NAME} slots get the author's saved keys, and the answer comes back scrubbed of them."""
+        method = (method or "GET").upper()
+        if method not in API_METHODS:
+            raise ValueError(f"method must be one of {', '.join(API_METHODS)}")
+        fill = keys.fill if keys is not None else (lambda v: v)
+        scrub = keys.scrub if keys is not None else (lambda t: t)
+        kw: dict = {"headers": fill(api_headers(headers))}
+        if body:
+            real = fill(body)
+            try:
+                kw["json"] = json.loads(real)
+            except ValueError:
+                kw["data"] = real.encode("utf-8")
+        resp = self._send(method, fill(url.strip()), **kw)
+        data = resp.raw.read(MAX_PAGE_BYTES + 1, decode_content=True) if getattr(resp, "raw", None) else resp.content
+        kind = resp.headers.get("Content-Type", "")
+        text = scrub(data[:MAX_PAGE_BYTES].decode(resp.encoding or "utf-8", errors="replace"))
+        out: dict = {"status": resp.status_code, "ok": resp.status_code < 400, "url": scrub(resp.url),
+                     "content_type": kind}
+        if method == "HEAD" or not text.strip():
+            return out
+        if "json" in kind or text.lstrip()[:1] in ("{", "["):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            if parsed is not None and len(text) <= MAX_TEXT:
+                out["json"] = parsed
+                return out
+        elif "html" in kind:
+            out["title"], text = page_text(text)
+        elif kind and not any(k in kind for k in ("text", "xml", "csv", "javascript", "yaml")):
+            out["note"] = "the API sent a file, not data; use download_file to save it"
+            return out
+        out["text"], out["more"] = text[:MAX_TEXT], len(text) > MAX_TEXT
+        return out
 
     # ---- the web ------------------------------------------------------------------------------
     def search(self, query: str, limit: int = 8) -> dict:

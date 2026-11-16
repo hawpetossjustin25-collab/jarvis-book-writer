@@ -168,3 +168,40 @@ def test_the_studio_wires_the_computer(tmp_path):
     assert studio.tools.computer is studio.computer and studio.tools.terminal is studio.terminal
     assert studio.war_tools.computer is None and studio.war_tools.web is studio.web
     studio.close()
+
+
+def test_api_calls_read_freely_send_only_after_yes_and_keep_keys_hidden(box, tmp_path):
+    from jarvis_books.computer.apikeys import ApiKeys
+    tools, gate, _ = box
+    tools.api_keys = ApiKeys(tmp_path)
+    tools.api_keys.save("books", "TOKEN-987654")
+    s = Session({"api.books.org": Resp(body=b'{"ok": true}', headers={"Content-Type": "application/json"})})
+    tools.web = Web(s, check_address=lambda u: u)
+    assert tools.call("list_api_keys")["names"] == ["books"]
+    got = tools.call("call_api", {"url": "https://api.books.org/search?q=lighthouse",
+                                  "headers": "Authorization: Bearer {key:books}"})
+    assert got["json"] == {"ok": True} and gate.pending is None
+    assert s.seen[-1][2]["headers"] == {"Authorization": "Bearer TOKEN-987654"}
+    sent = len(s.seen)
+    ask = tools.call("send_api", {"url": "https://api.books.org/shelf", "method": "POST",
+                                  "headers": "Authorization: Bearer {key:books}", "body": '{"title": "Glass City"}'})
+    assert ask["needs_approval"] and "POST" in ask["asking"] and "Glass City" in ask["asking"]
+    assert "TOKEN" not in json.dumps(ask) and len(s.seen) == sent  # nothing sent before the yes
+    gate.answer(True, allow_session=True)
+    assert s.seen[-1][0] == "POST" and s.seen[-1][2]["json"] == {"title": "Glass City"}
+    tools.call("send_api", {"url": "https://api.books.org/shelf", "method": "DELETE"})
+    assert gate.pending is not None  # an outside-world change is never pre-approved
+    gate.answer(False)
+    missing = tools.call("send_api", {"url": "https://api.books.org/x?k={key:nope}", "method": "POST"})
+    assert "no saved API key" in missing["error"] and gate.pending is None
+
+
+def test_api_tools_are_offered_for_api_requests_only(box):
+    tools, _, _ = box
+
+    def pick(text):
+        return {d["name"] for d in tools.select(text)}
+    assert {"call_api", "list_api_keys", "send_api"} <= pick("get today's weather from the openweather api")
+    assert "call_api" in pick("what does this json endpoint return")
+    assert "call_api" not in pick("my therapist says chapter 3 is great")
+    assert "send_api" not in pick("write chapter 3")

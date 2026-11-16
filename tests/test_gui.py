@@ -537,3 +537,15 @@ def test_workshop_code_needs_gemini_not_lfm3(window, qapp, tmp_path, monkeypatch
     monkeypatch.setattr(studio.engine, "_config", None)
     ws.ask_edit.setText("anything")
     assert not ws.ask_jarvis() and "needs Gemini" in ws.status.text()
+
+
+def test_api_keys_are_saved_in_settings_and_never_shown(window, qapp):
+    win, studio, _ = window
+    win.api_name_edit.setText("openweather")
+    win.api_value_edit.setText("SECRET-abcdef")
+    win._save_api_key()
+    assert studio.api_keys.names() == ["openweather"] and win.api_value_edit.text() == ""
+    assert "openweather" in win.api_keys_label.text() and "SECRET" not in win.api_keys_label.text()
+    win.api_name_edit.setText("openweather")
+    win._remove_api_key()
+    assert studio.api_keys.names() == [] and "No API keys" in win.api_keys_label.text()
