@@ -16,6 +16,7 @@ import difflib
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,8 +47,11 @@ STR = {"type": "STRING"}
 EDIT_SCHEMA = {"type": "OBJECT", "properties": {
     "summary": {"type": "STRING", "description": "One or two plain sentences for the author: what changes"},
     "edits": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
-        "path": STR, "search": STR, "replace": STR}, "required": ["path", "search", "replace"]}}},
+        "path": STR, "search": STR, "replace": STR}, "required": ["path", "search", "replace"]}},
+    "need_files": {"type": "ARRAY", "items": STR, "description": "Paths of app files you must read in full "
+                   "before you can edit; give no edits when you ask, and they are sent with the next request"}},
     "required": ["summary", "edits"]}
+MAX_ASKS = 3  # requests in a row for files to read before an answer must make the change
 
 ENGINEER = (
     "You are a senior Python engineer upgrading the Jarvis Book Writer desktop app (Python 3.10+, PyQt6, SQLite, "
@@ -57,7 +61,10 @@ ENGINEER = (
     "the yes/no permission gate, never read or send the author's books or keys anywhere, and never add network "
     "calls the author did not ask for. Each edit replaces one exact snippet ('search', copied character for "
     "character from the current file and unique in it) with 'replace'. To create a new file give an empty "
-    "'search' and the whole file as 'replace'. At most " + str(MAX_FILES) + " files.")
+    "'search' and the whole file as 'replace'. At most " + str(MAX_FILES) + " files. Large apps don't fit "
+    "whole: if a file you need isn't shown in full below (or ends in [...omitted...]), list it in "
+    "'need_files' with no edits and it comes in full next time. Never write tests or code whose job is to "
+    "print, raise or otherwise show you the app's source.")
 
 
 def app_root() -> Path:
@@ -248,6 +255,8 @@ class Upgrader:
         progress(0.02, "Making a separate copy of the app")
         self._fresh_copy(copy)
         feedback, changed, summary, output = "", [], "", ""
+        need: list[str] = []
+        asks = 0
         history: list[str] = []
         tries = failed_in_a_row = strikes = unreachable = 0
         while not self.max_tries or tries < self.max_tries:
@@ -267,7 +276,7 @@ class Upgrader:
                 resp = self.engine.generate(LLMRequest(
                     role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
                     purpose="app upgrade", instruction=f"The author asked: {up['request']}" + feedback,
-                    sections=self._sections(copy)))
+                    sections=self._sections(copy, up["request"], need + changed)))
             except Exception as exc:
                 delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
                 unreachable += 1
@@ -278,6 +287,16 @@ class Upgrader:
             unreachable = 0
             tries += 1
             data = resp.data or {}
+            wanted = self._readable(copy, data.get("need_files") or [])
+            if not data.get("edits") and data.get("need_files") and asks < MAX_ASKS:
+                asks += 1
+                need = sorted(set(need) | set(wanted))
+                feedback = ("\n\nThe files you asked for are now included in full: " + (", ".join(wanted) or
+                            "none of them exist; pick from 'Files in the app'") + ". Now make the change.")
+                history.append(f"try {tries}: asked to read {', '.join(wanted) or 'files that do not exist'}")
+                continue
+            asks = 0
+            need = sorted(set(need) | set(wanted))
             try:
                 changed = sorted(set(changed) | set(apply_edits(copy, list(data.get("edits") or []))))
             except (ValidationError, SyntaxError) as exc:
@@ -317,13 +336,32 @@ class Upgrader:
         return self.library.update_upgrade(upgrade_id, status="failed", summary=summary, files=changed,
                                            diff=self._diff(copy, changed), test_output=output)
 
-    def _sections(self, copy: Path) -> list[PromptSection]:
-        files = sorted(p.relative_to(copy).as_posix() for p in copy.rglob("*.py"))
+    @staticmethod
+    def _readable(copy: Path, paths: list) -> list[str]:
+        """The requested paths that are app source files in the copy (protected ones may be read, not edited)."""
+        out = []
+        for raw in paths:
+            p = str(raw or "").strip().replace("\\", "/")
+            parts = PurePosixPath(p).parts
+            if (p.endswith(".py") and p.startswith(EDITABLE_DIRS) and ".." not in parts
+                    and (copy / p).is_file()):
+                out.append(str(PurePosixPath(*parts)))
+        return sorted(set(out))
+
+    def _sections(self, copy: Path, request: str = "", full: list[str] = ()) -> list[PromptSection]:
+        """Every source file, ranked so what Gemini asked for, already changed, or the request names fits first."""
+        files = sorted(p.relative_to(copy).as_posix() for p in copy.rglob("*.py") if "__pycache__" not in p.parts)
+        words = {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", request.lower())}
         sections = [PromptSection("Files in the app", "\n".join(files), priority=95, required=True)]
         for rel in files:
+            text = (copy / rel).read_text(encoding="utf-8")
+            if rel in full:
+                sections.append(PromptSection(rel, text, priority=90, required=True))
+                continue
             low = rel.startswith("tests/") and rel not in ("tests/fakes.py", "tests/test_gui.py")
-            sections.append(PromptSection(rel, (copy / rel).read_text(encoding="utf-8"),
-                                          priority=20 if low else 60))
+            named = words & {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", rel.lower())} - {"jarvis", "book", "test"}
+            priority = 20 if low else 60
+            sections.append(PromptSection(rel, text, priority=priority + (15 if named else 0)))
         return sections
 
     def _diff(self, copy: Path, changed: list[str]) -> str:

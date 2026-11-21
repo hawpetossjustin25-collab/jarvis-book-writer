@@ -397,3 +397,42 @@ def test_the_studio_resumes_unfinished_upgrades_and_stops_them_cleanly_on_close(
         studio.jobs.closing = False
     finally:
         studio.close()
+
+
+def test_gemini_can_ask_to_read_files_in_full_before_editing(library, app, tmp_path):
+    ask = {"summary": "", "edits": [], "need_files": ["jarvis_books/feature.py", "jarvis_books/nope.py", "../x.py"]}
+    engine = ScriptedEngine(ask, GOOD)
+    up = make(library, app, tmp_path, engine)
+    u = up.build(up.start("make Jarvis say hello")["id"])
+    assert u["status"] == "ready" and len(engine.requests) == 2
+    first = {s.name: s for s in engine.requests[0].sections}
+    sent = {s.name: s for s in engine.requests[1].sections}
+    assert not first["jarvis_books/feature.py"].required
+    assert sent["jarvis_books/feature.py"].required and sent["jarvis_books/feature.py"].text == FEATURE
+    assert "now included in full: jarvis_books/feature.py." in engine.requests[1].instruction
+
+
+def test_asking_to_read_forever_is_treated_as_changing_nothing(library, app, tmp_path):
+    from jarvis_books.upgrade import MAX_ASKS
+    ask = {"summary": "", "edits": [], "need_files": ["jarvis_books/feature.py"]}
+    engine = ScriptedEngine(*([ask] * (MAX_ASKS + 1)), GOOD)
+    up = make(library, app, tmp_path, engine)
+    assert up.build(up.start("hello")["id"])["status"] == "ready"
+    assert "changed nothing" in engine.requests[MAX_ASKS + 1].instruction
+
+
+def test_files_the_request_names_and_changed_files_fit_first(library, app, tmp_path):
+    (app / "jarvis_books/tools.py").write_text("TOOLS = []\n")
+    up = make(library, app, tmp_path, ScriptedEngine())
+    up._fresh_copy(tmp_path / "copy")
+    secs = {s.name: s for s in up._sections(tmp_path / "copy", "add a tool called total_words",
+                                            ["jarvis_books/feature.py"])}
+    assert secs["jarvis_books/tools.py"].priority > secs["tests/test_feature.py"].priority
+    assert secs["jarvis_books/tools.py"].priority > 60 and not secs["jarvis_books/tools.py"].required
+    assert secs["jarvis_books/feature.py"].required and secs["Files in the app"].required
+
+
+def test_gemini_is_told_to_ask_for_files_instead_of_writing_probe_tests():
+    from jarvis_books.upgrade import EDIT_SCHEMA, ENGINEER
+    assert "need_files" in EDIT_SCHEMA["properties"] and "need_files" in ENGINEER
+    assert "Never write tests or code whose job is to print" in ENGINEER
