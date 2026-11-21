@@ -131,7 +131,8 @@ def _pytest(python: str, root: Path, env: dict, args: list[str], timeout_s: int)
     try:
         done = subprocess.run([python, "-m", "pytest", "-q", "-p", "no:cacheprovider", *args], cwd=str(root),
                               env=env, capture_output=True, text=True, timeout=timeout_s,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace",
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except subprocess.TimeoutExpired:
         return -1, f"took longer than {timeout_s} seconds"
     return done.returncode, done.stdout + done.stderr

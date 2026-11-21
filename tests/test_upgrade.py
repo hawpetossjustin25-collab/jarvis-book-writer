@@ -528,4 +528,19 @@ def test_the_studio_gives_upgrades_a_qwen_sized_to_each_request(tmp_path):
         assert st.upgrade_local.fit_request and st.upgrade_local.label == "Qwen3-4B"
         assert st.research_local.label == "Qwen3-4B" and not st.research_local.fit_request
     finally:
+        st.ready.set()  # never started, so close needn't wait for startup probes
         st.close()
+
+
+def test_upgrade_tests_run_without_opening_a_console_window(monkeypatch, tmp_path):
+    import subprocess
+
+    from jarvis_books import upgrade
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return SimpleNamespace(returncode=0, stdout="1 passed", stderr="")
+    monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+    assert upgrade._pytest(sys.executable, tmp_path, {}, [], 5) == (0, "1 passed")
+    assert seen["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
