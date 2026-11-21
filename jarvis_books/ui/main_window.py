@@ -26,7 +26,7 @@ from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
 from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
-from jarvis_books.text import word_count
+from jarvis_books.text import word_count, linkify
 from jarvis_books.writer.pipeline import MAX_CHAPTERS
 from jarvis_books.ui.approval import ApprovalBar
 from jarvis_books.upgrade import app_root, describe as describe_upgrade
@@ -217,6 +217,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self.wake_box)
         lay.addLayout(row)
         self.voice_log = QTextBrowser()
+        self.voice_log.setOpenExternalLinks(True)
         lay.addWidget(self.voice_log, 1)
         typed = QHBoxLayout()
         self.voice_input = QLineEdit()
@@ -298,7 +299,7 @@ class MainWindow(QMainWindow):
         if text and self.voice.active:
             self.studio.gate.hear(text)
             self.voice.send_text(text)
-            self.voice_log.append(f"<b>You:</b> {html.escape(text)}")
+            self.voice_log.append(f"<b>You:</b> {linkify(text)}")
             self.voice_input.clear()
 
     def _on_voice_state(self, state: str) -> None:
@@ -318,7 +319,7 @@ class MainWindow(QMainWindow):
             for who, label, stored in (("user", "You", "user"), ("jarvis", "Jarvis", "assistant")):
                 line = self._voice_line[who].strip()
                 if line:
-                    self.voice_log.append(f"<b>{label}:</b> {html.escape(line)}")
+                    self.voice_log.append(f"<b>{label}:</b> {linkify(line)}")
                     # saved, so Chat, the next voice chat and long-term memory all pick up from it
                     self.studio.library.add_message("voice", stored, line, self.studio.tools.current_book_id)
                 self._voice_line[who] = ""
@@ -480,7 +481,7 @@ class MainWindow(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         self.chat_view = QTextBrowser()
-        self.chat_view.setOpenExternalLinks(False)
+        self.chat_view.setOpenExternalLinks(True)
         lay.addWidget(self.chat_view, 1)
         lay.addWidget(self._approval_bar())
         row = QHBoxLayout()
@@ -498,8 +499,7 @@ class MainWindow(QMainWindow):
 
     def _chat_append(self, who: str, text: str) -> None:
         color = "#90cdf4" if who == "Jarvis" else "#fbd38d"
-        body = html.escape(text).replace("\n", "<br>")
-        self.chat_view.append(f"<p><b style='color:{color}'>{who}:</b> {body}</p>")
+        self.chat_view.append(f"<p><b style='color:{color}'>{who}:</b> {linkify(text)}</p>")
 
     def _send_chat(self) -> None:
         text = self.chat_input.text().strip()
@@ -551,6 +551,7 @@ class MainWindow(QMainWindow):
         self.war_state = QLabel("Talk or text with Jarvis about this book. Ideas stay ideas until you accept them.")
         ll.addWidget(self.war_state)
         self.war_view = QTextBrowser()
+        self.war_view.setOpenExternalLinks(True)
         ll.addWidget(self.war_view, 1)
         ll.addWidget(self._approval_bar())
         row = QHBoxLayout()
@@ -602,7 +603,7 @@ class MainWindow(QMainWindow):
 
     def _war_append(self, who: str, text: str) -> None:
         color = "#90cdf4" if who == "Jarvis" else "#fbd38d"
-        self.war_view.append(f"<p><b style='color:{color}'>{who}:</b> {html.escape(text).replace(chr(10), '<br>')}</p>")
+        self.war_view.append(f"<p><b style='color:{color}'>{who}:</b> {linkify(text)}</p>")
 
     def _war_book_changed(self) -> None:
         bid = self._war_book_id()

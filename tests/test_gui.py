@@ -617,3 +617,11 @@ def test_alarm_sound_file_is_a_real_wav(tmp_path):
     path = make_alarm_sound(tmp_path / "alarm.wav")
     with wave.open(str(path)) as w:
         assert w.getframerate() == 22050 and 1.5 < w.getnframes() / w.getframerate() < 3
+
+
+def test_chat_links_are_clickable(window, qapp):
+    win, studio, book = window
+    win._chat_append("Jarvis", "See https://liveauctions.govease.com/ and [Maricopa](https://treasurer.maricopa.gov).")
+    page = win.chat_view.toHtml()
+    assert 'href="https://liveauctions.govease.com/"' in page and 'href="https://treasurer.maricopa.gov"' in page
+    assert win.chat_view.openExternalLinks() and win.voice_log.openExternalLinks() and win.war_view.openExternalLinks()

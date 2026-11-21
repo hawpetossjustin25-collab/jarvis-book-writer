@@ -55,3 +55,29 @@ def split_passages(text: str, target_words: int = 300) -> list[str]:
     if buf:
         out.append("\n\n".join(buf))
     return out
+
+
+_LINK = re.compile(r"\[([^\]\n]{1,200})\]\((https?://[^\s)]+)\)|((?:https?://|www\.)[^\s<>\"'`]+)", re.I)
+_TRAILING = ".,;:!?*_"
+
+
+def linkify(text: str) -> str:
+    """Escaped HTML for chat text with every web address (bare or as a Markdown [label](url) link) clickable."""
+    import html
+    out, pos = [], 0
+    for m in _LINK.finditer(text or ""):
+        label, url, bare = m.group(1), m.group(2), m.group(3)
+        tail = ""
+        if bare:
+            url = bare
+            while url and (url[-1] in _TRAILING or (url[-1] == ")" and url.count("(") < url.count(")"))):
+                tail = url[-1] + tail
+                url = url[:-1]
+            label = url
+        out.append(html.escape(text[pos:m.start()]))
+        href = url if url.lower().startswith("http") else "https://" + url
+        out.append(f'<a href="{html.escape(href, quote=True)}" style="color:#63b3ed">{html.escape(label)}</a>'
+                   + html.escape(tail))
+        pos = m.end()
+    out.append(html.escape((text or "")[pos:]))
+    return "".join(out).replace("\n", "<br>")
