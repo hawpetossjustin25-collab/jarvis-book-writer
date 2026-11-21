@@ -139,6 +139,14 @@ COMPUTER_DECLARATIONS = [
                     "description": "price (cheapest first, default), value, or deal: the best deals first "
                                    "(most county value per dollar, skipping garage stalls and worthless strips)"}},
           ["area"]),
+    _decl("best_tax_deals", "Scan every state's online tax sale auctions plus Atlanta, Phoenix and Minneapolis, "
+          "score each property 0-100 (value for the price, exact price, house or land, risks like strips, "
+          "easements or brush-clearance liens) and return the best ones as a shortlist to go over with the user. "
+          "Takes a minute or two.",
+          {"max_price": {"type": "NUMBER"}, "min_price": {"type": "NUMBER"},
+           "property": {"type": "STRING", "enum": ["any", "house", "land", "building"]},
+           "states": {"type": "STRING", "description": "only these states, e.g. 'Colorado, TN'; leave out for all"},
+           "limit": {"type": "INTEGER", "description": "how many to shortlist (default 20, up to 50)"}}, []),
     _decl("online_tax_sales", "Online tax lien / tax deed auctions posted right now on the county auction "
           "sites (GovEase, Bid4Assets, Zeus/SRI): which states and counties sell online, sale type, dates, "
           "status and the link to register and bid. With no state it lists every state with online sales.",
@@ -401,6 +409,7 @@ class ToolBox(PlannerTools, DesktopTools):
             "research_web": WEB_WORDS,
             "tax_lien_listings": ("tax lien", "tax-lien", "taxlien", "tax sale", "tax deed", "lien", "delinquent",
                                   "foreclos", "sheriff sale", "levy sale", "deal"),
+            "best_tax_deals": ("deal", "best", "tax lien", "tax sale", "tax deed", "lien", "auction", "invest"),
             "online_tax_sales": ("online", "auction", "tax lien", "tax sale", "tax deed", "lien", "bid"),
             "read_web_page": WEB_WORDS + ("read", "link", "article"),
             "explore_website": WEB_WORDS + ("site", "explore", "dig", "more pages", "follow", "link"),
@@ -1379,6 +1388,11 @@ class ToolBox(PlannerTools, DesktopTools):
                              property: str = "any") -> dict:
         return self._liens().listings(area, max_price, min_price, city, kind or "unsold", limit, sort or "price",
                                       property or "any")
+
+    def _t_best_tax_deals(self, max_price: Optional[float] = None, min_price: Optional[float] = None,
+                          property: str = "any", states: str = "", limit: int = 20) -> dict:
+        from jarvis_books.computer.deal_scan import DealScan
+        return DealScan(self._liens()).scan(max_price, min_price, property or "any", states, limit or 20)
 
     def _t_online_tax_sales(self, state: str = "", county: str = "", show_properties: bool = False) -> dict:
         online = self._liens().online_sales()

@@ -37,7 +37,7 @@ TOOL_LEVELS: dict[str, str] = {
     "list_upgrades": READ, "test_app": CHANGE,
     "brain_status": READ, "switch_brain": SAFE,
     "list_folder": READ, "read_file": READ, "computer_log": READ, "command_output": READ,
-    "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "hf_model_info": READ,
+    "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "hf_model_info": READ,
     "github_search": READ, "github_read": READ,
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,

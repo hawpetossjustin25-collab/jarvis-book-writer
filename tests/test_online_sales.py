@@ -24,7 +24,7 @@ GOVEASE_HTML = """
  <td style="display: none;"><span>Baca County 2026 Tax Lien Sale</span></td>
  <td style="display: none;"><span>Tax Lien</span></td><td>3d 2h</td><td></td></tr>
 <tr role="row" class="odd nobid"><td></td><td></td><td><a href="/co/cobaca/1235/openstandardparcel/7/R003">19</a></td>
- <td>R003</td><td>Not Available</td><td class="alignDollar">$500.00</td><td>CITY-SANTA CLARI</td><td>VAC/AVE Q4/VIC 9TH STE</td>
+ <td>R003</td><td>Not Available</td><td class="alignDollar">...</td><td>CITY-SANTA CLARI</td><td>VAC/AVE Q4/VIC 9TH STE</td>
  <td>Baca County 2026 Tax Lien Sale</td><td>Tax Lien</td><td>3d</td><td></td></tr>
 <tr role="row" class="odd nobid"><td></td><td></td><td><a href="/co/cobaca/1235/openstandardparcel/8/R004">20</a></td>
  <td>R004</td><td>Not Available</td><td class="alignDollar">$700.00</td><td>BRUSH CLEARANCE LIENS</td><td>9 OAK ST UNIT 5</td>
@@ -77,7 +77,7 @@ def test_govease_auctions_and_parcels_are_read():
     assert auctions[2].sale_type == "court-ordered tax sale"
     items = o.parse_govease_items(GOVEASE_HTML, auctions[1].url)
     assert [(i["parcel"], i["starting_bid"], i["address"]) for i in items] == [
-        ("R001", 1234.5, "12 MAIN ST"), ("R003", 500.0, "VAC/AVE Q4/VIC 9TH STE"), ("R004", 700.0, "9 OAK ST UNIT 5"),
+        ("R001", 1234.5, "12 MAIN ST"), ("R003", None, "VAC/AVE Q4/VIC 9TH STE"), ("R004", 700.0, "9 OAK ST UNIT 5"),
         ("R002", 88.0, "0 COUNTY RD 4")]
     assert items[0]["sale_type"] == "Tax Lien"
     assert items[0]["link"] == "https://liveauctions.govease.com/co/cobaca/1235/openstandardparcel/5/R001"
@@ -131,7 +131,7 @@ def test_govease_parcels_become_priced_listings():
     rows, found = online(ALL).listings("Colorado", "Baca")
     assert [a["county"] for a in found] == ["Baca County"]
     assert [(r.address, r.price, r.kind, r.owner) for r in rows] == [
-        ("12 MAIN ST", 1234.5, "house", ""), ("VAC/AVE Q4/VIC 9TH STE", 500.0, "land", ""),
+        ("12 MAIN ST", 1234.5, "house", ""), ("VAC/AVE Q4/VIC 9TH STE", None, "land", ""),
         ("9 OAK ST UNIT 5", 700.0, "unknown", ""), ("0 COUNTY RD 4", 88.0, "land", "SMITH JOHN")]
     assert "starting bid on GovEase" in rows[0].price_note and "exact" in rows[0].price_note
 

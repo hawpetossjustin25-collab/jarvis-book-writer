@@ -109,7 +109,7 @@ def parse_govease_items(markup: str, page_url: str) -> list[dict]:
         link = re.search(r'href="([^"]+)"', cells[2])
         bid = re.sub(r"[^\d.]", "", _text(cells[5]))
         rows.append({"number": _text(cells[2]), "parcel": _text(cells[3]), "owner": _text(cells[4]),
-                     "starting_bid": float(bid) if bid else None, "description": _text(cells[6]),
+                     "starting_bid": float(bid) if re.search(r"\d", bid) else None, "description": _text(cells[6]),
                      "address": _text(cells[7]), "auction": _text(cells[8]), "sale_type": _text(cells[9]),
                      "link": urljoin(page_url, link.group(1)) if link else page_url})
     return rows
