@@ -204,7 +204,15 @@ def _relevant(query: str, result: dict) -> bool:
     if not words:
         return True
     hay = " ".join((result.get("title", ""), result.get("snippet", ""), result.get("url", ""))).lower()
-    return sum(w in hay for w in words) >= min(2, len(words))
+    hits = sum(w in hay or _stem(w) in hay for w in words)
+    return hits >= max(min(2, len(words)), min(4, (len(words) + 1) // 2))
+
+
+def _stem(word: str) -> str:
+    for end in ("est", "ing", "ed", "es", "s"):
+        if word.endswith(end) and len(word) - len(end) >= 4:
+            return word[:-len(end)]
+    return word
 
 
 def _bing_target(href: str) -> str:

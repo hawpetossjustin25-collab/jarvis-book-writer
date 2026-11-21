@@ -351,6 +351,18 @@ def test_off_topic_bing_results_are_dropped_and_wikipedia_answers_last():
                                "snippet": "the tallest lighthouse"}]
 
 
+def test_bing_results_sharing_only_a_couple_of_long_question_words_are_dropped():
+    from jarvis_books.computer.web import _relevant
+    q = "cheapest reliable portable solar generators for home backup 2024"
+    assert not _relevant(q, {"title": "Cheap Houses for Sale", "url": "https://www.landbanksearch.com/cheap-houses",
+                             "snippet": "Find a cheap home in 2024."})
+    assert not _relevant(q, {"title": "GasBuddy", "url": "https://www.gasbuddy.com/home",
+                             "snippet": "Find the cheapest gas near home."})
+    assert _relevant(q, {"title": "Best Portable Solar Generator for Home Backup (2024)", "url": "https://r.org/best",
+                         "snippet": "We tested the most reliable picks."})
+    assert _relevant("solar generators", {"title": "Solar generator guide", "url": "https://s.org", "snippet": ""})
+
+
 def test_requests_name_the_app_and_bing_is_strictly_safe():
     import requests
     assert Web(requests.Session()).session.headers["User-Agent"].startswith("JarvisBookWriter/")
