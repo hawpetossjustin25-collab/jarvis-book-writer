@@ -22,7 +22,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Callable, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 from xml.etree import ElementTree
 import zipfile
 
@@ -50,6 +50,24 @@ FULTON_MILLAGE = 0.040  # a typical Fulton/Atlanta total rate per $1 of assessed
 MARICOPA_RATE = 0.115   # a typical Maricopa total rate per $1 of assessed limited value (about $11.50 per $100)
 CACHE_S = 6 * 3600
 BATCH = 100
+MAX_WHERE = 1200  # URL-encoded; Fulton's ArcGIS server answers "404 not found" once a GET URL passes ~2,000
+
+
+def id_chunks(ids: list[str], size: int = BATCH, limit: int = MAX_WHERE) -> list[list[str]]:
+    """Split parcel IDs into query batches whose IN (...) clause stays short enough for a GET URL."""
+    chunks: list[list[str]] = []
+    cur: list[str] = []
+    used = 0
+    for x in ids:
+        cost = len(quote_plus(f"'{x}',"))
+        if cur and (len(cur) >= size or used + cost > limit):
+            chunks.append(cur)
+            cur, used = [], 0
+        cur.append(x)
+        used += cost
+    if cur:
+        chunks.append(cur)
+    return chunks
 MAX_ROWS = 2000
 
 AREAS = {
@@ -408,8 +426,12 @@ class TaxLiens:
         url, when = latest_fulton_list(self.web._get(FULTON_PAGE).text, self.today())
         rows, reader = self._read_fulton(self.web._get(url).content)
         parcels = {fulton_parcel(r["parcel"]): r for r in rows}
-        facts = self._arcgis(FULTON_PARCELS, "ParcelID", list(parcels),
-                             "ParcelID,Address,Owner,TotAssess,TotAppr,ImprAppr,ClassCode,LandAcres")
+        try:
+            facts = self._arcgis(FULTON_PARCELS, "ParcelID", list(parcels),
+                                 "ParcelID,Address,Owner,TotAssess,TotAppr,ImprAppr,ClassCode,LandAcres")
+        except (NotFound, ValueError) as exc:  # the sale list still stands without the county's parcel facts
+            log.warning("Fulton parcel facts unavailable: %s", exc)
+            facts = {}
         out = []
         for pid, r in parcels.items():
             f = facts.get(pid, {})
@@ -565,8 +587,7 @@ class TaxLiens:
 
     def _arcgis(self, url: str, key: str, ids: list[str], fields: str) -> dict[str, dict]:
         out: dict[str, dict] = {}
-        for i in range(0, len(ids), BATCH):
-            chunk = ids[i:i + BATCH]
+        for chunk in id_chunks(ids):
             where = f"{key} IN (" + ",".join("'" + x.replace("'", "''") + "'" for x in chunk) + ")"
             body = self._json(url, {"where": where, "outFields": fields, "returnGeometry": "false", "f": "json"})
             for f in body.get("features", []):

@@ -449,3 +449,22 @@ def test_fulton_uses_gemini_first_and_reports_when_both_readers_fail():
     tl.ocr = bad_ocr
     with pytest.raises(NotFound, match="out of quota.*no OCR language"):
         tl.fulton()
+
+
+def test_parcel_batches_keep_the_query_short():
+    from jarvis_books.computer.taxliens import id_chunks
+    ids = [f"14 0176001805{i:02d}" for i in range(101)]
+    chunks = id_chunks(ids)
+    assert [x for c in chunks for x in c] == ids and len(chunks) > 1
+    from urllib.parse import quote_plus
+    assert all(len(quote_plus(",".join(f"'{x}'" for x in c))) <= 1200 for c in chunks)
+    assert id_chunks([]) == [] and id_chunks(["A"] * 250, limit=10**6) == [["A"] * 100] * 2 + [["A"] * 50]
+
+
+def test_fulton_list_still_shows_when_parcel_facts_fail():
+    routes = fulton_routes()
+    routes["Tyler_TaxParcels"] = Resp(status=404)
+    tl, _ = liens(routes, read_pdf=lambda pdf: [{"sale_number": "1", "parcel": "14 -0176-0018-055-3",
+                                                  "address": "605 SOUTH EUGENIA PL NW"}])
+    rows = tl.fulton()
+    assert [(r.address, r.price, r.kind) for r in rows] == [("605 SOUTH EUGENIA PL NW", None, "unknown")]
