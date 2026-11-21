@@ -37,6 +37,16 @@ def parse_meminfo(text: str) -> tuple[Optional[int], Optional[int]]:
     return values.get("MemTotal"), values.get("MemAvailable", values.get("MemFree"))
 
 
+def available_ram() -> Optional[int]:
+    """RAM free right now; cheap enough to read before every request (no audio or network probes)."""
+    if sys.platform == "win32":
+        return _windows_memory()[1]
+    try:
+        return parse_meminfo(Path("/proc/meminfo").read_text())[1]
+    except OSError:
+        return None
+
+
 def measure_network_latency(host: str = "generativelanguage.googleapis.com", port: int = 443,
                             timeout: float = 5.0) -> Optional[float]:
     start = time.perf_counter()

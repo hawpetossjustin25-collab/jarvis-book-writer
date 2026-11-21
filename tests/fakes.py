@@ -118,6 +118,7 @@ class FakeOllama:
         self.replies: list = []
         self.chats: list[dict] = []
         self.pulls: list[str] = []
+        self.loaded: list[dict] = []  # what /api/ps reports as in memory
 
     def _check(self):
         if not self.online:
@@ -126,6 +127,10 @@ class FakeOllama:
     def version(self):
         self._check()
         return "0.12.0"
+
+    def running(self):
+        self._check()
+        return list(self.loaded)
 
     def list_models(self):
         self._check()

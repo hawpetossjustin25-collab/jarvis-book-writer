@@ -288,12 +288,19 @@ class Upgrader:
                 out_since = None
             except Exception as exc:
                 out_since = self.clock() if out_since is None else out_since
-                resp = self._fall_back(request, out_since, busy, tries, progress)
+                # The fallback has far less room: only the files it already changed must come in full; the
+                # ones asked for come first if they fit, and it can ask for any other file by name.
+                lean = lambda: LLMRequest(  # noqa: E731
+                    role=request.role, system=request.system, json_schema=request.json_schema,
+                    temperature=request.temperature, purpose=request.purpose, instruction=request.instruction,
+                    sections=self._sections(copy, up["request"], changed, wanted=need))
+                resp, problem = self._fall_back(lean, out_since, busy, tries, progress)
                 if resp is None:
                     delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
                     unreachable += 1
                     log.warning("upgrade %s: no brain reachable (%s); waiting %ss", upgrade_id, exc, delay)
-                    progress(busy, f"No brain is answering ({str(exc)[:80]}); trying again in {delay} s")
+                    why = f"{self.fallback_name} couldn't either: {problem[:160]}" if problem else str(exc)[:80]
+                    progress(busy, f"No brain is answering ({why}); trying again in {delay} s")
                     self.wait(delay, cancel)
                     continue
             unreachable = 0
@@ -348,24 +355,26 @@ class Upgrader:
         return self.library.update_upgrade(upgrade_id, status="failed", summary=summary, files=changed,
                                            diff=self._diff(copy, changed), test_output=output)
 
-    def _fall_back(self, request: LLMRequest, out_since: float, busy: float, tries: int,
-                   progress: Callable[[float, str], None]):
-        """The fallback's answer once the main brain has been out for fallback_after_s, else None. The main brain
-        is still asked first on every try, so it takes over again as soon as it answers."""
+    def _fall_back(self, make_request: Callable[[], LLMRequest], out_since: float, busy: float, tries: int,
+                   progress: Callable[[float, str], None]) -> tuple[Optional[object], str]:
+        """(the fallback's answer, "") once the main brain has been out for fallback_after_s, else (None, why it
+        could not answer; "" while it isn't its turn yet). The main brain is still asked first on every try, so
+        it takes over again as soon as it answers."""
         fb = self.fallback
         out_for = self.clock() - out_since
         if fb is None or out_for < self.fallback_after_s:
-            return None
+            return None, ""
         try:
             if not getattr(fb, "available", True) and not fb.initialize():
-                log.info("upgrade fallback not ready: %s", getattr(fb, "problem", ""))
-                return None
+                problem = str(getattr(fb, "problem", "") or "it isn't ready")
+                log.info("upgrade fallback not ready: %s", problem)
+                return None, problem
             progress(busy, f"The main brain has been out for {out_for / 60:.0f} min, so {self.fallback_name} "
                            f"is writing the change (try {tries + 1}); this is slower")
-            return fb.generate(request)
+            return fb.generate(make_request()), ""
         except Exception as exc:
             log.warning("upgrade fallback failed: %s", exc)
-            return None
+            return None, str(exc) or type(exc).__name__
 
     @staticmethod
     def _readable(copy: Path, paths: list) -> list[str]:
@@ -379,8 +388,10 @@ class Upgrader:
                 out.append(str(PurePosixPath(*parts)))
         return sorted(set(out))
 
-    def _sections(self, copy: Path, request: str = "", full: list[str] = ()) -> list[PromptSection]:
-        """Every source file, ranked so what Gemini asked for, already changed, or the request names fits first."""
+    def _sections(self, copy: Path, request: str = "", full: list[str] = (),
+                  wanted: list[str] = ()) -> list[PromptSection]:
+        """Every source file, ranked so what Gemini asked for, already changed, or the request names fits first.
+        Files in full are always sent whole; wanted ones come next if there is room."""
         files = sorted(p.relative_to(copy).as_posix() for p in copy.rglob("*.py") if "__pycache__" not in p.parts)
         words = {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", request.lower())}
         sections = [PromptSection("Files in the app", "\n".join(files), priority=95, required=True)]
@@ -388,6 +399,9 @@ class Upgrader:
             text = (copy / rel).read_text(encoding="utf-8")
             if rel in full:
                 sections.append(PromptSection(rel, text, priority=90, required=True))
+                continue
+            if rel in wanted:
+                sections.append(PromptSection(rel, text, priority=88))
                 continue
             low = rel.startswith("tests/") and rel not in ("tests/fakes.py", "tests/test_gui.py")
             named = words & {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", rel.lower())} - {"jarvis", "book", "test"}

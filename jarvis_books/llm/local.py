@@ -14,14 +14,14 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Optional
 
 import requests
 
 from jarvis_books.llm.errors import InvalidStructuredOutput, LLMError
-from jarvis_books.llm.hardware import probe_hardware
+from jarvis_books.llm.hardware import available_ram, probe_hardware
 from jarvis_books.llm.history import fit as fit_turns, window
 from jarvis_books.llm.models import HardwareProfile, LLMRequest, LLMResponse, ModelBudget, RuntimeConfig
 from jarvis_books.llm.policy import TEXT_ROLES
@@ -153,6 +153,10 @@ class OllamaClient:
             raise LLMError(f"{LABEL} error: {str(detail)[:300]}", kind=kind, status=resp.status_code)
         return resp
 
+    def running(self) -> list[dict]:
+        """Models Ollama has in memory now, with the bytes each one holds."""
+        return self._call("GET", "/api/ps", timeout=10).json().get("models", [])
+
     def version(self) -> str:
         return self._call("GET", "/api/version", timeout=5).json().get("version", "")
 
@@ -217,8 +221,15 @@ class LocalEngine:
 
     def __init__(self, client: OllamaClient, model: str = DEFAULT_MODEL, state_path: Optional[Path] = None,
                  hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
-                 answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0):
+                 answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0, label: str = LABEL,
+                 fit_request: bool = False, ram_probe: Callable[[], Optional[int]] = available_ram):
         self.client = client
+        self.label = label
+        # fit_request: size the context to each request (as far as the RAM free at that moment allows) instead of
+        # to the time budget alone. For long, unattended jobs such as upgrades that read a lot of code.
+        self.fit_request = fit_request
+        self.ram_probe = ram_probe
+        self.chars_per_token = 3.0 if fit_request else 4.0  # code packs more tokens per character than prose
         self.model = model
         self.state_path = state_path
         self.hardware_probe = hardware_probe
@@ -263,7 +274,7 @@ class LocalEngine:
         try:
             self.hardware = self.hardware_probe()
             if not self.installed():
-                self.profile, self.problem = None, f"{LABEL} isn't downloaded yet"
+                self.profile, self.problem = None, f"{self.label} isn't downloaded yet"
                 return False
             info = self.client.show(self.model)
         except LLMError as exc:
@@ -282,20 +293,50 @@ class LocalEngine:
         log.info("local model %s ready: context %d (window %d), tools %s", self.model, self.num_ctx, ctx, tools)
         return True
 
-    def _size(self) -> None:
+    def _size(self, need: Optional[int] = None) -> None:
         p = self.profile
         free = (self.hardware.available_ram_bytes if self.hardware else None) or 4 * 1024 ** 3
         kv_room = max(0, free - p.size_bytes - self.HEADROOM)
         by_ram = kv_room // max(1, p.kv_bytes_per_token)
         by_time = int(self.speed.prompt_tps * self.prompt_budget_s) + self.output_tokens()
         ctx = min(p.context_window, self.MAX_CTX, by_ram, max(self.MIN_CTX, by_time))
+        if need is not None:
+            ctx = min(ctx, -(-need // 1024) * 1024)
         self.num_ctx = max(self.MIN_CTX, int(ctx) // 1024 * 1024)
+
+    def _free_ram(self) -> Optional[int]:
+        """Free RAM now, counting what this model already holds in Ollama as available to it."""
+        free = self.ram_probe()
+        if free is None:
+            return None
+        try:
+            free += sum(int(m.get("size") or 0) for m in self.client.running()
+                        if (m.get("name") or m.get("model")) in (self.model, f"{self.model}:latest"))
+        except (LLMError, AttributeError, ValueError, TypeError):
+            pass
+        return free
+
+    def _fit_context(self, request: LLMRequest) -> None:
+        cpt = self.chars_per_token
+        text = request.system + request.instruction + "".join(s.render() for s in request.sections)
+        need = (estimate_tokens(text, cpt) + estimate_tokens(json.dumps(request.history or [], default=str), cpt)
+                + estimate_tokens(json.dumps(request.local_tools if request.local_tools is not None
+                                             else request.tools or [], default=str), 3.0)
+                + self.output_tokens() + 256)
+        free = self._free_ram()
+        if free is not None and self.hardware is not None:
+            self.hardware = replace(self.hardware, available_ram_bytes=free)
+        self._size(need)
 
     def output_tokens(self) -> int:
         return max(256, min(4096, int(self.speed.output_tps * self.answer_budget_s)))
 
+    def answer_tokens(self) -> int:
+        """Room for the answer in the current context: never more than half of it."""
+        return min(self.output_tokens(), self.num_ctx // 2)
+
     def input_tokens(self) -> int:
-        return max(1024, self.num_ctx - self.output_tokens() - 128)
+        return max(1024, self.num_ctx - self.answer_tokens() - 128)
 
     THINK_ROLES = ("planner", "editor", "writer")
     THINK_MIN_TPS = 20.0  # thinking costs ~10x the tokens; only worth it where this computer writes fast
@@ -306,14 +347,14 @@ class LocalEngine:
 
     def get_runtime_configuration(self) -> RuntimeConfig:
         if not self.available:
-            raise LLMError(self.problem or f"{LABEL} is not ready", kind="unavailable")
-        out = self.output_tokens()
+            raise LLMError(self.problem or f"{self.label} is not ready", kind="unavailable")
+        out = self.answer_tokens()
         budget = ModelBudget(self.model, self.input_tokens(), out, True, 60, None, None)
         return RuntimeConfig(version=0, routes={r: (self.model,) for r in TEXT_ROLES}, budgets={self.model: budget},
                              memory_budget_tokens=int(self.input_tokens() * 0.35), history_turns=8,
                              words_per_call=max(200, int(out / 1.35 * 0.6)), scene_words=max(200, int(out / 1.35 * 0.5)),
                              concurrency=1, tts_workers=1, embed_batch=1, max_retries=1, adaptive=True,
-                             reason=f"{LABEL} on this computer")
+                             reason=f"{self.label} on this computer")
 
     def status(self) -> dict:
         return {"model": self.model, "ready": self.available, "problem": self.problem, "context": self.num_ctx,
@@ -340,24 +381,31 @@ class LocalEngine:
         return tools
 
     def build(self, request: LLMRequest) -> dict:
-        budget_in, out = self.input_tokens(), self.output_tokens()
+        if self.fit_request:
+            self._fit_context(request)
+        cpt = self.chars_per_token
+        budget_in, out = self.input_tokens(), self.answer_tokens()
         tools = self._fit_tools(request, budget_in)
         if tools:
             budget_in = max(512, budget_in - estimate_tokens(json.dumps(tools), 3.0))
         system = request.system
-        if estimate_tokens(system) > budget_in * 0.5:
-            system = _cut(system, int(budget_in * 0.5), 4.0, "start")
+        if estimate_tokens(system, cpt) > budget_in * 0.5:
+            system = _cut(system, int(budget_in * 0.5), cpt, "start")
         answering = not (request.instruction or request.sections)
         history = window(request.history, 8, answering)
-        room = int(budget_in * 0.8) - estimate_tokens(system)
-        history = fit_turns(history, room, lambda t: estimate_tokens(json.dumps(t.get("parts", ""))), answering)
-        used = estimate_tokens(system) + sum(estimate_tokens(json.dumps(t.get("parts", ""))) for t in history)
+        room = int(budget_in * 0.8) - estimate_tokens(system, cpt)
+        history = fit_turns(history, room, lambda t: estimate_tokens(json.dumps(t.get("parts", "")), cpt), answering)
+        used = estimate_tokens(system, cpt) + sum(estimate_tokens(json.dumps(t.get("parts", "")), cpt) for t in history)
         contents = list(history)
         if request.instruction or request.sections:
             instruction = request.instruction
             if request.json_schema:
                 instruction += "\n\nAnswer with JSON only."
-            fit = fit_sections(instruction, request.sections, max(512, budget_in - used), 4.0)
+            fit = fit_sections(instruction, request.sections, max(512, budget_in - used), cpt)
+            if self.fit_request and used + fit.tokens > budget_in:
+                raise LLMError(f"{self.label} has room for about {budget_in} tokens with the memory free on this "
+                               f"computer right now, and this needs about {used + fit.tokens}; closing other "
+                               f"programs frees more", kind="too_big")
             contents.append({"role": "user", "parts": [{"text": fit.text}]})
         if not contents:
             raise LLMError("empty request", kind="invalid")
@@ -381,7 +429,12 @@ class LocalEngine:
             payload = self.build(request)
             for attempt in (1, 2):
                 start = time.perf_counter()
-                body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
+                try:
+                    body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
+                except LLMError as exc:
+                    if self.label == LABEL:
+                        raise
+                    raise LLMError(str(exc).replace(LABEL, self.label, 1), kind=exc.kind, status=exc.status) from exc
                 latency = time.perf_counter() - start
                 self._measure(body)
                 msg = body.get("message") or {}
@@ -403,7 +456,7 @@ class LocalEngine:
                             continue
                         raise InvalidStructuredOutput("; ".join(errors)[:300])
                 parts = ([{"text": text}] if text else []) + [{"functionCall": c} for c in calls]
-                return LLMResponse(text=text, model=f"{LABEL} ({self.model})", data=data, function_calls=calls,
+                return LLMResponse(text=text, model=f"{self.label} ({self.model})", data=data, function_calls=calls,
                                    content={"role": "model", "parts": parts},
                                    finish_reason=body.get("done_reason"), prompt_tokens=body.get("prompt_eval_count"),
                                    output_tokens=body.get("eval_count"), latency_s=latency, attempts=attempt)

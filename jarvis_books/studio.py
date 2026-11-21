@@ -102,7 +102,8 @@ class Studio:
         # context and plenty of time, since an upgrade reads far more code than a chat turn.
         self.upgrade_local = LocalEngine(self.local.client, model=RESEARCH_MODEL,
                                          state_path=self.home / "upgrade_llm.json",
-                                         answer_budget_s=1800.0, prompt_budget_s=1800.0,
+                                         answer_budget_s=1800.0, prompt_budget_s=1800.0, label="Qwen3-4B",
+                                         fit_request=True,
                                          **({"hardware_probe": probe} if probe else {}))
         self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades", fallback=self.upgrade_local)
         self.upgrader.fallback_name = "Qwen3-4B on this computer"
@@ -128,6 +129,7 @@ class Studio:
         self.research_local = LocalEngine(self.local.client, model=RESEARCH_MODEL,
                                           state_path=self.home / "research_llm.json",
                                           answer_budget_s=RESEARCH_TIME_S, prompt_budget_s=RESEARCH_TIME_S,
+                                          label="Qwen3-4B",
                                           **({"hardware_probe": probe} if probe else {}))
         self.researcher = Researcher(self.db, self.library, self.web, self.settings, local=self.research_local,
                                      brain=self.brain, notes_dir=self.mirror_root / "_Research")

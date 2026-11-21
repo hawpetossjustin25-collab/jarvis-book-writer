@@ -400,3 +400,69 @@ def test_the_tool_list_counts_toward_lfm3s_context_and_the_most_relevant_tools_a
         estimate_tokens(m.get("content") or "") for m in sent["messages"])
     assert total + sent["options"]["num_predict"] <= eng.num_ctx
     assert "run a command" in sent["messages"][-1]["content"]
+
+
+# ---- the upgrade engine: sized to each request, as far as the RAM free right now allows ----------------
+def _big_file(lines=10000):
+    from jarvis_books.llm.models import PromptSection
+    return PromptSection("big.py", "x = 1\n" * lines, required=True)  # 60,000 chars of code: ~20,000 tokens
+
+
+def upgrade_engine(tmp_path, client, free, **kw):
+    return local(tmp_path, client, fit_request=True, ram_probe=lambda: free, answer_budget_s=1800.0,
+                 prompt_budget_s=1800.0, **kw)
+
+
+def test_an_upgrade_engine_sizes_its_context_to_the_request(tmp_path):
+    client = FakeOllama()
+    eng = upgrade_engine(tmp_path, client, 6 * 1024 ** 3)
+    eng.generate(LLMRequest(role="planner", system="s", instruction="change it", sections=[_big_file()]))
+    sent = client.chats[-1]
+    assert sent["options"]["num_ctx"] >= 20000 + sent["options"]["num_predict"]
+    assert sent["messages"][-1]["content"].count("x = 1") == 10000  # the whole file, nothing cut
+    big = sent["options"]["num_ctx"]
+    eng.generate(LLMRequest(role="planner", system="s", instruction="a small change"))
+    small = client.chats[-1]["options"]
+    assert small["num_ctx"] <= 8192 < big  # small jobs don't hold RAM they don't need
+    assert small["num_predict"] <= small["num_ctx"] // 2
+
+
+def test_an_upgrade_too_big_for_the_free_ram_is_refused_before_ollama_is_asked(tmp_path):
+    client = FakeOllama()
+    eng = upgrade_engine(tmp_path, client, 2_800_000_000, label="Qwen3-4B")
+    with pytest.raises(LLMError) as err:
+        eng.generate(LLMRequest(role="planner", system="s", instruction="change it", sections=[_big_file()]))
+    assert err.value.kind == "too_big" and "Qwen3-4B has room for about" in str(err.value)
+    assert "closing other programs" in str(err.value) and client.chats == []
+
+
+def test_memory_the_model_already_holds_in_ollama_counts_as_free_for_it(tmp_path):
+    client = FakeOllama()
+    client.loaded = [{"name": client.model, "size": 1_100_000_000}, {"name": "other", "size": 5_000_000_000}]
+    eng = upgrade_engine(tmp_path, client, 2_800_000_000)
+    eng.generate(LLMRequest(role="planner", system="s", instruction="change it", sections=[_big_file()]))
+    assert client.chats[-1]["messages"][-1]["content"].count("x = 1") == 10000
+
+
+def test_the_answer_never_takes_more_than_half_the_context(tmp_path):
+    eng = local(tmp_path, answer_budget_s=1800.0)
+    eng.initialize()
+    eng.num_ctx = 4096
+    assert eng.output_tokens() == 4096 and eng.answer_tokens() == 2048 and eng.input_tokens() == 4096 - 2048 - 128
+    client = eng.client
+    eng.generate(LLMRequest(role="chat", instruction="hi"))
+    assert client.chats[-1]["options"]["num_predict"] <= client.chats[-1]["options"]["num_ctx"] // 2
+
+
+def test_errors_name_the_model_that_failed(tmp_path):
+    client = FakeOllama()
+    client.replies.append(LLMError("LFM3 error: request too big", kind="unknown", status=500))
+    eng = local(tmp_path, client, label="Qwen3-4B")
+    with pytest.raises(LLMError, match="^Qwen3-4B error: request too big"):
+        eng.generate(LLMRequest(role="chat", instruction="hi"))
+
+
+def test_free_ram_is_read_cheaply_on_this_platform():
+    from jarvis_books.llm.hardware import available_ram
+    free = available_ram()
+    assert free is None or free > 0

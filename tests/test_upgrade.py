@@ -503,3 +503,29 @@ def test_a_failing_free_model_does_not_stop_the_build(library, app, tmp_path):
     up, waits, said = clocked(library, app, tmp_path, engine, fallback, after=50)
     u = up.build(up.start("hello")["id"])
     assert u["status"] == "ready" and waits == [30, 60, 120, 300] and len(fallback.requests) == 2
+
+
+def test_the_free_model_gets_a_lean_request_and_says_why_it_could_not_answer(library, app, tmp_path):
+    ask = {"summary": "", "edits": [], "need_files": ["jarvis_books/feature.py"]}
+    engine = ScriptedEngine(ask, *([RuntimeError("429 quota")] * 5))
+    fallback = Fallback(RuntimeError("Qwen3-4B has room for about 900 tokens"), GOOD)
+    up, waits, said = clocked(library, app, tmp_path, engine, fallback, after=50)
+    up.fallback_name = "Qwen3-4B on this computer"
+    u = up.build(up.start("hello")["id"], progress=lambda p, m: said.append(m))
+    assert u["status"] == "ready" and waits == [30, 60, 120] and len(fallback.requests) == 2
+    assert {s.name: s for s in engine.requests[1].sections}["jarvis_books/feature.py"].required
+    lean = {s.name: s for s in fallback.requests[1].sections}
+    assert not lean["jarvis_books/feature.py"].required and lean["jarvis_books/feature.py"].priority == 88
+    assert lean["Files in the app"].required
+    assert fallback.requests[1].json_schema == engine.requests[1].json_schema
+    assert any("Qwen3-4B on this computer couldn't either: Qwen3-4B has room for about 900" in m for m in said)
+
+
+def test_the_studio_gives_upgrades_a_qwen_sized_to_each_request(tmp_path):
+    from jarvis_books.studio import Studio
+    st = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=None)
+    try:
+        assert st.upgrade_local.fit_request and st.upgrade_local.label == "Qwen3-4B"
+        assert st.research_local.label == "Qwen3-4B" and not st.research_local.fit_request
+    finally:
+        st.close()
