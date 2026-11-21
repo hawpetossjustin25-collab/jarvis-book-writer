@@ -8,7 +8,7 @@ import time
 import pytest
 
 from jarvis_books.assistant.permissions import SYSTEM, PermissionGate, level_of
-from jarvis_books.assistant.tools import COMPUTER_PINS, COMPUTER_TOOLS, ToolBox
+from jarvis_books.assistant.tools import COMPUTER_CHANGES, COMPUTER_PINS, COMPUTER_TOOLS, ToolBox
 from jarvis_books.computer.files import Computer
 from jarvis_books.computer.terminal import Terminal
 from jarvis_books.computer.web import Web
@@ -130,11 +130,12 @@ def test_internet_tools_read_freely_and_downloads_wait_for_yes(box, tmp_path):
     assert (home / "Downloads" / "model.gguf").read_bytes() == b"abc"
 
 
-def test_the_war_room_has_the_internet_but_not_the_computer(box):
+def test_the_war_room_can_look_at_the_computer_but_not_change_it(box):
     tools, gate, home = box
     tools.war_session_id = 1
     names = {d["name"] for d in tools.declarations()}
-    assert not names & set(COMPUTER_TOOLS) and "web_search" in names
+    assert not names & set(COMPUTER_CHANGES) and "web_search" in names
+    assert {"list_folder", "read_file", "system_info", "look_at_screen"} <= names
 
 
 def test_requests_pick_the_right_tools(box):
@@ -143,11 +144,11 @@ def test_requests_pick_the_right_tools(box):
     assert {"run_command", "list_folder"} <= pick("run the tests in my project folder in the terminal")
     assert {"hf_search", "download_file"} <= pick("download that model from hugging face")
     assert {"github_search", "github_read"} <= pick("find a github repo for epub tools")
-    assert "run_command" not in pick("write chapter 3")
+    assert "delete_path" not in pick("write chapter 3")
     assert {"research_web", "web_search", "read_web_page"} <= pick("find information about the history of lighthouses")
     assert "research_web" in pick("what's the price of a kindle paperwhite right now")
     assert "explore_website" in pick("dig through that website for their submission rules")
-    assert "research_web" not in pick("write chapter 3")
+    assert "scrape_web_page" not in pick("write chapter 3")
 
 
 def test_research_needs_no_yes_and_reports_sources(box):
@@ -166,7 +167,8 @@ def test_the_studio_wires_the_computer(tmp_path):
     studio = make_studio(tmp_path)
     assert studio.computer.backups == tmp_path / "home" / "computer" / "backups"
     assert studio.tools.computer is studio.computer and studio.tools.terminal is studio.terminal
-    assert studio.war_tools.computer is None and studio.war_tools.web is studio.web
+    assert studio.war_tools.computer is studio.computer and studio.war_tools.web is studio.web
+    assert studio.tools.desktop is studio.desktop and studio.war_tools.desktop is studio.desktop
     studio.close()
 
 

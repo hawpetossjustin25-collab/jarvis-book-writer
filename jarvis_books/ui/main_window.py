@@ -1614,6 +1614,13 @@ class MainWindow(QMainWindow):
         self.brain_state = QLabel()
         self.brain_state.setWordWrap(True)
         lay.addWidget(self.brain_state)
+        self.full_control = QCheckBox("Full control: Jarvis changes files, runs commands, downloads and uses "
+                                      "the mouse and keyboard without asking yes or no first")
+        self.full_control.setToolTip("Commands that could wipe a drive or break Windows, and password and key "
+                                     "files, stay blocked. Replacing the app's own code still asks.")
+        self.full_control.setChecked(s["full_control"] == "1")
+        self.full_control.toggled.connect(lambda on: self.studio.set_setting("full_control", "1" if on else "0"))
+        lay.addWidget(self.full_control)
         lay.addWidget(QLabel("<b>Adaptive Gemini engine</b>"))
         self.engine_view = QTextBrowser()
         lay.addWidget(self.engine_view, 1)
@@ -1779,6 +1786,11 @@ class MainWindow(QMainWindow):
                 box.blockSignals(True)
                 box.setCurrentIndex(value)
                 box.blockSignals(False)
+        full = self.studio.settings()["full_control"] == "1"
+        if self.full_control.isChecked() != full:
+            self.full_control.blockSignals(True)
+            self.full_control.setChecked(full)
+            self.full_control.blockSignals(False)
         auto = self.studio.brain.automatic()
         if self.brain_auto.isChecked() != auto:
             self.brain_auto.blockSignals(True)

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
+from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_WORDS, DesktopTools
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, GEMINI_CATALOG, GENDERS, NARRATOR, default_style, describe_voice, \
@@ -28,10 +29,13 @@ from jarvis_books.writer.pipeline import MAX_CHAPTERS, BookWriter, Cancelled
 
 log = logging.getLogger(__name__)
 
-# In the War Room canon changes go through proposals, so the direct-edit tools are withheld.
+# In the War Room canon changes go through proposals, so the direct-edit tools are withheld; looking at the
+# computer and the web is fine there, changing it is done from the Jarvis tab.
 COMPUTER_TOOLS = ("list_folder", "read_file", "write_file", "edit_file", "make_folder", "move_path", "delete_path",
                   "computer_log", "run_command", "command_output", "download_file", "github_download")
-WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline", "send_api") + COMPUTER_TOOLS
+COMPUTER_CHANGES = ("write_file", "edit_file", "make_folder", "move_path", "delete_path", "run_command",
+                    "download_file", "github_download", "close_program", "type_text", "press_keys", "click_screen")
+WAR_ROOM_BLOCKED = ("update_story_bible", "change_outline", "send_api") + COMPUTER_CHANGES
 COMPUTER_PINS = ("write_file", "edit_file", "make_folder", "move_path", "delete_path", "run_command",
                  "download_file", "github_download")
 API_WORDS = (" api ", " api.", " api,", " api?", " apis", "api key", "endpoint", "json", "webhook", "{key:",
@@ -56,7 +60,7 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
-                "dialogue_tags", "memory", "brain", "brain_auto")
+                "dialogue_tags", "memory", "brain", "brain_auto", "full_control")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
                    "brain": ("gemini", "local")}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
@@ -94,11 +98,13 @@ COMPUTER_DECLARATIONS = [
           "Needs the author's yes.", {"path": PATH}, ["path"]),
     _decl("computer_log", "The latest changes Jarvis made to files on the computer and the commands he ran."),
     _decl("run_command", "Run a command in the author's terminal (PowerShell on Windows) and get its output and "
-          "exit code. Use it to install programs (winget), run code and tests, git, pip and anything the "
-          "terminal can do. Every command needs the author's yes. Commands that could wipe a drive or break "
-          "Windows are refused. If it is still running after a few seconds you get a job_id: use command_output.",
+          "exit code. Use it for anything the terminal can do: install programs (winget), run code and tests, git, "
+          "pip, Windows settings, files, networks, scheduled tasks. as_admin 'yes' runs it as administrator "
+          "(Windows shows the author one allow box). Commands that could wipe a drive or break Windows are "
+          "refused. If it is still running after a few seconds you get a job_id: use command_output.",
           {"command": S, "folder": {"type": "STRING", "description": "Folder to run it in (default: user folder)."},
-           "timeout_seconds": {"type": "INTEGER", "description": "Stop it after this long (default 120, max 1800)."}},
+           "timeout_seconds": {"type": "INTEGER", "description": "Stop it after this long (default 120, max 1800)."},
+           "as_admin": {"type": "STRING", "enum": ["yes", "no"]}},
           ["command"]),
     _decl("command_output", "The output of a terminal command that was still running (by job_id).",
           {"job_id": S}, ["job_id"]),
@@ -262,7 +268,7 @@ DECLARATIONS = [
            "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -274,7 +280,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools):
+class ToolBox(PlannerTools, DesktopTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -305,9 +311,11 @@ class ToolBox(PlannerTools):
         return [d for d in DECLARATIONS if (names is None or d["name"] in names) and d["name"] not in blocked]
 
     def select(self, user_text: str) -> list[dict]:
-        """Adaptive tool selection: always the core tools, plus the rest only when the request needs them."""
+        """A short tool list for the small local model, which can't read all of them at once: the core tools,
+        plus the rest when the request needs them. Gemini always gets every tool (declarations())."""
         core = ["list_books", "open_book", "read_chapter", "search_books", "add_note", "write_chapters",
-                "create_book", "job_status", "set_book_length", "stop_writing"]
+                "create_book", "job_status", "set_book_length", "stop_writing", "research_web", "run_command",
+                "open_item"]
         t = f" {(user_text or '').lower()} "  # padded so whole-word keywords match at either end
         extra = {
             "rewrite_chapter": ("rewrite", "revise", "change", "fix", "edit", "redo"),
@@ -373,6 +381,7 @@ class ToolBox(PlannerTools):
             "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
             "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
             **{d["name"]: PLANNER_WORDS for d in PLANNER_DECLARATIONS},
+            **{d["name"]: DESKTOP_WORDS for d in DESKTOP_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -454,6 +463,9 @@ class ToolBox(PlannerTools):
         extra = f" ({truncate_words(extra, 25)})" if extra else ""
         if name in COMPUTER_PINS:
             return self._describe_computer(name, args)
+        desk = self._describe_desktop(name, args)
+        if desk:
+            return desk
         planned = self.describe_planner(name, args)
         if planned:
             return planned
@@ -870,7 +882,7 @@ class ToolBox(PlannerTools):
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:
@@ -1163,7 +1175,8 @@ class ToolBox(PlannerTools):
             from jarvis_books.computer.terminal import assess
             _, warnings = assess(args["command"])
             warn = "".join(f" WARNING: this {w}." for w in warnings)
-            return f"Run in {self._terminal().shell} (in {args['folder']}): {args['command']}" + warn
+            admin = " AS ADMINISTRATOR" if args.get("as_admin") == "yes" else ""
+            return f"Run{admin} in {self._terminal().shell} (in {args['folder']}): {args['command']}" + warn
         if name == "download_file":
             from jarvis_books.computer.web import hf_url
             return f"Download {hf_url(args['url'])} into {args['folder']}"
@@ -1214,10 +1227,28 @@ class ToolBox(PlannerTools):
 
     COMMAND_WAIT_S = 3.0
 
-    def _t_run_command(self, command: str, folder: str = "", timeout_seconds: int = 120) -> dict:
+    @staticmethod
+    def _describe_desktop(name: str, args: dict) -> str:
+        if name == "close_program":
+            how = " right away (unsaved work is lost)" if args.get("force") == "yes" else ""
+            return f"Close {args['name']}{how}"
+        if name == "type_text":
+            return f"Type into the window in front: {truncate_words(args['text'], 40)}"
+        if name == "press_keys":
+            return f"Press {args['keys']} in the window in front"
+        if name == "click_screen":
+            what = "Double-click" if (args.get("clicks") or 1) == 2 else (
+                "Right-click" if args.get("button") == "right" else "Click")
+            return f"{what} the screen at {args['x']}, {args['y']}"
+        return ""
+
+    def _t_run_command(self, command: str, folder: str = "", timeout_seconds: int = 120,
+                       as_admin: str = "no") -> dict:
         term = self._terminal()
+        admin = as_admin == "yes"
         job = self.jobs.submit("command", f"Running: {truncate_words(command, 12)}",
-                               lambda progress, cancel: term.run(command, folder, timeout_seconds, cancel))
+                               lambda progress, cancel: term.run(command, folder, timeout_seconds, cancel,
+                                                                 as_admin=admin))
         deadline = time.monotonic() + self.COMMAND_WAIT_S
         while time.monotonic() < deadline and job.status in ("queued", "running"):
             time.sleep(0.05)

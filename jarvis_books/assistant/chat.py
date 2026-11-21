@@ -64,7 +64,10 @@ class Assistant:
             self.memory.schedule(self.channel, key_book)
         history = self._history()
         self.library.add_message(self.channel, "user", text, self.tools.current_book_id)
-        tools = self.tools.select(text)
+        tools = self.tools.declarations()
+        last_asked = next((part.get("text", "") for turn in reversed(history) if turn.get("role") == "user"
+                           for part in turn.get("parts", []) if isinstance(part, dict)), "")
+        local_tools = self.tools.select(text + " " + last_asked)
         answered = self.tools.gate.hear(text)  # "yes"/"no" to an open question is settled by the app itself
         model_text = text + ("\n\n" + outcome_note(answered) if answered else "")
         contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
@@ -76,6 +79,7 @@ class Assistant:
         searches = 0
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
+                                                   local_tools=local_tools,
                                                    temperature=0.7, purpose="chat"))
             if not resp.function_calls:
                 reply = resp.text.strip()
@@ -95,6 +99,7 @@ class Assistant:
             contents.append({"role": "user", "parts": parts})
             if searches >= MAX_SEARCHES:
                 tools = [d for d in tools if d["name"] not in SEARCH_TOOLS]
+                local_tools = [d for d in local_tools if d["name"] not in SEARCH_TOOLS]
         else:
             reply = "I ran out of steps working on that. Could you say it a different way?"
         self.library.add_message(self.channel, "assistant", reply or "(done)", self.tools.current_book_id)

@@ -81,6 +81,16 @@ def test_chat_round_trip(window, qapp):
     assert [m.role for m in studio.library.recent_messages("chat", 5)][-2:] == ["user", "assistant"]
 
 
+def test_full_control_switch_in_settings(window, qapp):
+    win, studio, book = window
+    assert not win.full_control.isChecked() and studio.gate.decide("run_command") == "ask"
+    win.full_control.setChecked(True)
+    assert studio.settings()["full_control"] == "1" and studio.gate.decide("run_command") == "auto"
+    studio.set_setting("full_control", "0")  # Jarvis turned it off: the box follows
+    win._refresh_brain()
+    assert not win.full_control.isChecked()
+
+
 def test_listen_loads_unfinished_book(window, qapp):
     win, studio, book = window
     win.listen_book.setCurrentIndex(win.listen_book.findData(book.id))

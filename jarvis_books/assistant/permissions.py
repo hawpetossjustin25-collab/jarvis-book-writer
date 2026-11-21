@@ -47,7 +47,13 @@ TOOL_LEVELS: dict[str, str] = {
     "cancel_reminder": SAFE, "snooze_reminder": SAFE, "stop_alarm": SAFE,
     "delete_planner_item": CHANGE, "plan_writing_schedule": CHANGE,
     "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
+    "list_programs": READ, "system_info": READ, "read_clipboard": READ, "look_at_screen": READ,
+    "open_item": SAFE, "copy_to_clipboard": SAFE, "media_control": SAFE,
+    "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 }
+# Replacing the app's own code always waits for a yes, even in Full control.
+ALWAYS_ASK = ("install_upgrade", "undo_upgrade")
+FULL_CONTROL_SETTING = "full_control"
 
 ASKING_NOTE = ("Not done yet: the app is asking the author yes or no. In one short sentence tell them what you "
                "want to do and ask yes or no. Do not call this tool again; the app hears their answer itself "
@@ -91,6 +97,7 @@ class PermissionGate:
         self.clock = clock
         self.pending: Optional[Request] = None
         self.allowed: set[str] = set()  # Change-level tools allowed for the rest of this app session
+        self.full_control: Callable[[], bool] = lambda: False  # set by the Studio from Settings
         self._lock = threading.RLock()
         self._listeners: list[Callable[[str, dict], None]] = []
         self._next_id = 1
@@ -112,7 +119,16 @@ class PermissionGate:
         level = level_of(tool)
         if level not in NEEDS_YES:
             return "free"
+        if tool not in ALWAYS_ASK and self._full_control():
+            return "auto"
         return "auto" if level == CHANGE and tool in self.allowed else "ask"
+
+    def _full_control(self) -> bool:
+        try:
+            return bool(self.full_control())
+        except Exception:
+            log.exception("full control check failed")
+            return False
 
     def record_auto(self, tool: str, args: dict, summary: str, source: str) -> None:
         self._log_new(tool, level_of(tool), summary, args, source, "auto")

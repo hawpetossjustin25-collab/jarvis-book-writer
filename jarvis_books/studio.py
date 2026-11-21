@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from jarvis_books.computer.apikeys import ApiKeys
+from jarvis_books.computer.desktop import Desktop
 from jarvis_books.computer.files import Computer
 from jarvis_books.computer.terminal import Terminal
 from jarvis_books.computer.web import Web
@@ -21,6 +22,7 @@ from jarvis_books.keystore import load_key
 from jarvis_books.llm.brain import Brain
 from jarvis_books.llm.engine import AdaptiveLLMEngine
 from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
+from jarvis_books.llm.models import LLMRequest
 from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
@@ -94,11 +96,16 @@ class Studio:
         self.gate.subscribe(self.memory.on_permission)
         self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
-        # Jarvis's hands on this computer (every change waits for the author's yes) and the internet.
+        # Jarvis's hands on this computer and the internet. Changes wait for the author's yes unless they
+        # turned on Full control in Settings.
+        self.gate.full_control = lambda: self.settings()["full_control"] == "1"
         self.computer = Computer(self.home / "computer")
         self.terminal = Terminal(self.home / "computer")
+        self.desktop = Desktop(self.home / "computer")
         self.web = Web()
-        self.tools.computer, self.tools.terminal = self.computer, self.terminal
+        for box in (self.tools, self.war_tools):
+            box.computer, box.terminal, box.desktop, box.vision = self.computer, self.terminal, self.desktop, \
+                self._look if self.engine is not None else None
         self.tools.web = self.war_tools.web = self.web
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
@@ -112,7 +119,14 @@ class Studio:
     # ---- settings (non-secret, stored in the library meta table) ---------------------
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
-                "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1"}
+                "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
+                "full_control": "0"}
+
+    def _look(self, system: str, parts: list[dict]) -> str:
+        """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
+        resp = self.engine.generate(LLMRequest(role="chat", system=system, history=[{"role": "user", "parts": parts}],
+                                               max_output_tokens=2048, temperature=0.2, purpose="vision"))
+        return resp.text.strip()
 
     def settings(self) -> dict:
         return {k: self.library.get_meta(f"setting.{k}", v) for k, v in self.DEFAULTS.items()}

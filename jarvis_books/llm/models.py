@@ -102,6 +102,7 @@ class LLMRequest:
     history: list[dict] = field(default_factory=list)  # Gemini "contents" turns, oldest first
     json_schema: Optional[dict] = None
     tools: list[dict] = field(default_factory=list)  # Gemini function declarations
+    local_tools: Optional[list[dict]] = None  # a shorter tool list for the small local model (None = same)
     max_output_tokens: Optional[int] = None
     temperature: Optional[float] = None
     purpose: str = ""

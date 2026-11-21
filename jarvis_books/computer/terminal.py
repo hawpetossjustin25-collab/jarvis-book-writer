@@ -2,6 +2,7 @@
 (the ToolBox gate); this runs it with a time limit, captures its output and logs it."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -79,6 +80,17 @@ class Terminal:
                     "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + command]
         return ["bash", "-c", command]
 
+    def admin_argv(self, command: str, out_path: Path) -> list[str]:
+        """Run the command in an elevated PowerShell (Windows shows its own allow box) and read back its output."""
+        out = str(out_path).replace("'", "''")
+        inner = f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; & {{ {command} }} *> '{out}'; exit $LASTEXITCODE"
+        encoded = base64.b64encode(inner.encode("utf-16-le")).decode()
+        outer = (f"$p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList "
+                 f"'-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','{encoded}'; "
+                 f"if (Test-Path -LiteralPath '{out}') {{ Get-Content -Raw -LiteralPath '{out}'; "
+                 f"Remove-Item -LiteralPath '{out}' }}; exit $p.ExitCode")
+        return self.argv(outer)
+
     def folder(self, cwd: str = "") -> Path:
         p = Path(os.path.expandvars(os.path.expanduser(cwd.strip().strip('"')))) if cwd and cwd.strip() else self.home
         if not p.is_absolute():
@@ -88,7 +100,7 @@ class Terminal:
         return p
 
     def run(self, command: str, cwd: str = "", timeout_s: int = 120,
-            cancel=None) -> dict:
+            cancel=None, as_admin: bool = False) -> dict:
         command = (command or "").strip()
         if not command:
             raise ValueError("no command given")
@@ -99,7 +111,11 @@ class Terminal:
         timeout_s = max(1, min(int(timeout_s or 120), MAX_TIMEOUT_S))
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if self.windows else 0
         start = time.monotonic()
-        proc = self.popen(self.argv(command), cwd=str(folder), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        if as_admin and not self.windows:
+            raise ValueError("running as administrator is only for Windows; use sudo in the command instead")
+        argv = self.admin_argv(command, self.log_path.parent / f"admin-{time.time_ns()}.txt") if as_admin \
+            else self.argv(command)
+        proc = self.popen(argv, cwd=str(folder), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           stdin=subprocess.DEVNULL, creationflags=flags, start_new_session=not self.windows)
         stopped = None
         while True:
@@ -121,6 +137,8 @@ class Terminal:
                   "output": _clip(_text(out)), "errors": _clip(_text(err))}
         if stopped:
             result["stopped"] = stopped
+        if as_admin:
+            result["as_admin"] = True
         self._log(result)
         return result
 

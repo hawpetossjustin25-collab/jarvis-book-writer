@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import replace
 from typing import Callable, Optional
 
 from jarvis_books.llm.errors import LLMError
@@ -72,7 +73,7 @@ class Brain:
         reasons = []
         for which in self.order():
             try:
-                resp = self._engine(which).generate(request)
+                resp = self._engine(which).generate(self._for(which, request))
             except LLMError as exc:
                 if exc.kind in NO_SWITCH:
                     raise
@@ -95,6 +96,13 @@ class Brain:
                         log.exception("brain switch listener failed")
             return resp
         raise LLMError("Neither brain could answer. " + " | ".join(reasons), kind="unavailable")
+
+    @staticmethod
+    def _for(which: str, request: LLMRequest) -> LLMRequest:
+        """LFM3 reads a small context, so it gets the shorter tool list when the caller gave one."""
+        if which == LOCAL and request.local_tools is not None:
+            return replace(request, tools=request.local_tools)
+        return request
 
     def get_runtime_configuration(self) -> RuntimeConfig:
         last: Optional[Exception] = None
