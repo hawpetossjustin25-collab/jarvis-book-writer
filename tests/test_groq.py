@@ -214,3 +214,9 @@ def test_gemini_accepts_tool_calls_another_model_made_earlier():
     assert sent[1]["parts"][1]["thoughtSignature"] == OTHER_MODEL_SIGNATURE and "thoughtSignature" not in sent[1]["parts"][0]
     assert sent[2]["parts"][0]["thoughtSignature"] == "real" and sent[0] is history[0]
     assert "thoughtSignature" not in history[1]["parts"][1]  # the stored history is left as it was
+
+
+def test_the_key_can_be_saved_before_jarvis_made_his_folder(tmp_path):
+    from jarvis_books.llm.groq import load_groq_key, save_groq_key
+    save_groq_key(" gsk_new ", tmp_path / "not-yet")
+    assert load_groq_key(tmp_path / "not-yet") == "gsk_new"

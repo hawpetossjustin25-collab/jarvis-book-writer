@@ -271,7 +271,7 @@ class Upgrader:
                 feedback = ("\n\nEarlier tries did not pass, so this is a clean copy again. Take a different "
                             "approach. What went wrong before:\n" + "\n".join(history[-FRESH_START_EVERY:]))
             busy = min(0.9, 0.1 + 0.04 * tries)
-            progress(busy, f"Gemini is writing the change (try {tries + 1})")
+            progress(busy, f"Jarvis is writing the change (try {tries + 1})")
             try:
                 resp = self.engine.generate(LLMRequest(
                     role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
@@ -280,8 +280,8 @@ class Upgrader:
             except Exception as exc:
                 delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
                 unreachable += 1
-                log.warning("upgrade %s: Gemini unreachable (%s); waiting %ss", upgrade_id, exc, delay)
-                progress(busy, f"Gemini isn't answering ({str(exc)[:80]}); trying again in {delay} s")
+                log.warning("upgrade %s: no brain reachable (%s); waiting %ss", upgrade_id, exc, delay)
+                progress(busy, f"No brain is answering ({str(exc)[:80]}); trying again in {delay} s")
                 self.wait(delay, cancel)
                 continue
             unreachable = 0

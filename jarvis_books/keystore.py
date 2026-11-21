@@ -48,6 +48,7 @@ def unseal(data: bytes) -> bytes:
 
 
 def write_sealed(path: Path, raw: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(seal(raw))
     if sys.platform != "win32":
