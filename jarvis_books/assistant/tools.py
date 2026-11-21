@@ -135,7 +135,17 @@ COMPUTER_DECLARATIONS = [
                     "description": "Phoenix only: unsold state-held liens you can buy now (default) or all "
                                    "parcels with delinquent taxes"},
            "limit": {"type": "INTEGER", "description": "how many to list, 1-200 (default 25)"},
-           "sort": {"type": "STRING", "enum": ["price", "value"]}}, ["area"]),
+           "sort": {"type": "STRING", "enum": ["price", "value", "deal"],
+                    "description": "price (cheapest first, default), value, or deal: the best deals first "
+                                   "(most county value per dollar, skipping garage stalls and worthless strips)"}},
+          ["area"]),
+    _decl("online_tax_sales", "Online tax lien / tax deed auctions posted right now on the county auction "
+          "sites (GovEase, Bid4Assets, Zeus/SRI): which states and counties sell online, sale type, dates, "
+          "status and the link to register and bid. With no state it lists every state with online sales.",
+          {"state": {"type": "STRING", "description": "a state name or abbreviation; leave out for all states"},
+           "county": {"type": "STRING", "description": "only this county"},
+           "show_properties": {"type": "BOOLEAN", "description": "also list the properties with their starting "
+                                                                 "bids where the site shows them"}}, []),
     _decl("scrape_web_page", "Scrape a web page for its structure: title, links, headings, tables and list "
           "items, plus its plain text.", {"url": S}, ["url"]),
     _decl("call_api", "Get data from a web API (REST/JSON): weather, dictionaries, book databases like Open "
@@ -390,7 +400,8 @@ class ToolBox(PlannerTools, DesktopTools):
             "web_search": WEB_WORDS,
             "research_web": WEB_WORDS,
             "tax_lien_listings": ("tax lien", "tax-lien", "taxlien", "tax sale", "tax deed", "lien", "delinquent",
-                                  "foreclos", "sheriff sale", "levy sale"),
+                                  "foreclos", "sheriff sale", "levy sale", "deal"),
+            "online_tax_sales": ("online", "auction", "tax lien", "tax sale", "tax deed", "lien", "bid"),
             "read_web_page": WEB_WORDS + ("read", "link", "article"),
             "explore_website": WEB_WORDS + ("site", "explore", "dig", "more pages", "follow", "link"),
             "scrape_web_page": WEB_WORDS + ("scrape", "get data", "collect", "extract", "grab data", "table", "links", "list"),
@@ -1368,6 +1379,15 @@ class ToolBox(PlannerTools, DesktopTools):
                              property: str = "any") -> dict:
         return self._liens().listings(area, max_price, min_price, city, kind or "unsold", limit, sort or "price",
                                       property or "any")
+
+    def _t_online_tax_sales(self, state: str = "", county: str = "", show_properties: bool = False) -> dict:
+        online = self._liens().online_sales()
+        out = online.options(state, county)
+        if show_properties and state:
+            rows, _ = online.listings(state, county)
+            from dataclasses import asdict
+            out["properties"] = [asdict(r) for r in sorted(rows, key=lambda r: (r.price is None, r.price or 0))[:50]]
+        return out
 
     def _t_research_web(self, question: str, pages: int = 4) -> dict:
         return self._web().research(question, pages)

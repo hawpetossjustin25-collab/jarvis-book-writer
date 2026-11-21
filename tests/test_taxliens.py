@@ -468,3 +468,24 @@ def test_fulton_list_still_shows_when_parcel_facts_fail():
                                                   "address": "605 SOUTH EUGENIA PL NW"}])
     rows = tl.fulton()
     assert [(r.address, r.price, r.kind) for r in rows] == [("605 SOUTH EUGENIA PL NW", None, "unknown")]
+
+
+def test_listings_sorted_as_deals():
+    tl, _ = liens({DEKALB_LIST: Resp(body=DEKALB.encode())})
+    out = tl.listings("DeKalb", sort="deal")
+    assert out["listings"] and all("deal" in r["extra"] for r in out["listings"])
+
+
+def test_any_state_falls_back_to_online_auction_listings():
+    from jarvis_books.computer.taxliens import Listing
+    tl, _ = liens({})
+    tl.anywhere = lambda state, county: {"rows": [], "problems": {}, "where": "Baca County, CO",
+                                         "sale_type": "tax lien", "how_it_works": "h", "checked": []}
+
+    class Online:
+        def listings(self, state, county):
+            return [Listing(county="Baca County", parcel="R1", address="12 MAIN ST", price=99.0,
+                            price_note="starting bid on GovEase", kind="house")], [{"name": "CO - Baca"}]
+    tl.online = Online()
+    out = tl.listings("Baca County, Colorado")
+    assert [r["address"] for r in out["listings"]] == ["12 MAIN ST"] and out["online_auctions"] == [{"name": "CO - Baca"}]

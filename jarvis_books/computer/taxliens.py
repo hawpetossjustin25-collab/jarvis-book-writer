@@ -378,6 +378,7 @@ class TaxLiens:
         self.web = web
         self.read_pdf = read_pdf
         self.ocr = ocr
+        self.online = None
         self.clock = clock
         self.today = today
         self._cache: dict[str, tuple[float, list[Listing]]] = {}
@@ -594,6 +595,12 @@ class TaxLiens:
                 out[f["attributes"].get(key)] = f["attributes"]
         return out
 
+    def online_sales(self):
+        if self.online is None:
+            from jarvis_books.computer.online_sales import OnlineSales
+            self.online = OnlineSales(self.web, self.clock)
+        return self.online
+
     def county(self, name: str, kind: str = "unsold") -> list[Listing]:
         key = f"{name}:{kind}" if name == "maricopa" else name
         hit = self._cache.get(key)
@@ -648,10 +655,18 @@ class TaxLiens:
                 found = self.anywhere(state, county)
                 self._cache[key] = (self.clock(), found)
             rows, problems = list(found["rows"]), dict(found["problems"])
+            online: list = []
+            if not rows:
+                try:
+                    rows, online = self.online_sales().listings(state, county)
+                except (NotFound, ValueError) as exc:
+                    problems["online auctions"] = str(exc)
             counts = {found["where"]: len(rows)}
             how = {found["where"]: f"{STATES[state][0]} holds {found['sale_type']} sales: {found['how_it_works']}. "
                                    "Rules change, so check the county's own terms before bidding."}
             extra = {"sale_type": found["sale_type"], "sources_checked": found["checked"]}
+            if online:
+                extra["online_auctions"] = online[:20]
             if not rows:
                 extra["next_step"] = ("No list with rows was found on the county's sites. Use research_web and "
                                       "explore_website on the county treasurer, tax collector or sheriff site, or "
@@ -667,7 +682,11 @@ class TaxLiens:
             priced = [r for r in priced if r.price <= max_price]
         if min_price is None and max_price is None:
             priced += [r for r in rows if r.price is None]
-        if sort == "value":
+        if sort == "deal":
+            priced, skipped = rank_deals(priced)
+            if skipped:
+                extra["not_deals"] = skipped
+        elif sort == "value":
             priced.sort(key=lambda r: -(r.value or 0))
         else:
             priced.sort(key=lambda r: (r.price is None, r.price or 0))
@@ -679,6 +698,36 @@ class TaxLiens:
         if len(priced) > limit:
             out["more"] = f"{len(priced) - limit} more; ask with a price range, a city or a bigger limit"
         return out
+
+
+DEAL_MIN_VALUE = 10_000  # below this the "property" is usually a strip, easement or parcel part, not a deal
+
+
+def rank_deals(rows: list[Listing]) -> tuple[list[Listing], dict[str, int]]:
+    """Best deals first: most county value per dollar of price, leaving out parcel parts and near-worthless strips.
+
+    Listings without a price or a county value can't be judged, so they go last in price order.
+    """
+    skipped = {"parcel parts (garage stalls, common areas)": 0, f"worth under ${DEAL_MIN_VALUE:,}": 0}
+    scored, unknown = [], []
+    for r in rows:
+        if r.kind == "other":
+            skipped["parcel parts (garage stalls, common areas)"] += 1
+            continue
+        if r.value is not None and r.value < DEAL_MIN_VALUE:
+            skipped[f"worth under ${DEAL_MIN_VALUE:,}"] += 1
+            continue
+        if r.price and r.price > 0 and r.value:
+            ratio = r.value / r.price
+            r.extra["deal"] = {"value_per_dollar": round(ratio, 1),
+                               "why": f"county value ${r.value:,.0f} for ${r.price:,.2f} ({ratio:,.0f}x)"}
+            scored.append(r)
+        else:
+            r.extra["deal"] = {"value_per_dollar": None, "why": "no county value to compare the price with"}
+            unknown.append(r)
+    scored.sort(key=lambda r: -r.extra["deal"]["value_per_dollar"])
+    unknown.sort(key=lambda r: (r.price is None, r.price or 0))
+    return scored + unknown, {k: v for k, v in skipped.items() if v}
 
 
 MAX_PDF = 18 * 1024 * 1024  # Gemini takes files up to about 20 MB inline
