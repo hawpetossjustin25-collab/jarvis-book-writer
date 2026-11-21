@@ -118,6 +118,18 @@ COMPUTER_DECLARATIONS = [
           "(those matching look_for first), returning each page's text.",
           {"url": S, "look_for": {"type": "STRING", "description": "what you're after, to pick which links to follow"},
            "pages": {"type": "INTEGER", "description": "how many pages to read, 1-10 (default 5)"}}, ["url"]),
+    _decl("tax_lien_listings", "Current tax lien / tax sale property listings with prices, straight from the "
+          "county offices: Atlanta (Fulton and DeKalb counties) and Phoenix (Maricopa County). Each listing has "
+          "the parcel, address, owner, price (and whether it's exact or estimated), value, sale date and link.",
+          {"area": {"type": "STRING", "description": "atlanta, fulton, dekalb, phoenix or maricopa"},
+           "max_price": {"type": "NUMBER", "description": "highest price in dollars"},
+           "min_price": {"type": "NUMBER", "description": "lowest price in dollars"},
+           "city": {"type": "STRING", "description": "only this city or street (e.g. Phoenix, Mesa, Tolleson)"},
+           "kind": {"type": "STRING", "enum": ["unsold", "delinquent"],
+                    "description": "Phoenix only: unsold state-held liens you can buy now (default) or all "
+                                   "parcels with delinquent taxes"},
+           "limit": {"type": "INTEGER", "description": "how many to list, 1-200 (default 25)"},
+           "sort": {"type": "STRING", "enum": ["price", "value"]}}, ["area"]),
     _decl("scrape_web_page", "Scrape a web page for its structure: title, links, headings, tables and list "
           "items, plus its plain text.", {"url": S}, ["url"]),
     _decl("call_api", "Get data from a web API (REST/JSON): weather, dictionaries, book databases like Open "
@@ -371,6 +383,8 @@ class ToolBox(PlannerTools, DesktopTools):
             "command_output": ("output", "result", "finished", "done", "command", "terminal", "install"),
             "web_search": WEB_WORDS,
             "research_web": WEB_WORDS,
+            "tax_lien_listings": ("tax lien", "tax-lien", "taxlien", "tax sale", "tax deed", "lien", "delinquent",
+                                  "foreclos", "sheriff sale", "levy sale"),
             "read_web_page": WEB_WORDS + ("read", "link", "article"),
             "explore_website": WEB_WORDS + ("site", "explore", "dig", "more pages", "follow", "link"),
             "scrape_web_page": WEB_WORDS + ("scrape", "get data", "collect", "extract", "grab data", "table", "links", "list"),
@@ -1334,6 +1348,16 @@ class ToolBox(PlannerTools, DesktopTools):
         if not names:
             out["note"] = "no API keys are saved; the author can add one in Settings > API keys"
         return out
+
+    def _liens(self):
+        if getattr(self, "tax_liens", None) is None:
+            from jarvis_books.computer.taxliens import TaxLiens, gemini_pdf_reader
+            self.tax_liens = TaxLiens(self._web(), gemini_pdf_reader(self.vision) if self.vision else None)
+        return self.tax_liens
+
+    def _t_tax_lien_listings(self, area: str, max_price: Optional[float] = None, min_price: Optional[float] = None,
+                             city: str = "", kind: str = "unsold", limit: int = 25, sort: str = "price") -> dict:
+        return self._liens().listings(area, max_price, min_price, city, kind or "unsold", limit, sort or "price")
 
     def _t_research_web(self, question: str, pages: int = 4) -> dict:
         return self._web().research(question, pages)

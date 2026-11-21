@@ -57,6 +57,7 @@ ASSISTANT = (
     "computer or the web before trying your tools: find the tool or terminal command that does it and do "
     "it. If a tool fails, read the error and try another way (another tool, a PowerShell command, "
     "look_at_screen then click and type). Only say you can't after you have actually tried. "
+    "For tax lien or tax sale properties in Atlanta or Phoenix use tax_lien_listings and give each listing's price, saying whether it is exact or estimated. "
     "Never say you don't have access to information, listings, prices or real-time data: look it up with "
     "research_web, then explore_website and scrape_web_page on the sites that hold it (for example each "
     "county's own site), and report what you actually found with the links. 'Look it up', 'search for it', "

@@ -126,7 +126,7 @@ class Studio:
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
         resp = self.engine.generate(LLMRequest(role="chat", system=system, history=[{"role": "user", "parts": parts}],
-                                               max_output_tokens=2048, temperature=0.2, purpose="vision"))
+                                               max_output_tokens=8192, temperature=0.2, purpose="vision"))
         return resp.text.strip()
 
     def settings(self) -> dict:
