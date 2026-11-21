@@ -360,6 +360,7 @@ def test_jarvis_is_told_he_runs_the_whole_computer_not_just_the_app():
     assert "whole Windows computer" in text and "look_at_screen" in text and "open_item" in text
     assert "Never turn off virus protection" in text
     assert "book-writing studio" not in text
+    assert "Never say you don't have access to information" in text and "'use the researcher'" in text
 
 
 def test_needs_yes_is_unchanged():
