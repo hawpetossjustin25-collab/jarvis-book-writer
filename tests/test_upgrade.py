@@ -12,7 +12,7 @@ from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.jobs import JobManager
 from jarvis_books.upgrade import (FRESH_START_EVERY, Stopped, Upgrader, apply_edits, check_path, clean_env,
-                                  run_tests)
+                                  excerpt, run_tests)
 
 FEATURE = "def greet():\n    return 'hi'\n"
 FEATURE_TEST = "from jarvis_books.feature import greet\n\n\ndef test_greet():\n    assert greet()\n"
@@ -544,3 +544,28 @@ def test_upgrade_tests_run_without_opening_a_console_window(monkeypatch, tmp_pat
     monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
     assert upgrade._pytest(sys.executable, tmp_path, {}, [], 5) == (0, "1 passed")
     assert seen["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def test_an_excerpt_keeps_the_head_and_the_lines_around_each_change_and_marks_the_cuts():
+    old = "".join(f"line {i}\n" for i in range(1000))
+    new = old.replace("line 500\n", "line 500 changed\n")
+    cut = excerpt(old, new, context=5, head=3)
+    assert cut.startswith("line 0\nline 1\nline 2\n[...492 unchanged lines omitted...]\nline 495\n")
+    assert "line 500 changed\nline 501" in cut and cut.endswith("line 505\n[...494 unchanged lines omitted...]\n")
+    assert excerpt("", "a\nb\n") == "a\nb\n"  # a new file is all change
+
+
+def test_the_free_model_sees_only_the_changed_parts_of_a_big_file(library, app, tmp_path):
+    big = "".join(f"def f{i}():\n    return {i}\n\n\n" for i in range(2000))
+    (app / "jarvis_books/big.py").write_text(big)
+    up = make(library, app, tmp_path, ScriptedEngine())
+    copy = tmp_path / "copy"
+    up._fresh_copy(copy)
+    (copy / "jarvis_books/big.py").write_text(big.replace("return 1000\n", "return 'one thousand'\n"))
+    whole = {s.name: s for s in up._sections(copy, "x", ["jarvis_books/big.py"])}["jarvis_books/big.py"]
+    lean = {s.name: s for s in up._sections(copy, "x", ["jarvis_books/big.py"], cut_big=True)}
+    part = lean["jarvis_books/big.py"]
+    assert part.required and "return 'one thousand'" in part.text and "unchanged lines omitted" in part.text
+    assert len(part.text) < len(whole.text) // 5 and "return 1999" not in part.text
+    small = {s.name: s for s in up._sections(copy, "x", ["jarvis_books/feature.py"], cut_big=True)}
+    assert small["jarvis_books/feature.py"].text == FEATURE

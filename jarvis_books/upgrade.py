@@ -43,6 +43,8 @@ FRESH_START_EVERY = 6  # failed tries in a row before starting over from a clean
 PROTECTED_STRIKES = 3  # tries at the safety code before the build is stopped
 WAIT_STEPS = (30, 60, 120, 300, 600)  # seconds to wait when Gemini can't be reached
 FALLBACK_AFTER_S = 2 * 3600  # how long the main brain may be out before the free model on this computer takes over
+EXCERPT_OVER = 12000  # characters: a changed file bigger than this reaches the free model as the parts around changes
+EXCERPT_CONTEXT = 60  # lines kept on each side of a change in such an excerpt
 
 STR = {"type": "STRING"}
 EDIT_SCHEMA = {"type": "OBJECT", "properties": {
@@ -66,6 +68,28 @@ ENGINEER = (
     "whole: if a file you need isn't shown in full below (or ends in [...omitted...]), list it in "
     "'need_files' with no edits and it comes in full next time. Never write tests or code whose job is to "
     "print, raise or otherwise show you the app's source.")
+
+
+def excerpt(old: str, new: str, context: int = EXCERPT_CONTEXT, head: int = 30) -> str:
+    """The new text cut down to its first lines (imports) and the lines around each change from old; every cut
+    is marked so the model knows the file goes on."""
+    old_lines, new_lines = old.splitlines(True), new.splitlines(True)
+    keep = set(range(min(head, len(new_lines))))
+    for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_opcodes():
+        if tag != "equal":
+            keep.update(range(max(0, j1 - context), min(len(new_lines), max(j2, j1 + 1) + context)))
+    out, gap = [], 0
+    for n, line in enumerate(new_lines):
+        if n in keep:
+            if gap:
+                out.append(f"[...{gap} unchanged lines omitted...]\n")
+                gap = 0
+            out.append(line)
+        else:
+            gap += 1
+    if gap:
+        out.append(f"[...{gap} unchanged lines omitted...]\n")
+    return "".join(out)
 
 
 def app_root() -> Path:
@@ -294,7 +318,7 @@ class Upgrader:
                 lean = lambda: LLMRequest(  # noqa: E731
                     role=request.role, system=request.system, json_schema=request.json_schema,
                     temperature=request.temperature, purpose=request.purpose, instruction=request.instruction,
-                    sections=self._sections(copy, up["request"], changed, wanted=need))
+                    sections=self._sections(copy, up["request"], changed, wanted=need, cut_big=True))
                 resp, problem = self._fall_back(lean, out_since, busy, tries, progress)
                 if resp is None:
                     delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
@@ -390,15 +414,21 @@ class Upgrader:
         return sorted(set(out))
 
     def _sections(self, copy: Path, request: str = "", full: list[str] = (),
-                  wanted: list[str] = ()) -> list[PromptSection]:
+                  wanted: list[str] = (), cut_big: bool = False) -> list[PromptSection]:
         """Every source file, ranked so what Gemini asked for, already changed, or the request names fits first.
-        Files in full are always sent whole; wanted ones come next if there is room."""
+        Files in full are always sent (whole, or with cut_big only the parts around the changes of a big one);
+        wanted ones come next if there is room."""
         files = sorted(p.relative_to(copy).as_posix() for p in copy.rglob("*.py") if "__pycache__" not in p.parts)
         words = {w.rstrip("s") for w in re.findall(r"[a-z]{3,}", request.lower())}
         sections = [PromptSection("Files in the app", "\n".join(files), priority=95, required=True)]
         for rel in files:
             text = (copy / rel).read_text(encoding="utf-8")
             if rel in full:
+                if cut_big and len(text) > EXCERPT_OVER:
+                    live = self.root / rel
+                    old = live.read_text(encoding="utf-8") if live.is_file() else ""
+                    text = ("(Only the parts around your earlier changes are shown; edit inside them.)\n"
+                            + excerpt(old, text))
                 sections.append(PromptSection(rel, text, priority=90, required=True))
                 continue
             if rel in wanted:
