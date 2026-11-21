@@ -320,6 +320,43 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX idx_reminders_due ON reminders(status, due_at);
     """,
+    10: """
+    CREATE TABLE research_topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        kind TEXT NOT NULL DEFAULT 'topic',
+        focus TEXT NOT NULL DEFAULT '',
+        why TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'you',
+        status TEXT NOT NULL DEFAULT 'active',
+        interest REAL NOT NULL DEFAULT 0,
+        interest_at REAL NOT NULL,
+        rounds INTEGER NOT NULL DEFAULT 0,
+        dry_rounds INTEGER NOT NULL DEFAULT 0,
+        last_run_at REAL,
+        next_run_at REAL NOT NULL DEFAULT 0,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE research_findings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic_id INTEGER NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,
+        question TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        url TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        UNIQUE (topic_id, url)
+    );
+    CREATE INDEX idx_research_findings_topic ON research_findings(topic_id, created_at);
+    CREATE TABLE research_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic_id INTEGER REFERENCES research_topics(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+    """,
 }
 
 SCHEMA_VERSION = max(MIGRATIONS)

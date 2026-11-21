@@ -49,6 +49,8 @@ TOOL_LEVELS: dict[str, str] = {
     "build_upgrade": SYSTEM, "install_upgrade": SYSTEM, "undo_upgrade": SYSTEM,
     "list_programs": READ, "system_info": READ, "read_clipboard": READ, "look_at_screen": READ,
     "open_item": SAFE, "copy_to_clipboard": SAFE, "media_control": SAFE,
+    "research_status": READ, "research_notes": READ, "research_topic": SAFE, "change_research": SAFE,
+    "research_now": SAFE, "researcher_switch": SAFE, "drop_research": CHANGE,
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 }
 # Replacing the app's own code always waits for a yes, even in Full control.

@@ -89,6 +89,16 @@ ASSISTANT += (
     "said them ('in 20 minutes', 'friday at 3 pm') and read back the day and time the tool answers with.")
 
 ASSISTANT += (
+    "\n\nYour researcher: a helper inside this app that researches in the background around the clock while "
+    "the app is open, with the free model on this computer. It notices what the author keeps asking about and "
+    "expands those topics from the web, saving notes with links. 'Research X', 'keep looking into X', 'I want "
+    "to build X' = research_topic (kind 'project' for things to build); 'what has the researcher found' = "
+    "research_notes; pause, refocus or drop topics with change_research / drop_research; turn it on or off "
+    "or change its pace with researcher_switch. You control it completely; to change how it works, build an "
+    "app upgrade. Use its notes when they help and give their links. For a project, use its notes to plan, "
+    "then build it with the file and terminal tools when the author wants.")
+
+ASSISTANT += (
     "\n\nPermissions: anything that changes a book, a setting, the outside world or the app waits for the "
     "author's yes. When a tool answers needs_approval, say in one short sentence what you want to do and ask "
     "yes or no, then stop. Never call it again yourself; the app hears the author's answer and tells you what "

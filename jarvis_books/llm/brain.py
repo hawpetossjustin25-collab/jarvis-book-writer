@@ -1,4 +1,5 @@
-"""Jarvis's brain: Gemini and LFM3 (on this computer) behind one generate(), with an automatic switch.
+"""Jarvis's brain: Gemini, Groq's free cloud models and LFM3 (on this computer) behind one generate(), with an
+automatic switch.
 
 The author picks which one comes first. When it fails (offline, quota, overload, not running...) and the
 automatic switch is on, the same request goes to the other one, and the failed one is skipped for a cooldown.
@@ -18,17 +19,20 @@ from jarvis_books.llm.models import LLMRequest, LLMResponse, RuntimeConfig
 
 log = logging.getLogger(__name__)
 
-GEMINI, LOCAL = "gemini", "local"
-NAMES = {GEMINI: "Gemini", LOCAL: LABEL}
+GEMINI, GROQ, LOCAL = "gemini", "groq", "local"
+NAMES = {GEMINI: "Gemini", GROQ: "Groq", LOCAL: LABEL}
+# Who stands in, in order, when the first choice can't answer.
+BACKUPS = {GEMINI: (GROQ, LOCAL), GROQ: (GEMINI, LOCAL), LOCAL: (GEMINI, GROQ)}
 # Our own bad request or a blocked answer is not the brain's fault; everything else may switch.
 NO_SWITCH = ("invalid",)
 
 
 class Brain:
     def __init__(self, gemini, local, settings: Callable[[], dict], clock: Callable[[], float] = time.time,
-                 cooldown_s: float = 120.0):
+                 cooldown_s: float = 120.0, groq=None):
         self.gemini = gemini  # AdaptiveLLMEngine or None (no key)
         self.local = local  # LocalEngine
+        self.groq = groq  # GroqEngine (free cloud backup) or None
         self.settings = settings
         self.clock = clock
         self.cooldown_s = cooldown_s
@@ -39,7 +43,8 @@ class Brain:
 
     # ---- choice ----------------------------------------------------------------------
     def primary(self) -> str:
-        return LOCAL if self.settings().get("brain") == LOCAL else GEMINI
+        choice = self.settings().get("brain")
+        return choice if choice in (LOCAL, GROQ) else GEMINI
 
     def automatic(self) -> bool:
         return self.settings().get("brain_auto", "1") == "1"
@@ -48,25 +53,29 @@ class Brain:
         """fn(new brain, old brain, reason) whenever a different brain starts answering."""
         self._listeners.append(fn)
 
+    def _has_groq(self) -> bool:
+        return self.groq is not None and self.groq.available
+
     def order(self) -> list[str]:
         first = self.primary()
-        other = LOCAL if first == GEMINI else GEMINI
         if not self.automatic():
             return [first]
+        chain = [first] + [b for b in BACKUPS[first] if b != GROQ or self._has_groq()]
         now = self.clock()
-        down = [b for b in (first, other) if self._down.get(b, (0, ""))[0] > now]
-        return [b for b in (first, other) if b not in down] + down  # resting brains are the last resort
+        down = [b for b in chain if self._down.get(b, (0, ""))[0] > now]
+        return [b for b in chain if b not in down] + down  # resting brains are the last resort
 
     def _engine(self, which: str):
-        engine = self.gemini if which == GEMINI else self.local
+        engine = {GEMINI: self.gemini, GROQ: self.groq, LOCAL: self.local}[which]
         if engine is None:
-            raise LLMError("no Gemini key is set", kind="unavailable")
+            raise LLMError("no Gemini key is set" if which == GEMINI else f"{NAMES[which]} is not set up",
+                           kind="unavailable")
         return engine
 
     def ready(self) -> bool:
-        gemini_ok = self.gemini is not None and getattr(self.gemini, "_config", None) is not None
-        local_ok = self.local is not None and self.local.available
-        return gemini_ok or local_ok if self.automatic() else (gemini_ok if self.primary() == GEMINI else local_ok)
+        ok = {GEMINI: self.gemini is not None and getattr(self.gemini, "_config", None) is not None,
+              GROQ: self._has_groq(), LOCAL: self.local is not None and self.local.available}
+        return any(ok.values()) if self.automatic() else ok[self.primary()]
 
     # ---- the engine API -------------------------------------------------------------------
     def generate(self, request: LLMRequest) -> LLMResponse:
@@ -99,8 +108,9 @@ class Brain:
 
     @staticmethod
     def _for(which: str, request: LLMRequest) -> LLMRequest:
-        """LFM3 reads a small context, so it gets the shorter tool list when the caller gave one."""
-        if which == LOCAL and request.local_tools is not None:
+        """LFM3 reads a small context and Groq's free plan takes small requests, so they get the shorter tool
+        list when the caller gave one."""
+        if which in (LOCAL, GROQ) and request.local_tools is not None:
             return replace(request, tools=request.local_tools)
         return request
 
@@ -119,7 +129,9 @@ class Brain:
                 "answering_now": NAMES[self.current] if self.current else None,
                 "gemini": "no key" if self.gemini is None else (
                     "resting: " + self._down[GEMINI][1] if self._down.get(GEMINI, (0, ""))[0] > now else "ready"),
-                "lfm3": self.local.status() if self.local is not None else None}
+                "lfm3": self.local.status() if self.local is not None else None,
+                "groq": "no key" if not self._has_groq() else (
+                    "resting: " + self._down[GROQ][1] if self._down.get(GROQ, (0, ""))[0] > now else "ready")}
 
     def __getattr__(self, name: str):
         # embed, tts, live_model, profile... are Gemini-only and go straight to it.

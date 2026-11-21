@@ -32,6 +32,7 @@ from jarvis_books.ui.approval import ApprovalBar
 from jarvis_books.upgrade import app_root, describe as describe_upgrade
 from jarvis_books.ui.planner import AlarmCenter, PlannerTab
 from jarvis_books.ui.player import AudiobookPlayer
+from jarvis_books.ui.research import ResearchTab
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
 from jarvis_books.ui.workshop import Workshop
@@ -130,6 +131,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.workshop, "Workshop")
         self.planner_tab = PlannerTab(self.studio)
         self.tabs.addTab(self.planner_tab, "Planner")
+        self.research_tab = ResearchTab(self.studio)
+        self.tabs.addTab(self.research_tab, "Research")
         self.alarms = AlarmCenter(studio.planner, self, studio.home / "alarm.wav", tell_jarvis=self._alarm_to_jarvis)
         self.job_bar = QProgressBar()
         self.job_bar.setMaximumWidth(380)
@@ -1553,6 +1556,15 @@ class MainWindow(QMainWindow):
         krow.addWidget(self.key_edit, 1)
         krow.addWidget(save_key)
         form.addRow("Gemini key", krow)
+        self.groq_edit = QLineEdit()
+        self.groq_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.groq_edit.setPlaceholderText("Groq API key, free at console.groq.com (saved encrypted on this laptop)")
+        save_groq = QPushButton("Save key")
+        save_groq.clicked.connect(self._save_groq_key)
+        grow = QHBoxLayout()
+        grow.addWidget(self.groq_edit, 1)
+        grow.addWidget(save_groq)
+        form.addRow("Groq key (free backup)", grow)
         self.api_name_edit = QLineEdit()
         self.api_name_edit.setPlaceholderText("name, e.g. openweather")
         self.api_value_edit = QLineEdit()
@@ -1594,10 +1606,12 @@ class MainWindow(QMainWindow):
         self.jarvis_voice.currentTextChanged.connect(lambda v: self.studio.set_setting("jarvis_voice", v))
         form.addRow("Jarvis voice", self.jarvis_voice)
         lay.addLayout(form)
-        lay.addWidget(QLabel(f"<b>Jarvis's brain</b> (Gemini online, or {LABEL} running on this computer)"))
+        lay.addWidget(QLabel(f"<b>Jarvis's brain</b> (Gemini online, Groq's free plan online, or {LABEL} running on "
+                             f"this computer)"))
         brow = QHBoxLayout()
         self.brain_choice = QComboBox()
         self.brain_choice.addItem("Gemini (online, best writing)", "gemini")
+        self.brain_choice.addItem("Groq (online, free, about 1,000 requests a day)", "groq")
         self.brain_choice.addItem(f"{LABEL} (this computer, works offline)", "local")
         self.brain_choice.setCurrentIndex(max(0, self.brain_choice.findData(s["brain"])))
         self.brain_choice.currentIndexChanged.connect(
@@ -1770,6 +1784,19 @@ class MainWindow(QMainWindow):
         run_async(lambda: self.studio.set_api_key(key), lambda _: self._on_started(None),
                   lambda e: QMessageBox.warning(self, "Gemini key", f"That key did not work: {e}"))
 
+    def _save_groq_key(self) -> None:
+        key = self.groq_edit.text().strip()
+        if not key:
+            return
+        self.groq_edit.clear()
+        try:
+            self.studio.set_groq_key(key)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Groq key", f"Could not save the key: {exc}")
+            return
+        self.statusBar().showMessage("Groq key saved. Jarvis uses Groq when Gemini can't answer.", 8000)
+        self._refresh_brain()
+
     def _refresh_brain(self) -> None:
         st = self.studio.brain.status()
         lfm = st["lfm3"] or {}
@@ -1779,7 +1806,8 @@ class MainWindow(QMainWindow):
         else:
             local = lfm.get("problem") or f"{LABEL} is not ready"
         now = st["answering_now"] or st["first_choice"]
-        self.brain_state.setText(f"Answering now: {now}. Gemini: {st['gemini']}. {local}. Voice chat and "
+        self.brain_state.setText(f"Answering now: {now}. Gemini: {st['gemini']}. Groq: {st['groq']}. {local}. "
+                                 f"Voice chat and "
                                  f"audiobook voices always use Gemini.")
         self.brain_download.setVisible(not lfm.get("ready"))
         for box, value in ((self.brain_choice, self.brain_choice.findData(self.studio.settings()["brain"])),):
@@ -2002,6 +2030,7 @@ class MainWindow(QMainWindow):
         self.war_voice.stop()
         self.workshop.shutdown()
         self.planner_tab.shutdown()
+        self.research_tab.shutdown()
         self.alarms.shutdown()
         wait_for_tasks()
         self.studio.close()

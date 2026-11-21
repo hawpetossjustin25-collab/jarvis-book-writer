@@ -20,6 +20,8 @@ from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
 from jarvis_books.llm.brain import Brain
+from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
+    load_groq_key, save_groq_key
 from jarvis_books.llm.engine import AdaptiveLLMEngine
 from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
 from jarvis_books.llm.models import LLMRequest
@@ -30,6 +32,7 @@ from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
+from jarvis_books.research import RESEARCH_MODEL, ResearchClock, Researcher
 from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
@@ -62,7 +65,8 @@ class Studio:
         self.local = LocalEngine(local_client or OllamaClient(), state_path=self.home / "local_llm.json",
                                  **({"hardware_probe": probe} if probe else {}))
         # Gemini and LFM3 behind one generate(); the index and narrator use Gemini-only embeddings and speech.
-        self.brain = Brain(self.engine, self.local, self.settings)
+        self.groq = GroqEngine(self._groq_key, GROQ_CHAT)
+        self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq)
         self.index = StoryIndex(self.library, self.engine)
         self.context = ContextBuilder(self.library, self.index)
         self.writer = BookWriter(self.library, self.brain, self.index, self.context)
@@ -112,6 +116,18 @@ class Studio:
         self.reminder_clock = ReminderClock(self.planner)
         self.tools.planner = self.war_tools.planner = self.planner
         self.api_keys = ApiKeys(self.home)
+        # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.
+        self.research_local = LocalEngine(self.local.client, model=RESEARCH_MODEL,
+                                          state_path=self.home / "research_llm.json",
+                                          **({"hardware_probe": probe} if probe else {}))
+        self.researcher = Researcher(self.db, self.library, self.web, self.settings, local=self.research_local,
+                                     brain=self.brain, notes_dir=self.mirror_root / "_Research")
+        self.researcher.backup = self.local
+        self.researcher.cloud = GroqEngine(self._groq_key, GROQ_RESEARCH)
+        self.research_clock = ResearchClock(self.researcher)
+        for box in (self.tools, self.war_tools):
+            box.researcher, box.research_clock = self.researcher, self.research_clock
+        self.assistant.researcher = self.war_assistant.researcher = self.researcher
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
@@ -121,7 +137,7 @@ class Studio:
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
-                "full_control": "0"}
+                "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -160,6 +176,7 @@ class Studio:
                 log.exception("engine start failed")
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
+        self.research_clock.start()
         try:
             self._start_local()
         except Exception:
@@ -178,6 +195,12 @@ class Studio:
                 log.exception("could not resume app upgrades")
         if probe and self.engine is not None and not self.start_error:
             self.engine.refine()
+
+    def _groq_key(self) -> Optional[str]:
+        return load_groq_key(self.home)
+
+    def set_groq_key(self, key: str) -> None:
+        save_groq_key(key, self.home)
 
     def set_api_key(self, key: str) -> None:
         from jarvis_books.keystore import save_key
@@ -237,6 +260,7 @@ class Studio:
         return {"saved": str(path)}
 
     def close(self) -> None:
+        self.research_clock.stop()
         self.reminder_clock.stop()
         self.memory.shutdown()
         self.jobs.shutdown(wait=False)

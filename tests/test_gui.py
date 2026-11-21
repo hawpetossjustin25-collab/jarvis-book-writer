@@ -54,7 +54,7 @@ def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
         ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish",
-         "Workshop", "Planner"]
+         "Workshop", "Planner", "Research"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()

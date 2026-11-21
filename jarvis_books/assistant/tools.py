@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
 from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_WORDS, DesktopTools
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
+from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, GEMINI_CATALOG, GENDERS, NARRATOR, default_style, describe_voice, \
     edge_matching, who
@@ -58,11 +59,13 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
-TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner")
+TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
-                "dialogue_tags", "memory", "brain", "brain_auto", "full_control")
+                "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
+                "research_brain")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
-                   "brain": ("gemini", "local")}
+                   "brain": ("gemini", "groq", "local"), "research_brain": ("local", "groq", "gemini"),
+                   "researcher": ("0", "1")}
 APP_ACTIONS = ("mute_mic", "unmute_mic", "end_voice", "open_book_folder")
 SPEEDS = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
 
@@ -289,11 +292,13 @@ DECLARATIONS = [
           "app restarts.", {"upgrade_id": I}),
     _decl("undo_last_change", "Undo the most recent change: a chapter rewrite, outline or title change, new "
           "chapter, story bible entry, accepted War Room idea, setting or voice."),
-    _decl("brain_status", "Which brain Jarvis is thinking with: Gemini (online) or LFM3 (on this computer), "
+    _decl("brain_status", "Which brain Jarvis is thinking with: Gemini (online), Groq (free online backup) or LFM3 "
+          "(on this computer), "
           "which one comes first, whether the automatic switch is on, and how fast LFM3 runs here."),
-    _decl("switch_brain", "Switch Jarvis's brain. use: 'gemini' (online, best writing) or 'lfm3' (runs on this "
-          "computer, works offline, weaker at long writing). automatic: 'on' to switch by itself when one isn't "
-          "working, 'off' to never switch.", {"use": {"type": "STRING", "enum": ["gemini", "lfm3"]},
+    _decl("switch_brain", "Switch Jarvis's brain. use: 'gemini' (online, best writing), 'groq' (free online, "
+          "about 1,000 requests a day, needs its key in Settings) or 'lfm3' (runs on this computer, works offline, "
+          "weaker at long writing). automatic: 'on' to switch by itself when one isn't working, 'off' to never "
+          "switch.", {"use": {"type": "STRING", "enum": ["gemini", "groq", "lfm3"]},
                                               "automatic": {"type": "STRING", "enum": ["on", "off"]}}),
     _decl("voice_cast", "Audiobook voices of a book: the narrator and the voice each character speaks in "
           "(man, woman, boy, girl, older...).", {"book": BOOK}),
@@ -307,7 +312,7 @@ DECLARATIONS = [
            "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -319,7 +324,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools, DesktopTools):
+class ToolBox(PlannerTools, DesktopTools, ResearchTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -379,7 +384,7 @@ class ToolBox(PlannerTools, DesktopTools):
             "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
             "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
             "app_status": ("status", "what's playing", "doing", "app", "storage", "space", "running"),
-            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor", "planner"),
+            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor", "planner", "research"),
             "get_settings": ("setting", "voice", "speed", "wake", "mute", "author name"),
             "change_setting": ("setting", "voice", "speed", "faster", "slower", "wake", "auto-mute", "auto mute",
                                "author name", "my name", "turn on", "turn off"),
@@ -392,8 +397,8 @@ class ToolBox(PlannerTools, DesktopTools):
                          "check yourself", "tests pass", "fix yourself", "repair yourself"),
             "install_upgrade": ("upgrade", "install"),
             "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
-            "brain_status": ("brain", "gemini", "lfm", "local model", "offline", "which model", "switch"),
-            "switch_brain": ("brain", "gemini", "lfm", "local model", "offline", "switch", "use the"),
+            "brain_status": ("brain", "gemini", "groq", "lfm", "local model", "offline", "which model", "switch"),
+            "switch_brain": ("brain", "gemini", "groq", "lfm", "local model", "offline", "switch", "use the"),
             "voice_cast": ("voice", "cast", "narrator", "sound", "who reads"),
             "list_folder": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
             "read_file": ("file", "folder", "document", "desktop", "downloads", "my computer", "on my pc", "laptop", "code", ".py", ".txt", "save it to", "directory"),
@@ -427,6 +432,7 @@ class ToolBox(PlannerTools, DesktopTools):
             "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
             **{d["name"]: PLANNER_WORDS for d in PLANNER_DECLARATIONS},
             **{d["name"]: DESKTOP_WORDS for d in DESKTOP_DECLARATIONS},
+            **{d["name"]: RESEARCH_WORDS for d in RESEARCH_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -931,7 +937,7 @@ class ToolBox(PlannerTools, DesktopTools):
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:
@@ -951,6 +957,10 @@ class ToolBox(PlannerTools, DesktopTools):
             if not 0.5 <= rate <= 3.0:
                 raise ValueError("narration_speed must be between 0.5 and 3.0")
             return str(round(rate, 2))
+        if key == "research_pace":
+            if not v.isdigit() or not 1 <= int(v) <= 24 * 60:
+                raise ValueError("research_pace is the minutes between research rounds, 1 to 1440")
+            return str(int(v))
         if key == "author":
             if len(v) > 100:
                 raise ValueError("author name is too long")
@@ -1143,7 +1153,8 @@ class ToolBox(PlannerTools, DesktopTools):
         old = store.settings()
         changes = {}
         if use:
-            changes["brain"] = "local" if use.lower() in ("lfm3", "local", "lfm") else "gemini"
+            u = use.lower()
+            changes["brain"] = "local" if u in ("lfm3", "local", "lfm") else "groq" if u == "groq" else "gemini"
         if automatic:
             changes["brain_auto"] = "1" if automatic.lower() in _ON else "0"
         if not changes:
@@ -1154,12 +1165,14 @@ class ToolBox(PlannerTools, DesktopTools):
         def back():
             for key in changes:
                 store.set_setting(key, old[key])
-        self._push_undo("brain back to " + ("LFM3" if old["brain"] == "local" else "Gemini"), back)
+        self._push_undo("brain back to " + {"local": "LFM3", "groq": "Groq"}.get(old["brain"], "Gemini"), back)
         out = {"saved": True, **self._brain().status()}
         brain = self._brain()
         if changes.get("brain") == "gemini" and out["gemini"].startswith("resting"):
             out["warning"] = f"Gemini failed a moment ago ({out['gemini'][9:][:150]}); LFM3 answers until it works again"
 
+        if changes.get("brain") == "groq" and out["groq"] == "no key":
+            out["warning"] = "no Groq key is saved yet (Settings); the other brains answer until it is"
         if changes.get("brain") == "local" and not brain.local.available and not brain.local.initialize():
             out["warning"] = brain.local.problem + "; Gemini answers until it is ready"
         return out

@@ -36,6 +36,7 @@ class Assistant:
         self.per_book = per_book  # keep a separate conversation per book
         self.history_channels = tuple(history_channels) or (channel,)  # e.g. chat and voice are one conversation
         self.memory = None  # Jarvis's long-term memory (set by the Studio)
+        self.researcher = None  # the background researcher, whose notes Jarvis reads (set by the Studio)
 
     def _history(self) -> list[dict]:
         config = self.engine.get_runtime_configuration()
@@ -75,6 +76,9 @@ class Assistant:
         remembered = self.memory.prompt(text, self.tools.current_book_id) if self.memory is not None else ""
         if remembered:
             system += "\n\n" + remembered
+        researched = self.researcher.prompt(text) if self.researcher is not None else ""
+        if researched:
+            system += "\n\n" + researched
         reply = ""
         searches = 0
         for _ in range(MAX_TOOL_ROUNDS):
