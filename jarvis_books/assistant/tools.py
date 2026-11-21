@@ -118,10 +118,16 @@ COMPUTER_DECLARATIONS = [
           "(those matching look_for first), returning each page's text.",
           {"url": S, "look_for": {"type": "STRING", "description": "what you're after, to pick which links to follow"},
            "pages": {"type": "INTEGER", "description": "how many pages to read, 1-10 (default 5)"}}, ["url"]),
-    _decl("tax_lien_listings", "Current tax lien / tax sale property listings with prices, straight from the "
-          "county offices: Atlanta (Fulton and DeKalb counties) and Phoenix (Maricopa County). Each listing has "
-          "the parcel, address, owner, price (and whether it's exact or estimated), value, sale date and link.",
-          {"area": {"type": "STRING", "description": "atlanta, fulton, dekalb, phoenix or maricopa"},
+    _decl("tax_lien_listings", "Tax lien / tax sale property listings with prices from the county offices, for "
+          "any US state. Built in: Atlanta (Fulton, DeKalb), Phoenix (Maricopa) and Minneapolis (Hennepin); "
+          "anywhere else it finds the county's official sale list on the web. Each listing has the parcel, "
+          "address, owner, price (and whether it's exact or estimated), house or land, value, sale date and link.",
+          {"area": {"type": "STRING", "description": "a built-in city or county (atlanta, fulton, dekalb, phoenix, "
+                                                     "maricopa, minneapolis, hennepin), or 'County, State' or a "
+                                                     "state, e.g. 'Cook County, Illinois' or 'Ohio'"},
+           "property": {"type": "STRING", "enum": ["house", "land", "building", "other", "any"],
+                        "description": "only houses (homes), only land (lots), other buildings, parts like garage "
+                                       "stalls (other), or any (default)"},
            "max_price": {"type": "NUMBER", "description": "highest price in dollars"},
            "min_price": {"type": "NUMBER", "description": "lowest price in dollars"},
            "city": {"type": "STRING", "description": "only this city or street (e.g. Phoenix, Mesa, Tolleson)"},
@@ -1356,8 +1362,10 @@ class ToolBox(PlannerTools, DesktopTools):
         return self.tax_liens
 
     def _t_tax_lien_listings(self, area: str, max_price: Optional[float] = None, min_price: Optional[float] = None,
-                             city: str = "", kind: str = "unsold", limit: int = 25, sort: str = "price") -> dict:
-        return self._liens().listings(area, max_price, min_price, city, kind or "unsold", limit, sort or "price")
+                             city: str = "", kind: str = "unsold", limit: int = 25, sort: str = "price",
+                             property: str = "any") -> dict:
+        return self._liens().listings(area, max_price, min_price, city, kind or "unsold", limit, sort or "price",
+                                      property or "any")
 
     def _t_research_web(self, question: str, pages: int = 4) -> dict:
         return self._web().research(question, pages)

@@ -9,8 +9,9 @@ import pytest
 
 from jarvis_books.assistant.permissions import READ, level_of
 from jarvis_books.computer.taxliens import (
-    DEKALB_LIST, FULTON_MILLAGE, FULTON_PAGE, MARICOPA_RATE, TaxLiens, fulton_parcel, gemini_pdf_reader,
-    latest_fulton_list, parse_dekalb, parse_json_rows)
+    DEKALB_LIST, FULTON_MILLAGE, FULTON_PAGE, GENERIC_PROMPT, MARICOPA_RATE, TaxLiens, csv_rows, find_state,
+    fulton_parcel, gemini_pdf_reader, kind_of, latest_fulton_list, official, parse_dekalb, parse_json_rows,
+    rows_to_listings, xlsx_rows)
 from jarvis_books.errors import NotFound
 
 from tests.test_computer import Resp, web
@@ -205,19 +206,20 @@ def test_phoenix_filters_by_city_and_unknown_areas_are_refused():
     out = tl.listings("phoenix", city="mesa")
     assert [r["parcel"] for r in out["listings"]] == ["2"]
     assert tl.listings("phoenix", sort="value")["matching"] == 2
-    with pytest.raises(ValueError, match="Atlanta"):
+    with pytest.raises(ValueError, match="state"):
         tl.listings("Boise")
 
 
 def test_lists_are_cached_for_a_few_hours():
     now = [1000.0]
     tl, session = liens({DEKALB_LIST: Resp(body=DEKALB.encode())}, clock=lambda: now[0])
+    lists = lambda: sum(1 for u, _ in session.seen if u == DEKALB_LIST)
     tl.listings("dekalb")
     tl.listings("dekalb")
-    assert len(session.seen) == 1
+    assert lists() == 1
     now[0] += 7 * 3600
     tl.listings("dekalb")
-    assert len(session.seen) == 2
+    assert lists() == 2
 
 
 def test_jarvis_tool_is_free_to_read_and_returns_listings(library, tmp_path):
@@ -232,3 +234,181 @@ def test_jarvis_tool_is_free_to_read_and_returns_listings(library, tmp_path):
     assert out["listings"][0]["address"] == "2816 COLUMBIA DR"
     assert "tax_lien_listings" in {d["name"] for d in tools.select("find me tax lien properties in atlanta")}
     assert "tax_lien_listings" in {d["name"] for d in tools.declarations()}
+
+
+# ---- house or land ---------------------------------------------------------------------------------------
+def test_house_or_land_comes_from_the_countys_use_and_building_value():
+    assert kind_of("RESIDENTIAL", 179500) == "house"
+    assert kind_of("RESIDENTIAL", 0) == "land"
+    assert kind_of("VACANT LAND-RESIDENTIAL") == "land"
+    assert kind_of("ORPHAN PARCELS W/ RD ZONING") == "land"
+    assert kind_of("SFR GRADE 010-3 URBAN SUBDIVIDED", 1450) == "house"
+    assert kind_of("TRIPLEX") == "house"
+    assert kind_of("COMMERCIAL-PREFERRED", 1128400) == "building"
+    assert kind_of("", None) == "unknown"
+    assert kind_of("CONDO GARAGE/MISCELLANEOUS", 0) == "other"
+    assert kind_of("ASSOCIATED RESIDENTIAL PARCELS") == "other"
+    assert kind_of("CONDOS/TH COM AREA PARCEL") == "other"
+
+
+def test_dekalb_listings_say_house_or_land_and_can_be_filtered():
+    facts = {"15 055 01 006": {"ParcelID": "15 055 01 006", "PROPERTY_CLASS": "R4", "APPRAISED_VALUE": 156700,
+                               "BLDG_VALUE": 0},
+             "15 102 02 018": {"ParcelID": "15 102 02 018", "PROPERTY_CLASS": "R3", "APPRAISED_VALUE": 208000,
+                               "BLDG_VALUE": 179500}}
+    tl, _ = liens({DEKALB_LIST: Resp(body=DEKALB.encode()), "Tax_Parcels_2025": arcgis_join(facts, "ParcelID")})
+    houses = tl.listings("dekalb", property="house")["listings"]
+    assert [(r["address"], r["kind"], r["value"]) for r in houses] == [("2816 COLUMBIA DR", "house", 208000)]
+    land = tl.listings("dekalb", property="land")["listings"]
+    assert [r["address"] for r in land] == ["2640 RIVER RD"]
+    assert tl.listings("dekalb")["matching"] == 3
+    with pytest.raises(ValueError):
+        tl.listings("dekalb", property="castle")
+
+
+# ---- Minneapolis -----------------------------------------------------------------------------------------
+def test_hennepin_lists_delinquent_parcels_with_unpaid_tax_and_forfeited_land_for_sale():
+    parcels = [
+        {"PID": "0102824130131", "HOUSE_NO": 2530, "STREET_NM": "34TH ST E   ", "MUNIC_NM": "MINNEAPOLIS     ",
+         "OWNER_NM": "T E PHILLIPS ", "MKT_VAL_TOT": 190000, "TAX_TOT": 2578.16, "NET_TAX_PD": 0.0,
+         "EARLIEST_DELQ_YR": "25", "FORFEIT_LAND_IND": " ", "PR_TYP_NM1": "CONDOMINIUM", "BLDG_MV1": 150000},
+        {"PID": "0102924430075", "HOUSE_NO": 3037, "STREET_NM": "ULYSSES ST N E", "MUNIC_NM": "MINNEAPOLIS",
+         "OWNER_NM": "HENNEPIN FORFEITED LAND", "MKT_VAL_TOT": 0, "TAX_TOT": 0.0, "NET_TAX_PD": 0.0,
+         "EARLIEST_DELQ_YR": "  ", "FORFEIT_LAND_IND": "T", "PR_TYP_NM1": "VACANT LAND-RESIDENTIAL", "BLDG_MV1": 0},
+        {"PID": "0211724440002", "HOUSE_NO": 36, "STREET_NM": "ADDRESS UNASSIGNED", "MUNIC_NM": "MINNETRISTA",
+         "OWNER_NM": "HENNEPIN FORFEITED LAND", "MKT_VAL_TOT": 0, "TAX_TOT": 0.0, "NET_TAX_PD": 0.0,
+         "EARLIEST_DELQ_YR": "  ", "FORFEIT_LAND_IND": "T", "PR_TYP_NM1": "TRIPLEX", "BLDG_MV1": 0}]
+    tl, session = liens({"LAND_PROPERTY": lambda params: features(parcels)})
+    out = tl.listings("Minneapolis")
+    rows = {r["parcel"]: r for r in out["listings"]}
+    condo = rows["0102824130131"]
+    assert condo["price"] == 2578.16 and condo["address"] == "2530 34TH ST E" and condo["kind"] == "house"
+    assert "since 2025" in condo["status"] and "higher" in condo["price_note"]
+    assert condo["link"].endswith("pid=0102824130131")
+    lot = rows["0102924430075"]
+    assert lot["price"] is None and lot["status"].startswith("forfeited") and lot["kind"] == "land"
+    assert rows["0211724440002"]["address"] == "" and rows["0211724440002"]["kind"] == "house"
+    assert [r["parcel"] for r in tl.listings("hennepin", city="minnetrista")["listings"]] == ["0211724440002"]
+    assert "doesn't sell tax liens" in out["how_to_buy"]["hennepin"]
+    where = session.seen[0][1]["where"]
+    assert "EARLIEST_DELQ_YR" in where and "FORFEIT_LAND_IND" in where
+
+
+# ---- any state ---------------------------------------------------------------------------------------------
+def test_states_and_official_sites_are_recognized():
+    assert find_state("Cook County, Illinois") == "IL"
+    assert find_state("Wayne County, MI") == "MI"
+    assert find_state("West Virginia") == "WV" and find_state("Virginia") == "VA"
+    assert find_state("Boise") is None
+    assert official("https://www.cookcountytreasurer.com/x") and official("https://tax.ohio.gov/")
+    assert official("https://cuyahoga.sri-taxsale.com/list") and official("https://miamidade.realtaxdeed.com/")
+    assert not official("https://www.taxliencrowd-blog.com/best-deals")
+    assert TaxLiens.built_in("Maricopa County, Arizona") == ("maricopa",)
+    assert TaxLiens.built_in("Fulton County GA") == ("fulton",)
+    assert TaxLiens.built_in("Cook County, Illinois") is None
+
+
+def test_list_rows_are_found_by_their_header_with_the_amount_column_named():
+    table = [["Notice of tax sale"], ["Item", "Parcel Number", "Owner Name", "Property Address", "Minimum Bid", "Taxes Due"],
+             ["1", "12-34-567", "DOE JOHN", "10 VACANT LOT RD", "$1,250.00", "$900.00"],
+             ["2", "12-34-568", "ROE JANE", "12 MAIN ST", "$3,400.50", "$3,000.00"], ["", "", "", "", "", ""]]
+    rows = rows_to_listings(table, "Cook County, Illinois", "https://x.gov/list")
+    assert [(r.parcel, r.address, r.price, r.owner) for r in rows] == [
+        ("12-34-567", "10 VACANT LOT RD", 1250.0, "DOE JOHN"), ("12-34-568", "12 MAIN ST", 3400.5, "ROE JANE")]
+    assert rows[0].price_note == "'Minimum Bid' on the county's list" and rows[0].kind == "land"
+    assert rows_to_listings([["Name", "Phone"], ["a", "b"]], "x", "y") == []
+    assert csv_rows(b"Parcel\tAddress\tAmount Due\n1\t2 A ST\t$5\n")[1] == ["1", "2 A ST", "$5"]
+
+
+def make_xlsx(rows):
+    import io
+    import zipfile
+    strings, sheet = [], []
+    for i, row in enumerate(rows, 1):
+        cells = []
+        for j, v in enumerate(row):
+            ref = chr(65 + j) + str(i)
+            if isinstance(v, (int, float)):
+                cells.append(f'<c r="{ref}"><v>{v}</v></c>')
+            else:
+                strings.append(v)
+                cells.append(f'<c r="{ref}" t="s"><v>{len(strings) - 1}</v></c>')
+        sheet.append(f'<row r="{i}">{"".join(cells)}</row>')
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/sharedStrings.xml", f'<sst {ns}>' + "".join(f"<si><t>{s}</t></si>" for s in strings) + "</sst>")
+        z.writestr("xl/worksheets/sheet1.xml", f'<worksheet {ns}><sheetData>{"".join(sheet)}</sheetData></worksheet>')
+    return buf.getvalue()
+
+
+def test_excel_lists_are_read_without_a_spreadsheet_library():
+    data = make_xlsx([["PIN", "Situs Address", "Total Due"], ["0101", "5 ELM ST", 812.5]])
+    assert xlsx_rows(data) == [["PIN", "Situs Address", "Total Due"], ["0101", "5 ELM ST", "812.5"]]
+
+
+class FakeSearch:
+    def __init__(self, results):
+        self.results, self.queries = results, []
+
+    def __call__(self, query, limit=8):
+        self.queries.append(query)
+        return {"query": query, "engine": "test", "results": [{"title": u, "url": u, "snippet": ""} for u in self.results]}
+
+
+def test_any_county_finds_the_official_list_page_and_its_files():
+    page = """<h1>Annual Tax Sale</h1><table><tr><th>Parcel</th><th>Address</th><th>Amount Due</th></tr>
+    <tr><td>A-1</td><td>1 OAK ST</td><td>$2,100.00</td></tr></table>
+    <a href="/files/2026-tax-sale-list.csv">2026 tax sale list (CSV)</a>
+    <a href="/files/sale-list.xlsx">Excel list</a><a href="/files/sale-list.pdf">PDF list</a>
+    <a href="/files/minutes.pdf">Board minutes</a>
+    <a href="/pdfs/HowToAvoidTheTaxSale.pdf">How to avoid the tax sale</a>"""
+    xlsx = make_xlsx([["PIN", "Situs Address", "Total Due"], ["X-9", "9 PINE RD", 5000]])
+    pdf_rows = [{"parcel": "P-7", "address": "7 HOUSE LN", "amount": "$1,999.99", "amount_label": "Minimum Bid"}]
+    prompts = []
+    routes = {
+        "treasurer.cookcountyil.gov/taxsale": Resp(body=page.encode(), headers={"Content-Type": "text/html"},
+                                                     url="https://treasurer.cookcountyil.gov/taxsale"),
+        "2026-tax-sale-list.csv": Resp(body=b"Parcel,Address,Amount Due\nC-3,3 BIRCH AVE,$950\n",
+                                       headers={"Content-Type": "text/csv"},
+                                       url="https://treasurer.cookcountyil.gov/files/2026-tax-sale-list.csv"),
+        "sale-list.xlsx": Resp(body=xlsx, headers={"Content-Type": "application/octet-stream"},
+                               url="https://treasurer.cookcountyil.gov/files/sale-list.xlsx"),
+    }
+    tl, session = liens(routes, read_pdf=lambda pdf, prompt="": prompts.append(prompt) or pdf_rows)
+    tl.web.search = FakeSearch(["https://blog.example.com/tax-liens", "https://treasurer.cookcountyil.gov/taxsale"])
+    out = tl.listings("Cook County, Illinois", max_price=5000)
+    assert [(r["address"], r["price"]) for r in out["listings"]] == [
+        ("3 BIRCH AVE", 950.0), ("1 OAK ST", 2100.0), ("9 PINE RD", 5000.0)]
+    assert out["sale_type"] == "tax lien" and "Illinois holds tax lien sales" in out["how_to_buy"]["Cook County, Illinois"]
+    assert "https://treasurer.cookcountyil.gov/taxsale" in out["sources_checked"]
+    assert not any("blog.example.com" in u for u, _ in session.seen)
+    assert not any("minutes" in u or "Avoid" in u for u, _ in session.seen)
+    assert "Cook County, Illinois tax lien sale list" in tl.web.search.queries
+    assert out["listings"][0]["link"].endswith("2026-tax-sale-list.csv")
+    # the PDF wasn't fetched (3 files at most: CSV, Excel, then the PDF answered 404 here)
+    assert "problems" in out
+
+
+def test_pdf_lists_anywhere_are_read_by_gemini_with_the_general_prompt():
+    prompts = []
+    routes = {"county.gov/list.pdf": Resp(body=b"%PDF", headers={"Content-Type": "application/pdf"},
+                                            url="https://county.gov/list.pdf")}
+    rows = [{"parcel": "P-7", "address": "7 HOUSE LN", "amount": "$1,999.99", "amount_label": "Minimum Bid"}]
+    tl, _ = liens(routes, read_pdf=lambda pdf, prompt="": prompts.append(prompt) or rows)
+    tl.web.search = FakeSearch(["https://county.gov/list.pdf"])
+    out = tl.listings("Wayne County, MI")
+    assert out["listings"][0]["price"] == 1999.99 and "'Minimum Bid'" in out["listings"][0]["price_note"]
+    assert prompts == [GENERIC_PROMPT] and out["sale_type"] == "tax deed"
+
+
+def test_nothing_found_anywhere_says_what_to_try_next():
+    tl, _ = liens({})
+    tl.web.search = FakeSearch(["https://www.someblog.com/x"])
+    out = tl.listings("Ohio")
+    assert out["matching"] == 0 and "research_web" in out["next_step"] and out["sale_type"] == "tax deed"
+
+
+def test_a_cut_off_gemini_list_keeps_the_rows_it_finished():
+    text = '[{"parcel": "1", "address": "A"}, {"parcel": "2", "address": "B"}, {"parcel": "3", "addr'
+    assert [r["parcel"] for r in parse_json_rows(text)] == ["1", "2"]
