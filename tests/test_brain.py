@@ -380,3 +380,23 @@ def test_thinking_is_off_on_a_slow_computer_and_for_chat(tmp_path):
     assert client.chats[-1]["think"] is True
     eng.generate(LLMRequest(role="chat", instruction="hi"))
     assert client.chats[-1]["think"] is False
+
+
+def test_the_tool_list_counts_toward_lfm3s_context_and_the_most_relevant_tools_are_kept(tmp_path):
+    from jarvis_books.llm.sizing import estimate_tokens
+    client = FakeOllama()
+    eng = local(tmp_path, client)
+    eng.initialize()
+    eng.num_ctx = eng.MIN_CTX
+    tools = [{"name": f"tool_{i}", "description": "does a thing " * 40,
+              "parameters": {"type": "OBJECT", "properties": {"x": {"type": "STRING", "description": "y " * 30}}}}
+             for i in range(40)]
+    eng.generate(LLMRequest(role="chat", system="You are Jarvis. " * 800, instruction="run a command",
+                            history=[{"role": "user", "parts": [{"text": "word " * 2000}]}], tools=tools))
+    sent = client.chats[-1]
+    names = [t["function"]["name"] for t in sent["tools"]]
+    assert 0 < len(names) < 40 and names == [f"tool_{i}" for i in range(len(names))]
+    total = estimate_tokens(json.dumps(sent["tools"]), 3.0) + sum(
+        estimate_tokens(m.get("content") or "") for m in sent["messages"])
+    assert total + sent["options"]["num_predict"] <= eng.num_ctx
+    assert "run a command" in sent["messages"][-1]["content"]

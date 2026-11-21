@@ -391,7 +391,8 @@ class ToolBox(PlannerTools, DesktopTools):
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
                            "story_bible"]
-        names = list(dict.fromkeys(core + [n for n, words in extra.items() if any(w in t for w in words)]))
+        # what the request matched comes first: LFM3 drops tools from the end when its context is small
+        names = list(dict.fromkeys([n for n, words in extra.items() if any(w in t for w in words)] + core))
         if self.war_session_id is not None:
             names = [n for n in names if n not in WAR_ROOM_BLOCKED]
         return self.declarations(names)

@@ -326,8 +326,24 @@ class LocalEngine:
         return self.initialize()
 
     # ---- generation -------------------------------------------------------------------
+    TOOL_SHARE = 0.4  # of the input room; tools past it are dropped from the end of the (most relevant first) list
+
+    def _fit_tools(self, request: LLMRequest, budget_in: int) -> list[dict]:
+        """Ollama refuses a request bigger than its context, and the tool list counts too: keep the tools
+        that fit (the caller lists the most relevant first). JSON is dense, so it's counted at 3 chars a token."""
+        if not (request.tools and self.profile and self.profile.supports_tools):
+            return []
+        tools = to_tools(request.tools)
+        room = int(budget_in * self.TOOL_SHARE)
+        while tools and estimate_tokens(json.dumps(tools), 3.0) > room:
+            tools.pop()
+        return tools
+
     def build(self, request: LLMRequest) -> dict:
         budget_in, out = self.input_tokens(), self.output_tokens()
+        tools = self._fit_tools(request, budget_in)
+        if tools:
+            budget_in = max(512, budget_in - estimate_tokens(json.dumps(tools), 3.0))
         system = request.system
         if estimate_tokens(system) > budget_in * 0.5:
             system = _cut(system, int(budget_in * 0.5), 4.0, "start")
@@ -352,8 +368,8 @@ class LocalEngine:
             payload["options"]["temperature"] = float(request.temperature)
         if self.profile and self.profile.supports_thinking:
             payload["think"] = self.thinks(request.role)
-        if request.tools and self.profile and self.profile.supports_tools:
-            payload["tools"] = to_tools(request.tools)
+        if tools:
+            payload["tools"] = tools
         if request.json_schema:
             payload["format"] = to_json_schema(request.json_schema)
         return payload
