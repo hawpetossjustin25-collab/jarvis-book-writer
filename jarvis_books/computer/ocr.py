@@ -100,7 +100,24 @@ def available() -> bool:
 
 
 SALE = re.compile(r"\b\d{4}\s*-\s*\d{5}\b")
-PARCEL = re.compile(r"(\d{2}[A-Z0-9]?)\s*-\s*(\d{4})\s*-\s*([A-Z0-9]{1,4})\s*-\s*(\d{3})\s*-\s*(\d)\b")
+_D = r"[0-9OoIl]"  # OCR reads 0 as O/o and 1 as I/l
+_SEP = r"\s*[-_\u2013\u2014]+\s*"
+PARCEL = re.compile(
+    rf"({_D}{{2}}[A-Za-z0-9]?){_SEP}((?:{_D}\s?){{3}}{_D}){_SEP}([A-Za-z0-9]{{1,4}}){_SEP}"
+    rf"((?:{_D}\s?){{2}}{_D}){_SEP}({_D})\b")
+_DIGITS = str.maketrans("OoIl", "0011")
+
+
+def _digits(text: str) -> str:
+    return re.sub(r"\s", "", text).translate(_DIGITS)
+
+
+def _parcel(groups: tuple[str, ...]) -> str:
+    """The printed parcel ID with OCR's misread letters, stray spaces and dashes put right."""
+    district, book, lot, page, check = groups
+    district = _digits(district[:2]) + district[2:].upper()
+    lot = "LL" if lot[:1] in "Ll" else _digits(lot)
+    return "-".join((district, _digits(book), lot, _digits(page), _digits(check)))
 
 
 def fulton_rows(pages: list[list[str]]) -> list[dict]:
@@ -114,5 +131,5 @@ def fulton_rows(pages: list[list[str]]) -> list[dict]:
         address = re.sub(r"[|\[\]_]+", " ", text[p.end():])
         address = re.sub(r"\s+", " ", address).strip(" .,")
         out.append({"sale_number": re.sub(r"\s", "", sale.group(0)) if sale else "",
-                    "parcel": "-".join(p.groups()), "address": address})
+                    "parcel": _parcel(p.groups()), "address": address})
     return out

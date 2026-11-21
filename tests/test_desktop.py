@@ -357,6 +357,7 @@ def test_the_brain_hands_lfm3_the_short_list_and_gemini_the_full_one():
 def test_jarvis_is_told_he_runs_the_whole_computer_not_just_the_app():
     text = prompts.ASSISTANT
     assert "Never say you can only do things inside the app" in text
+    assert "say what you actually did" in text and "never steps you skipped" in text
     assert "whole Windows computer" in text and "look_at_screen" in text and "open_item" in text
     assert "Never turn off virus protection" in text
     assert "book-writing studio" not in text

@@ -68,3 +68,24 @@ def test_a_single_word_page_and_failures_are_handled():
         return subprocess.CompletedProcess(cmd, 1, "", "line 1\nWindows has no text-reading (OCR) language installed")
     with pytest.raises(RuntimeError, match="no text-reading"):
         ocr.windows_ocr(b"%PDF", run=broken)
+
+
+def test_every_row_of_the_real_december_list_survives_ocr_misreads():
+    """Windows OCR's real text of Fulton's Dec 2026 list: O for 0, l for 1, LI for LL, long dashes,
+    underscores and stray spaces inside the parcel ID must not lose a property."""
+    lines = (Path(__file__).parent / "fixtures" / "fulton_ocr_lines.txt").read_text(encoding="utf-8").splitlines()
+    rows = ocr.fulton_rows([lines])
+    assert len(rows) == 110
+    assert len({r["sale_number"] for r in rows}) == 110
+    got = {r["sale_number"]: (r["parcel"], r["address"]) for r in rows}
+    assert got["1226-58005"] == ("09C-0100-0003-025-1", "9955 CEDAR GROVE RD")
+    assert got["1226-58025"] == ("12-2044-0476-021-0", "335 SADDLE CREEK DR")
+    assert got["1226-58041"] == ("13-0133-LL-276-0", "340 DRESSAGE CT")
+    assert got["1226-58056"] == ("14-0049-0001-549-9", "860 PEACHTREE ST 2318")
+    assert got["1226-58145"] == ("14F-0024-0002-015-3", "4149 RENFREW CT SW")
+    assert got["1226-58149"] == ("14-0071-LL-054-7", "3665 THAXTON RD")
+    assert got["1226-58151"] == ("14F-0109-LL-044-4", "5440 CASCADE RD")
+    assert got["1226-58180"] == ("17-0186-0006-118-4", "1221 BRICKTON DR")
+    assert got["1226-58195"] == ("22-5030-0463-109-6", "O HOPEWELL RD")
+    from jarvis_books.computer.taxliens import fulton_parcel
+    assert fulton_parcel(got["1226-58041"][0]) == "13 0133  LL2760"
