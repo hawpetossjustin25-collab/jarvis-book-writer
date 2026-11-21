@@ -346,7 +346,8 @@ def test_links_copied_back_slightly_differently_still_count_and_dry_rounds_say_w
     res.web.pages = [[page(7)]]
     res.local.queue("researcher question", {"question": "q3"})
     res.local.queue("researcher notes", {"findings": [{"title": "X", "summary": "Y", "url": "https://other.example/7"}]})
-    assert "didn't match" in res.step("solar")["why"]
+    why = res.step("solar")["why"]
+    assert "didn't match" in why and "https://example.com/7" in why  # names the pages it read
 
 
 def test_a_search_limit_is_no_strike_against_the_topic(res):

@@ -384,8 +384,9 @@ class Researcher:
                         " VALUES (?,?,?,?,?,?)", (t["id"], question, title, summary[:1500], url, now))
                     added.append({"title": title, "summary": summary[:1500], "url": url})
                 if not added:
-                    why = (f"read {len(fresh)} page(s), but the notes the model wrote didn't match them" if given
-                           else f"read {len(fresh)} page(s) with nothing new or useful")
+                    read = ", ".join(p["url"] for p in fresh)[:300]
+                    why = (f"read {len(fresh)} page(s), but the notes the model wrote didn't match them ({read})"
+                           if given else f"read {len(fresh)} page(s) with nothing new or useful ({read})")
             if blocked:  # the search engines' limit, not the topic running dry: try again later, no strike
                 dry, wait = t["dry_rounds"], max(self.pace_s(), BLOCKED_WAIT_S)
             else:
