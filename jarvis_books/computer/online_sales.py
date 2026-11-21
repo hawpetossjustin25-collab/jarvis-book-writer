@@ -24,6 +24,7 @@ BID4ASSETS = "https://www.bid4assets.com/county-tax-sales"
 ZEUS = "https://www.zeusauction.com/methods/auctionresults.php"
 ZEUS_SITE = "https://www.zeusauction.com/"
 CACHE_S = 30 * 60
+BUILDING_WORDS = r"commercial|industrial|office|retail|store|warehouse|business|church|hotel|motel|apartment"
 NAMES = {name.lower(): abbr for abbr, (name, _, _) in STATES.items()}
 BLOCKED_PLATFORMS = [
     {"platform": "RealAuction (realtaxlien.com, realtaxdeed.com, arizonataxsale.com)",
@@ -226,11 +227,14 @@ class OnlineSales:
         out = []
         for r in items:
             desc = r["description"]
+            kind = kind_of(f"{desc} {r['address']}")
+            if kind == "building" and not re.search(BUILDING_WORDS, f"{desc} {r['address']}", flags=re.I):
+                kind = "unknown"  # GovEase descriptions are often just a legal note or district name
             out.append(Listing(
                 county=a.county or a.name, parcel=r["parcel"], address=r["address"], price=r["starting_bid"],
                 price_note=f"starting bid on GovEase ({r['sale_type'] or a.sale_type}), exact; bidding can go higher",
                 owner="" if r["owner"].lower() == "not available" else r["owner"], status="online auction",
-                property_type=desc[:80], kind=kind_of(desc), link=r["link"],
+                property_type=desc[:80], kind=kind, link=r["link"],
                 extra={"auction": r["auction"] or a.name, "platform": "GovEase"}))
         return out
 

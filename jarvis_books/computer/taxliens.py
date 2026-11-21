@@ -134,7 +134,7 @@ def kind_of(desc: str, building: Optional[float] = None) -> str:
     d = (desc or "").upper()
     if any(w in d for w in PART_WORDS):
         return "other"
-    if "VACANT" in d or d.startswith("LAND") or "ORPHAN" in d or re.search(r"\bLOTS?\b", d):
+    if "VACANT" in d or re.search(r"\bVAC\b", d) or d.startswith("LAND") or "ORPHAN" in d or re.search(r"\bLOTS?\b", d):
         return "land"
     if building is not None and building <= 0:
         return "land"
@@ -708,9 +708,13 @@ def rank_deals(rows: list[Listing]) -> tuple[list[Listing], dict[str, int]]:
 
     Listings without a price or a county value can't be judged, so they go last in price order.
     """
-    skipped = {"parcel parts (garage stalls, common areas)": 0, f"worth under ${DEAL_MIN_VALUE:,}": 0}
+    skipped = {"parcel parts (garage stalls, common areas)": 0, f"worth under ${DEAL_MIN_VALUE:,}": 0,
+               "not for sale yet (only delinquent)": 0}
     scored, unknown = [], []
     for r in rows:
+        if "can't be bought" in r.status:
+            skipped["not for sale yet (only delinquent)"] += 1
+            continue
         if r.kind == "other":
             skipped["parcel parts (garage stalls, common areas)"] += 1
             continue
@@ -719,13 +723,15 @@ def rank_deals(rows: list[Listing]) -> tuple[list[Listing], dict[str, int]]:
             continue
         if r.price and r.price > 0 and r.value:
             ratio = r.value / r.price
-            r.extra["deal"] = {"value_per_dollar": round(ratio, 1),
-                               "why": f"county value ${r.value:,.0f} for ${r.price:,.2f} ({ratio:,.0f}x)"}
+            estimate = "estimat" in r.price_note.lower()
+            r.extra["deal"] = {"value_per_dollar": round(ratio, 1), "price_is_estimate": estimate,
+                               "why": f"county value ${r.value:,.0f} for ${r.price:,.2f} ({ratio:,.0f}x)" +
+                                      ("; the price is only an estimate, so check the exact amount" if estimate else "")}
             scored.append(r)
         else:
             r.extra["deal"] = {"value_per_dollar": None, "why": "no county value to compare the price with"}
             unknown.append(r)
-    scored.sort(key=lambda r: -r.extra["deal"]["value_per_dollar"])
+    scored.sort(key=lambda r: (r.extra["deal"]["price_is_estimate"], -r.extra["deal"]["value_per_dollar"]))
     unknown.sort(key=lambda r: (r.price is None, r.price or 0))
     return scored + unknown, {k: v for k, v in skipped.items() if v}
 

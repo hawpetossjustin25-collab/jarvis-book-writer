@@ -23,6 +23,12 @@ GOVEASE_HTML = """
  <td style="display: none;">SINGLE FAMILY RESIDENCE</td><td style="display: none;">12 MAIN ST</td>
  <td style="display: none;"><span>Baca County 2026 Tax Lien Sale</span></td>
  <td style="display: none;"><span>Tax Lien</span></td><td>3d 2h</td><td></td></tr>
+<tr role="row" class="odd nobid"><td></td><td></td><td><a href="/co/cobaca/1235/openstandardparcel/7/R003">19</a></td>
+ <td>R003</td><td>Not Available</td><td class="alignDollar">$500.00</td><td>CITY-SANTA CLARI</td><td>VAC/AVE Q4/VIC 9TH STE</td>
+ <td>Baca County 2026 Tax Lien Sale</td><td>Tax Lien</td><td>3d</td><td></td></tr>
+<tr role="row" class="odd nobid"><td></td><td></td><td><a href="/co/cobaca/1235/openstandardparcel/8/R004">20</a></td>
+ <td>R004</td><td>Not Available</td><td class="alignDollar">$700.00</td><td>BRUSH CLEARANCE LIENS</td><td>9 OAK ST UNIT 5</td>
+ <td>Baca County 2026 Tax Lien Sale</td><td>Tax Lien</td><td>3d</td><td></td></tr>
 <tr role="row" class="even nobid"><td></td><td></td><td><a href="/co/cobaca/1235/openstandardparcel/6/R002">18</a></td>
  <td>R002</td><td>SMITH JOHN</td><td class="alignDollar">$88.00</td><td>VACANT LAND</td><td>0 COUNTY RD 4</td>
  <td>Baca County 2026 Tax Lien Sale</td><td>Tax Lien</td><td>3d 2h</td><td></td></tr>
@@ -70,8 +76,10 @@ def test_govease_auctions_and_parcels_are_read():
     assert auctions[1].url == "https://liveauctions.govease.com/CO/cobaca/1235/browsestandard"
     assert auctions[2].sale_type == "court-ordered tax sale"
     items = o.parse_govease_items(GOVEASE_HTML, auctions[1].url)
-    assert [(i["parcel"], i["starting_bid"], i["address"], i["sale_type"]) for i in items] == [
-        ("R001", 1234.5, "12 MAIN ST", "Tax Lien"), ("R002", 88.0, "0 COUNTY RD 4", "Tax Lien")]
+    assert [(i["parcel"], i["starting_bid"], i["address"]) for i in items] == [
+        ("R001", 1234.5, "12 MAIN ST"), ("R003", 500.0, "VAC/AVE Q4/VIC 9TH STE"), ("R004", 700.0, "9 OAK ST UNIT 5"),
+        ("R002", 88.0, "0 COUNTY RD 4")]
+    assert items[0]["sale_type"] == "Tax Lien"
     assert items[0]["link"] == "https://liveauctions.govease.com/co/cobaca/1235/openstandardparcel/5/R001"
 
 
@@ -123,7 +131,8 @@ def test_govease_parcels_become_priced_listings():
     rows, found = online(ALL).listings("Colorado", "Baca")
     assert [a["county"] for a in found] == ["Baca County"]
     assert [(r.address, r.price, r.kind, r.owner) for r in rows] == [
-        ("12 MAIN ST", 1234.5, "house", ""), ("0 COUNTY RD 4", 88.0, "land", "SMITH JOHN")]
+        ("12 MAIN ST", 1234.5, "house", ""), ("VAC/AVE Q4/VIC 9TH STE", 500.0, "land", ""),
+        ("9 OAK ST UNIT 5", 700.0, "unknown", ""), ("0 COUNTY RD 4", 88.0, "land", "SMITH JOHN")]
     assert "starting bid on GovEase" in rows[0].price_note and "exact" in rows[0].price_note
 
 
@@ -134,8 +143,15 @@ def L(price, value, kind="house", addr="x"):
 def test_deals_rank_by_value_per_dollar_and_skip_junk():
     rows = [L(1000, 50_000, addr="a"), L(500, 100_000, addr="b"), L(50, 800, "land", "strip"),
             L(30, 90_000, "other", "garage"), L(200, None, addr="novalue"), L(3000, 60_000, "land", "lot")]
+    guess = L(10, 90_000, addr="guess")
+    guess.price_note = "estimated yearly tax"
+    waiting = L(5, 400_000, addr="waiting")
+    waiting.status = "delinquent since 2024 (can't be bought until it forfeits)"
+    rows += [guess, waiting]
     ranked, skipped = rank_deals(rows)
-    assert [r.address for r in ranked] == ["b", "a", "lot", "novalue"]
+    assert [r.address for r in ranked] == ["b", "a", "lot", "guess", "novalue"]
+    assert "only an estimate" in ranked[3].extra["deal"]["why"]
     assert ranked[0].extra["deal"]["value_per_dollar"] == 200.0
-    assert skipped == {"parcel parts (garage stalls, common areas)": 1, "worth under $10,000": 1}
+    assert skipped == {"parcel parts (garage stalls, common areas)": 1, "worth under $10,000": 1,
+                       "not for sale yet (only delinquent)": 1}
     assert ranked[-1].extra["deal"]["value_per_dollar"] is None
