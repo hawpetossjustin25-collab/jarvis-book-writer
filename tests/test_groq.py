@@ -203,3 +203,14 @@ def test_studio_switches_to_groq_by_asking_jarvis(tmp_path, monkeypatch):
         assert "Groq" in s.researcher.status()["thinks_with"]
     finally:
         s.close()
+
+
+def test_gemini_accepts_tool_calls_another_model_made_earlier():
+    from jarvis_books.llm.gemini import OTHER_MODEL_SIGNATURE, build_payload
+    history = [{"role": "user", "parts": [{"text": "battery?"}]},
+               {"role": "model", "parts": [{"text": "checking"}, {"functionCall": {"name": "battery", "args": {}}}]},
+               {"role": "model", "parts": [{"functionCall": {"name": "x", "args": {}}, "thoughtSignature": "real"}]}]
+    sent = build_payload("", history, None, [], None, None)["contents"]
+    assert sent[1]["parts"][1]["thoughtSignature"] == OTHER_MODEL_SIGNATURE and "thoughtSignature" not in sent[1]["parts"][0]
+    assert sent[2]["parts"][0]["thoughtSignature"] == "real" and sent[0] is history[0]
+    assert "thoughtSignature" not in history[1]["parts"][1]  # the stored history is left as it was

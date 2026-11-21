@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlsplit
 
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.llm.errors import LLMError
@@ -76,6 +77,14 @@ DIGEST = (
 _STOP = {"the", "and", "for", "with", "that", "this", "what", "how", "about", "from", "into", "are", "was",
          "you", "your", "can", "could", "would", "should", "find", "search", "look", "tell", "more", "some",
          "any", "all", "get", "want", "need", "like", "make", "out", "new", "best", "jarvis", "please"}
+
+
+def _same_url(url: str) -> str:
+    """A link as models tend to copy it back: same page whatever the scheme, case of the host, 'www.',
+    a trailing slash or a #fragment."""
+    u = urlsplit(url.strip())
+    host = (u.hostname or "").lower().removeprefix("www.")
+    return f"{host}{u.path.rstrip('/')}" + (f"?{u.query}" if u.query else "")
 
 
 def _norm(name: str) -> str:
@@ -341,38 +350,48 @@ class Researcher:
             question = str(self._think(QUESTION, ask, QUESTION_SCHEMA, "researcher question").get("question")
                            or "").strip()[:200] or f"{t['name']} {t['focus']}".strip()
             seen = {r[0] for r in self.db.query("SELECT url FROM research_findings WHERE topic_id=?", (t["id"],))}
+            why = ""
             try:
-                pages = self.web.research(question, PAGES, SOURCE_CHARS)["sources"]
+                found = self.web.research(question, PAGES, SOURCE_CHARS)
+                pages = found.get("sources") or []
+                why = "" if pages else found.get("note") or "the search found nothing"
             except Exception as exc:
                 log.info("research search failed: %s", exc)
-                pages = []
+                pages, why = [], f"the web search failed ({exc})"[:200]
             fresh = [p for p in pages if p.get("url") and p["url"] not in seen]
+            if pages and not fresh:
+                why = "every page found was read before"
             added: list[dict] = []
             if fresh:
                 listing = "\n\n".join(f"[{i + 1}] {p.get('title') or ''}\nurl: {p['url']}\n{p['text'][:SOURCE_CHARS]}"
                                       for i, p in enumerate(fresh))
                 data = self._think(DIGEST, f"Topic: {t['name']}\nFocus: {t['focus'] or 'anything'}\n"
                                    f"Search: {question}\n\nPages:\n{listing}", DIGEST_SCHEMA, "researcher notes")
-                urls = {p["url"] for p in fresh}
-                for f in (data.get("findings") or [])[:PAGES]:
-                    if not isinstance(f, dict) or f.get("url") not in urls:
+                urls = {_same_url(p["url"]): p["url"] for p in fresh}
+                given = [f for f in (data.get("findings") or []) if isinstance(f, dict)]
+                for f in given[:PAGES]:
+                    url = urls.pop(_same_url(str(f.get("url") or "")), None)
+                    if url is None:
                         continue  # a link that isn't one of the pages read is made up
                     title, summary = str(f.get("title") or "").strip()[:200], str(f.get("summary") or "").strip()
                     if not title or not summary:
                         continue
                     self.db.execute(
                         "INSERT INTO research_findings (topic_id, question, title, summary, url, created_at)"
-                        " VALUES (?,?,?,?,?,?)", (t["id"], question, title, summary[:1500], f["url"], now))
-                    added.append({"title": title, "summary": summary[:1500], "url": f["url"]})
-                    urls.discard(f["url"])
+                        " VALUES (?,?,?,?,?,?)", (t["id"], question, title, summary[:1500], url, now))
+                    added.append({"title": title, "summary": summary[:1500], "url": url})
+                if not added:
+                    why = (f"read {len(fresh)} page(s), but the notes the model wrote didn't match them" if given
+                           else f"read {len(fresh)} page(s) with nothing new or useful")
             dry = 0 if added else t["dry_rounds"] + 1
             wait = 0.0 if added else (DAY if dry >= DRY_LIMIT else min(DAY, self.pace_s() * 2 ** dry))
             self.db.execute("UPDATE research_topics SET rounds=rounds+1, dry_rounds=?, last_run_at=?, next_run_at=?, "
                             "updated_at=? WHERE id=?", (dry, now, now + wait, now, t["id"]))
             rest = ", resting for a day" if dry >= DRY_LIMIT else ""
             self._log(t["id"], "found" if added else "nothing new", f"searched '{question}': " + (
-                f"saved {len(added)} note(s)" if added else f"nothing new{rest}"))
-            self.last_round = {"topic": t["name"], "question": question, "added": added, "at": now}
+                f"saved {len(added)} note(s)" if added else f"nothing new ({why}){rest}"))
+            self.last_round = {"topic": t["name"], "question": question, "added": added, "at": now,
+                               "why": "" if added else why}
             if added:
                 self._write_notes(t["id"])
             return self.last_round

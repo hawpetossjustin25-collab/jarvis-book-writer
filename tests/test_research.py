@@ -325,3 +325,24 @@ def test_a_refusing_model_hands_over_to_the_next(res):
     res.add_topic("Solar")
     res.backup.queue("researcher question", {"question": "q"})
     assert res.step()["question"] == "q" and "free limit used up" in res.problem
+
+
+def test_links_copied_back_slightly_differently_still_count_and_dry_rounds_say_why(res):
+    res.add_topic("Solar generators")
+    res.web.pages = [[{"title": "Guide", "url": "https://www.example.com/guide/", "text": "facts " * 40}]]
+    res.local.queue("researcher question", {"question": "q1"})
+    res.local.queue("researcher notes", {"findings": [
+        {"title": "Guide", "summary": "Useful.", "url": "http://example.com/guide"}]})
+    out = res.step()
+    assert [f["url"] for f in out["added"]] == ["https://www.example.com/guide/"]  # the page's own link is kept
+
+    res.web.pages = [[]]
+    res.local.queue("researcher question", {"question": "q2"})
+    out = res.step("solar")
+    assert out["added"] == [] and "search found nothing" in out["why"]
+    assert "search found nothing" in res.activity(1)[0]["detail"]
+
+    res.web.pages = [[page(7)]]
+    res.local.queue("researcher question", {"question": "q3"})
+    res.local.queue("researcher notes", {"findings": [{"title": "X", "summary": "Y", "url": "https://other.example/7"}]})
+    assert "didn't match" in res.step("solar")["why"]

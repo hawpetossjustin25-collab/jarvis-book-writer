@@ -129,7 +129,8 @@ def test_long_tool_run_keeps_the_question_and_earlier_conversation(engine):
         run += [{"role": "model", "parts": [{"functionCall": {"name": "research_web", "args": {"question": str(i)}}}]},
                 {"role": "user", "parts": [{"functionResponse": {"name": "research_web", "response": {"i": i}}}]}]
     payload, _, _ = engine.optimize_request(LLMRequest(role="chat", history=earlier + run), "gemini-9.0-flash-lite")
-    contents = payload["contents"]
+    contents = [{**c, "parts": [{k: v for k, v in part.items() if k != "thoughtSignature"} for part in c["parts"]]}
+                for c in payload["contents"]]
     assert contents[:2] == earlier and contents[2:] == run
 
 def test_adaptation_reduces_words_on_truncation_and_rolls_back(engine, fake):

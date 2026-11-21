@@ -202,10 +202,23 @@ def pcm_to_wav(pcm: bytes, rate: int = 24000, channels: int = 1, width: int = 2)
     return buf.getvalue()
 
 
+# Google's documented stand-in for tool calls another model (Groq, LFM3) made earlier in the conversation:
+# Gemini 3 refuses history whose function calls carry no thought signature.
+OTHER_MODEL_SIGNATURE = "skip_thought_signature_validator"
+
+
+def _signed(content: dict) -> dict:
+    parts = content.get("parts") or []
+    if not any("functionCall" in p and "thoughtSignature" not in p for p in parts):
+        return content
+    return {**content, "parts": [{**p, "thoughtSignature": OTHER_MODEL_SIGNATURE}
+                                 if "functionCall" in p and "thoughtSignature" not in p else p for p in parts]}
+
+
 def build_payload(system: str, contents: list[dict], json_schema: Optional[dict], tools: list[dict],
                   max_output_tokens: Optional[int], temperature: Optional[float],
                   thinking_budget: Optional[int] = None) -> dict:
-    payload: dict[str, Any] = {"contents": contents}
+    payload: dict[str, Any] = {"contents": [_signed(c) for c in contents]}
     if system:
         payload["systemInstruction"] = {"parts": [{"text": system}]}
     config: dict[str, Any] = {}
