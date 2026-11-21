@@ -1964,7 +1964,7 @@ class MainWindow(QMainWindow):
             self.job_bar.setFormat(f"{j.message[:60]} %p%")
         else:
             self.job_bar.hide()
-        if job.status in ("done", "failed", "cancelled") and job.kind == "upgrade":
+        if job.status in ("done", "failed", "cancelled") and job.kind in ("upgrade", "selftest"):
             self._refresh_upgrades()
         if job.status in ("done", "failed", "cancelled") and job.kind == "download":
             self._refresh_brain()

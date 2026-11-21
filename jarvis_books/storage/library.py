@@ -724,7 +724,7 @@ class Library:
         return out
 
     # ---- app upgrades -------------------------------------------------------------
-    UPGRADE_STATUSES = ("building", "ready", "failed", "installed", "undone")
+    UPGRADE_STATUSES = ("building", "ready", "failed", "stopped", "installed", "undone")
     _UPGRADE_JSON = ("files", "added", "hashes")
 
     def add_upgrade(self, request: str) -> dict:

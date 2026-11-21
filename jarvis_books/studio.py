@@ -96,6 +96,7 @@ class Studio:
         self.gate.subscribe(self.memory.on_permission)
         self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades")
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
+        self.upgrader.closing = lambda: self.jobs.closing
         # Jarvis's hands on this computer and the internet. Changes wait for the author's yes unless they
         # turned on Full control in Settings.
         self.gate.full_control = lambda: self.settings()["full_control"] == "1"
@@ -170,6 +171,11 @@ class Studio:
                 self.tools.resume_writing()
             except Exception:
                 log.exception("could not resume writing runs")
+        if self.engine is not None and not self.start_error:
+            try:
+                self.tools.resume_upgrades()
+            except Exception:
+                log.exception("could not resume app upgrades")
         if probe and self.engine is not None and not self.start_error:
             self.engine.refine()
 

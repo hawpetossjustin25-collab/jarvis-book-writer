@@ -24,7 +24,7 @@ from jarvis_books.llm.schema import validate
 from jarvis_books.memory.index import StoryIndex
 from jarvis_books.storage.library import Library
 from jarvis_books.text import paragraphs, truncate_words
-from jarvis_books.upgrade import describe as describe_upgrade
+from jarvis_books.upgrade import Stopped, describe as describe_upgrade
 from jarvis_books.writer.pipeline import MAX_CHAPTERS, BookWriter, Cancelled
 
 log = logging.getLogger(__name__)
@@ -244,6 +244,9 @@ DECLARATIONS = [
           "separate test copy, never the running app, and every test runs on it in the background. Nothing is "
           "installed; when it is ready ask the author, then install_upgrade.", {"request": S}, ["request"]),
     _decl("list_upgrades", "App upgrades: what each changes, whether its tests passed, and which are installed."),
+    _decl("test_app", "Run the app's own full test suite on the installed code. If any test fails, a repair "
+          "upgrade starts by itself and keeps fixing the code until every test passes; when it is ready ask "
+          "the author, then install_upgrade."),
     _decl("install_upgrade", "Install a tested app upgrade (status ready). The app restarts.",
           {"upgrade_id": I}, ["upgrade_id"]),
     _decl("undo_upgrade", "Put the app back the way it was before an installed upgrade (latest if omitted). The "
@@ -349,6 +352,8 @@ class ToolBox(PlannerTools, DesktopTools):
             "build_upgrade": ("upgrade", "feature", "improve the app", "change the app", "update the app",
                               "add a button", "add an option", "code", "fix the app", "bug"),
             "list_upgrades": ("upgrade", "feature", "install", "tests pass", "code"),
+            "test_app": ("test yourself", "run your tests", "test suite", "self test", "self-test",
+                         "check yourself", "tests pass", "fix yourself", "repair yourself"),
             "install_upgrade": ("upgrade", "install"),
             "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
             "brain_status": ("brain", "gemini", "lfm", "local model", "offline", "which model", "switch"),
@@ -515,6 +520,9 @@ class ToolBox(PlannerTools, DesktopTools):
                     who(args["gender"], args["age"]).lower() if args.get("gender") and args.get("age") else "",
                     f"'{args['style']}'" if args.get("style") else ""]
             return f"Change the voice of {args['character']} in '{book}' to " + ", ".join(b for b in bits if b)
+        if name == "test_app":
+            return ("Run the app's full test suite, and if anything fails, build a repair upgrade in a separate "
+                    "test copy that keeps fixing it until every test passes")
         if name == "build_upgrade":
             return ("Build an app upgrade in a separate test copy (the running app is not touched): "
                     + truncate_words(args.get("request", ""), 30))
@@ -949,13 +957,48 @@ class ToolBox(PlannerTools, DesktopTools):
             raise NotFound("app upgrades are not available here")
         return self.upgrader
 
+    def _start_upgrade(self, upgrade_id: int):
+        def build(progress, cancel):
+            try:
+                return self.upgrader.build(upgrade_id, progress, cancel)["status"]
+            except Stopped as exc:
+                raise Cancelled(str(exc)) from exc
+        return self.jobs.submit("upgrade", f"Building app upgrade #{upgrade_id}", build)
+
     def _t_build_upgrade(self, request: str) -> dict:
         up = self._upgrader().start(request)
-        job = self.jobs.submit("upgrade", f"Building app upgrade #{up['id']}",
-                               lambda p, c: self.upgrader.build(up["id"], p, c)["status"])
+        job = self._start_upgrade(up["id"])
         return {"started": True, "upgrade_id": up["id"], "job_id": job.id,
+                "keeps_going": "It keeps fixing failing tests until they all pass, or until the author says stop "
+                               "(cancel_job).",
                 "next": "When the job is done, check list_upgrades. Only a ready upgrade can be installed, and "
                         "only after the author says yes."}
+
+    def resume_upgrades(self) -> list[str]:
+        """Carry on with the upgrade builds that were going when the app closed. Returns their job ids."""
+        if self.upgrader is None:
+            return []
+        running = {j.title for j in self.jobs.active() if j.kind == "upgrade"}
+        return [self._start_upgrade(u["id"]).id for u in self.upgrader.unfinished()
+                if f"Building app upgrade #{u['id']}" not in running]
+
+    def _t_test_app(self) -> dict:
+        self._upgrader()
+        job = self.jobs.submit("selftest", "Testing the whole app", self._self_test)
+        return {"started": True, "job_id": job.id,
+                "next": "If any test fails, a repair upgrade starts by itself; check job_status and list_upgrades."}
+
+    def _self_test(self, progress, cancel) -> str:
+        progress(0.1, "Running every test on the app")
+        ok, output = self.upgrader.check()
+        if ok:
+            return "every test passes"
+        if cancel.is_set():
+            return "tests failed; stopped before repairing"
+        fix = self.upgrader.start("The app's own test suite fails. Fix the app's code so every test passes again, "
+                                  "without weakening or deleting tests. Test output:\n" + output[-3000:])
+        self._start_upgrade(fix["id"])
+        return f"tests failed; repair upgrade #{fix['id']} started and keeps going until every test passes"
 
     def _t_list_upgrades(self) -> dict:
         return {"upgrades": [{"id": u["id"], "asked": u["request"], "status": u["status"], "summary": u["summary"],

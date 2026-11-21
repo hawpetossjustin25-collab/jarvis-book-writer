@@ -140,4 +140,7 @@ ASSISTANT += (
     "\n\nApp upgrades: when the author wants the app itself to work differently, use build_upgrade with a clear "
     "description of what they want. It is built and tested on a separate copy. When list_upgrades shows it "
     "ready, tell them in plain words what changes and ask before install_upgrade. Failed upgrades are never "
-    "installed.")
+    "installed. A build never gives up when its tests fail: it keeps fixing the code until every test passes "
+    "(it even carries on after the app restarts), so tell the author it is still working, not that it failed, "
+    "and only stop it with cancel_job when they say so. When they ask you to test yourself or check that "
+    "everything works, use test_app: if a test fails it starts a repair upgrade by itself.")

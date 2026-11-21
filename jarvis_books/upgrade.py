@@ -4,6 +4,11 @@ Gemini edits a separate copy of the app, never the running one, and may only tou
 (no books, keys or protected safety code). The full test suite runs on that copy with a throwaway data folder
 and no secrets in its environment. Only a copy that passes is offered; installing it backs up every file it
 replaces, so the upgrade can be undone.
+
+Building never gives up on its own: when the tests fail, Gemini gets the failures and fixes them, again and
+again, until every test passes or the author stops it. Every few failed tries it starts over from a clean copy
+with notes on what went wrong, and when Gemini can't be reached it waits and tries again. The one thing that
+ends a build early is a change that would need the protected safety code.
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
@@ -31,8 +37,10 @@ PROTECTED = ("jarvis_books/assistant/permissions.py", "jarvis_books/ui/approval.
              "tests/test_upgrade.py", "tests/conftest.py")
 SECRET_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "GEMINI", "GOOGLE", "CREDENTIAL")
 MAX_FILES = 8
-MAX_ATTEMPTS = 3
 TEST_TIMEOUT_S = 900
+FRESH_START_EVERY = 6  # failed tries in a row before starting over from a clean copy
+PROTECTED_STRIKES = 3  # tries at the safety code before the build is stopped
+WAIT_STEPS = (30, 60, 120, 300, 600)  # seconds to wait when Gemini can't be reached
 
 STR = {"type": "STRING"}
 EDIT_SCHEMA = {"type": "OBJECT", "properties": {
@@ -111,30 +119,92 @@ def clean_env(scratch: Path) -> dict:
     return env
 
 
+def _pytest(python: str, root: Path, env: dict, args: list[str], timeout_s: int) -> tuple[int, str]:
+    try:
+        done = subprocess.run([python, "-m", "pytest", "-q", "-p", "no:cacheprovider", *args], cwd=str(root),
+                              env=env, capture_output=True, text=True, timeout=timeout_s,
+                              encoding="utf-8", errors="replace")
+    except subprocess.TimeoutExpired:
+        return -1, f"took longer than {timeout_s} seconds"
+    return done.returncode, done.stdout + done.stderr
+
+
+def _one_by_one(python: str, root: Path, env: dict, rel: str, timeout_s: int) -> list[tuple[str, str]]:
+    """Run each test of a file in its own process (a native crash in one, as Qt windows can do on Windows,
+    can't hide the others). A failing test gets one retry so a timing flake isn't counted as a bug."""
+    code, out = _pytest(python, root, env, ["--collect-only", rel], timeout_s)
+    ids = [line.strip() for line in out.splitlines() if "::" in line]
+    if not ids:
+        return [(rel, out)]
+    bad = []
+    for test_id in ids:
+        code, out = _pytest(python, root, env, [test_id], timeout_s)
+        if code != 0:
+            code, out = _pytest(python, root, env, [test_id], timeout_s)
+            if code != 0:
+                bad.append((test_id, out))
+    return bad
+
+
 def run_tests(root: Path, python: str = sys.executable, timeout_s: int = TEST_TIMEOUT_S) -> tuple[bool, str]:
+    """Every test file in its own process, the way the Windows installer runs them, so a crash in one file
+    can't sink the rest. A failing file is run once more; a crashed file is run one test at a time."""
+    root = Path(root)
+    files = sorted((root / "tests").glob("test_*.py"))
+    if not files:
+        return False, "no tests found under tests/"
+    passed, failed = [], []
     with tempfile.TemporaryDirectory(prefix="jb-upgrade-") as scratch:
-        try:
-            done = subprocess.run([python, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=str(root),
-                                  env=clean_env(Path(scratch)), capture_output=True, text=True, timeout=timeout_s,
-                                  encoding="utf-8", errors="replace")
-        except subprocess.TimeoutExpired:
-            return False, f"the tests took longer than {timeout_s} seconds"
-    output = (done.stdout + done.stderr)[-6000:]
-    return done.returncode == 0, output
+        env = clean_env(Path(scratch))
+        for f in files:
+            rel = f.relative_to(root).as_posix()
+            code, out = _pytest(python, root, env, [rel], timeout_s)
+            if code in (0, 5):  # 5: the file has no tests
+                passed.append(rel)
+                continue
+            if code == 1:
+                code, out = _pytest(python, root, env, [rel], timeout_s)
+                if code in (0, 5):
+                    passed.append(rel + " (on retry)")
+                else:
+                    failed.append((rel, out))
+            elif code == -1:
+                failed.append((rel, out))
+            else:
+                bad = _one_by_one(python, root, env, rel, timeout_s)
+                if bad:
+                    failed += bad
+                else:
+                    passed.append(rel + " (one test at a time)")
+    summary = f"{len(passed)} test files passed, {len(failed)} failed"
+    if not failed:
+        return True, summary + "\n" + "\n".join(passed)
+    share = max(800, 5000 // len(failed))
+    details = "\n\n".join(f"===== FAILED {name}\n{out[-share:]}" for name, out in failed)
+    return False, (summary + ": " + ", ".join(name for name, _ in failed) + "\n\n" + details)[-6000:]
 
 
 def _sha(path: Path) -> Optional[str]:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
+class Stopped(Exception):
+    """The app is closing mid-build; the build picks up again next time the app starts."""
+
+
 class Upgrader:
     def __init__(self, library, engine, work_root: Path, root: Optional[Path] = None,
-                 runner: Callable[[Path], tuple[bool, str]] = run_tests):
+                 runner: Callable[[Path], tuple[bool, str]] = run_tests, max_tries: int = 0,
+                 wait: Optional[Callable[[float, object], None]] = None):
         self.library = library
         self.engine = engine
         self.work_root = Path(work_root)
         self.root = Path(root) if root else app_root()
         self.runner = runner
+        self.max_tries = max_tries  # 0: keep going until the tests pass or the author stops it
+        self.wait = wait or (lambda seconds, cancel: cancel.wait(seconds) if cancel is not None
+                             else time.sleep(seconds))
+        self.closing: Callable[[], bool] = lambda: False  # set by the Studio: True while the app shuts down
 
     # ---- building (touches only the copy) ------------------------------------------------
     def start(self, request: str) -> dict:
@@ -143,15 +213,17 @@ class Upgrader:
             raise ValidationError("say what the upgrade should do")
         return self.library.add_upgrade(request)
 
-    def build(self, upgrade_id: int, progress: Callable[[float, str], None] = lambda p, m: None,
-              cancel=None) -> dict:
-        up = self.library.get_upgrade(upgrade_id)
-        if self.engine is None:
-            return self.library.update_upgrade(upgrade_id, status="failed", test_output="no Gemini key")
-        copy = self.work_root / str(upgrade_id) / "app"
+    def unfinished(self) -> list[dict]:
+        """Upgrades whose build was still going when the app closed."""
+        return [u for u in self.library.list_upgrades(200) if u["status"] == "building"]
+
+    def check(self) -> tuple[bool, str]:
+        """Run the full test suite on the app as it is installed now."""
+        return self.runner(self.root)
+
+    def _fresh_copy(self, copy: Path) -> None:
         if copy.exists():
             shutil.rmtree(copy)
-        progress(0.05, "Making a separate copy of the app")
         for item in COPY_ITEMS:
             src = self.root / item
             if src.is_dir():
@@ -159,32 +231,87 @@ class Upgrader:
             elif src.exists():
                 copy.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, copy / item)
+
+    def _stopped(self, cancel) -> bool:
+        if cancel is None or not cancel.is_set():
+            return False
+        if self.closing():
+            raise Stopped("the app is closing; this upgrade carries on next time it starts")
+        return True
+
+    def build(self, upgrade_id: int, progress: Callable[[float, str], None] = lambda p, m: None,
+              cancel=None) -> dict:
+        up = self.library.get_upgrade(upgrade_id)
+        if self.engine is None:
+            return self.library.update_upgrade(upgrade_id, status="failed", test_output="no Gemini key")
+        copy = self.work_root / str(upgrade_id) / "app"
+        progress(0.02, "Making a separate copy of the app")
+        self._fresh_copy(copy)
         feedback, changed, summary, output = "", [], "", ""
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            if cancel is not None and cancel.is_set():
-                return self.library.update_upgrade(upgrade_id, status="failed", test_output="stopped")
-            progress(0.1 + 0.8 * (attempt - 1) / MAX_ATTEMPTS, f"Gemini is writing the change (try {attempt})")
-            resp = self.engine.generate(LLMRequest(
-                role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
-                purpose="app upgrade", instruction=f"The author asked: {up['request']}" + feedback,
-                sections=self._sections(copy)))
+        history: list[str] = []
+        tries = failed_in_a_row = strikes = unreachable = 0
+        while not self.max_tries or tries < self.max_tries:
+            if self._stopped(cancel):
+                return self.library.update_upgrade(upgrade_id, status="stopped", summary=summary, files=changed,
+                                                   test_output=f"stopped by the author after {tries} tries\n"
+                                                               + output[-3000:])
+            if failed_in_a_row >= FRESH_START_EVERY:
+                progress(0.05, f"Starting over from a clean copy after {tries} tries")
+                self._fresh_copy(copy)
+                changed, failed_in_a_row = [], 0
+                feedback = ("\n\nEarlier tries did not pass, so this is a clean copy again. Take a different "
+                            "approach. What went wrong before:\n" + "\n".join(history[-FRESH_START_EVERY:]))
+            busy = min(0.9, 0.1 + 0.04 * tries)
+            progress(busy, f"Gemini is writing the change (try {tries + 1})")
+            try:
+                resp = self.engine.generate(LLMRequest(
+                    role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
+                    purpose="app upgrade", instruction=f"The author asked: {up['request']}" + feedback,
+                    sections=self._sections(copy)))
+            except Exception as exc:
+                delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
+                unreachable += 1
+                log.warning("upgrade %s: Gemini unreachable (%s); waiting %ss", upgrade_id, exc, delay)
+                progress(busy, f"Gemini isn't answering ({str(exc)[:80]}); trying again in {delay} s")
+                self.wait(delay, cancel)
+                continue
+            unreachable = 0
+            tries += 1
             data = resp.data or {}
             try:
                 changed = sorted(set(changed) | set(apply_edits(copy, list(data.get("edits") or []))))
             except (ValidationError, SyntaxError) as exc:
-                feedback = f"\n\nYour last answer could not be applied: {exc}. Fix it and answer again."
                 output = str(exc)
+                if "protected" in output:
+                    strikes += 1
+                    if strikes >= PROTECTED_STRIKES:
+                        return self.library.update_upgrade(
+                            upgrade_id, status="failed", summary=summary, files=changed,
+                            test_output="This upgrade would need the protected safety code (the yes/no gate, key "
+                                        "storage or the upgrader itself), which upgrades may never change. "
+                                        + output)
+                feedback = f"\n\nYour last answer could not be applied: {exc}. Fix it and answer again."
+                history.append(f"try {tries}: the edits could not be applied: {output[:300]}")
+                failed_in_a_row += 1
                 continue
             summary = (data.get("summary") or "").strip() or summary
             if not changed:
                 feedback, output = "\n\nYour last answer changed nothing. Make the change.", "no change"
+                history.append(f"try {tries}: changed nothing")
+                failed_in_a_row += 1
                 continue
-            progress(0.15 + 0.8 * (attempt - 1) / MAX_ATTEMPTS, "Running every test on the copy")
+            progress(busy + 0.03, f"Running every test on the copy (try {tries})")
             ok, output = self.runner(copy)
             if ok:
                 return self.library.update_upgrade(
                     upgrade_id, status="ready", summary=summary, files=changed, diff=self._diff(copy, changed),
-                    test_output=output, hashes={p: _sha(self.root / p) for p in changed})
+                    test_output=f"passed on try {tries}\n" + output, hashes={p: _sha(self.root / p) for p in changed})
+            first = output.strip().splitlines()[0] if output.strip() else "tests failed"
+            history.append(f"try {tries}: tests failed: {first[:300]}")
+            failed_in_a_row += 1
+            self.library.update_upgrade(upgrade_id, summary=summary, files=changed,
+                                        test_output=f"try {tries} failed, still fixing\n" + output)
+            progress(busy, f"Try {tries}: {first[:80]}; fixing it")
             feedback = ("\n\nThe edits were applied but the tests failed. They are in the current files below. "
                         "Fix the code (not the tests' intent). Test output:\n" + output[-3000:])
         return self.library.update_upgrade(upgrade_id, status="failed", summary=summary, files=changed,

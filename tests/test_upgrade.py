@@ -1,6 +1,7 @@
 """App upgrades: Gemini may only change a tested copy; installing needs a yes and can always be undone."""
 import os
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,8 @@ from jarvis_books.assistant.permissions import PermissionGate, level_of
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.jobs import JobManager
-from jarvis_books.upgrade import Upgrader, apply_edits, check_path, clean_env, run_tests
+from jarvis_books.upgrade import (FRESH_START_EVERY, Stopped, Upgrader, apply_edits, check_path, clean_env,
+                                  run_tests)
 
 FEATURE = "def greet():\n    return 'hi'\n"
 FEATURE_TEST = "from jarvis_books.feature import greet\n\n\ndef test_greet():\n    assert greet()\n"
@@ -26,7 +28,10 @@ class ScriptedEngine:
 
     def generate(self, request):
         self.requests.append(request)
-        return SimpleNamespace(text="", data=self.answers.pop(0))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(text="", data=answer)
 
 
 def edit(path, search, replace, summary="Jarvis says hello"):
@@ -47,8 +52,15 @@ def app(tmp_path):
     return root
 
 
-def make(library, app, tmp_path, engine, runner=lambda root: (True, "1 passed")):
-    return Upgrader(library, engine, tmp_path / "work", root=app, runner=runner)
+def make(library, app, tmp_path, engine, runner=lambda root: (True, "1 passed"), **kw):
+    kw.setdefault("wait", lambda seconds, cancel: None)
+    return Upgrader(library, engine, tmp_path / "work", root=app, runner=runner, **kw)
+
+
+def numbered(n):
+    """n answers that each change the greeting to a new word, so every try is a real change."""
+    words = ["hi"] + [f"w{i}" for i in range(n)]
+    return [edit("jarvis_books/feature.py", f"'{a}'", f"'{b}'") for a, b in zip(words, words[1:])]
 
 
 @pytest.mark.parametrize("bad", ["../x.py", "/etc/x.py", "C:/x.py", "jarvis_books\\x.py", "install.ps1",
@@ -102,7 +114,7 @@ def test_a_bad_answer_is_sent_back_to_gemini_and_retried(library, app, tmp_path)
 def test_failing_tests_are_fed_back_and_a_failed_upgrade_can_never_be_installed(library, app, tmp_path):
     engine = ScriptedEngine(GOOD, edit("jarvis_books/feature.py", "'hello'", "'hey'"),
                             edit("jarvis_books/feature.py", "'hey'", "'hiya'"))
-    up = make(library, app, tmp_path, engine, runner=lambda root: (False, "FAILED test_greet"))
+    up = make(library, app, tmp_path, engine, runner=lambda root: (False, "FAILED test_greet"), max_tries=3)
     u = up.build(up.start("hello")["id"])
     assert u["status"] == "failed" and len(engine.requests) == 3
     assert "FAILED test_greet" in engine.requests[1].instruction
@@ -210,5 +222,178 @@ def test_the_studio_upgrades_the_installed_app_folder(tmp_path):
         assert studio.upgrader.root == Path(__file__).resolve().parent.parent
         assert studio.tools.upgrader is studio.war_tools.upgrader is studio.upgrader
         assert os.path.isdir(studio.upgrader.root / "tests")
+    finally:
+        studio.close()
+
+
+# ---- builds keep going until the tests pass -----------------------------------------------------------------
+def test_a_build_keeps_fixing_failing_tests_past_any_fixed_number_of_tries(library, app, tmp_path):
+    results = [(False, f"1 test files passed, 1 failed: tests/test_feature.py try {i}") for i in range(4)]
+    results.append((True, "2 test files passed, 0 failed"))
+    engine = ScriptedEngine(*numbered(5))
+    up = make(library, app, tmp_path, engine, runner=lambda root: results.pop(0))
+    progress = []
+    u = up.build(up.start("hello")["id"], progress=lambda p, m: progress.append(m))
+    assert u["status"] == "ready" and len(engine.requests) == 5
+    assert u["test_output"].startswith("passed on try 5")
+    assert "try 3" in engine.requests[4].instruction  # the latest failure is handed back to Gemini
+    assert any("Try 4" in m and "fixing it" in m for m in progress)
+
+
+def test_while_still_fixing_the_latest_failure_is_visible(library, app, tmp_path):
+    seen = []
+    up = make(library, app, tmp_path, ScriptedEngine(*numbered(2)))
+
+    def runner(root):
+        if not seen:
+            seen.append(library.get_upgrade(1)["status"])
+            return False, "1 test files passed, 1 failed: tests/test_feature.py"
+        seen.append(library.get_upgrade(1)["test_output"])
+        return True, "ok"
+    up.runner = runner
+    assert up.build(up.start("hello")["id"])["status"] == "ready"
+    assert seen[0] == "building" and seen[1].startswith("try 1 failed, still fixing")
+
+
+def test_after_repeated_failures_it_starts_over_from_a_clean_copy(library, app, tmp_path):
+    copy = tmp_path / "work" / "1" / "app" / "jarvis_books" / "feature.py"
+    contents = []
+
+    def runner(root):
+        contents.append(copy.read_text())
+        return (len(contents) > FRESH_START_EVERY), "1 failed"
+    answers = numbered(FRESH_START_EVERY) + [GOOD]
+    engine = ScriptedEngine(*answers)
+    up = make(library, app, tmp_path, engine, runner=runner)
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and len(engine.requests) == FRESH_START_EVERY + 1
+    last = engine.requests[-1].instruction
+    assert "clean copy" in last and f"try {FRESH_START_EVERY}: tests failed" in last
+    assert "return 'hello'" in contents[-1]  # GOOD applied to the untouched original, not to the earlier tries
+
+
+def test_when_gemini_is_unreachable_it_waits_and_tries_again(library, app, tmp_path):
+    waits = []
+    engine = ScriptedEngine(ConnectionError("no internet"), RuntimeError("429 quota"), GOOD)
+    up = make(library, app, tmp_path, engine, wait=lambda seconds, cancel: waits.append(seconds))
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and waits == [30, 60]
+    assert u["test_output"].startswith("passed on try 1")
+
+
+def test_the_author_can_stop_a_build(library, app, tmp_path):
+    cancel = threading.Event()
+    up = make(library, app, tmp_path, ScriptedEngine(*numbered(3)))
+    up.runner = lambda root: (cancel.set(), (False, "1 failed"))[1]
+    u = up.build(up.start("hello")["id"], cancel=cancel)
+    assert u["status"] == "stopped" and "stopped by the author after 1 tries" in u["test_output"]
+    with pytest.raises(NotFound, match="not ready"):
+        up.install(u["id"])
+
+
+def test_a_build_interrupted_by_the_app_closing_carries_on_next_start(library, app, tmp_path):
+    cancel = threading.Event()
+    up = make(library, app, tmp_path, ScriptedEngine(*numbered(1)))
+    up.closing = lambda: True
+    up.runner = lambda root: (cancel.set(), (False, "1 failed"))[1]
+    uid = up.start("hello")["id"]
+    with pytest.raises(Stopped):
+        up.build(uid, cancel=cancel)
+    assert library.get_upgrade(uid)["status"] == "building" and [u["id"] for u in up.unfinished()] == [uid]
+
+    jobs = JobManager(library, workers=1)
+    tools = ToolBox(library, writer=None, index=None, jobs=jobs, gate=PermissionGate(library))
+    tools.upgrader = make(library, app, tmp_path, ScriptedEngine(GOOD))
+    started = tools.resume_upgrades()
+    assert len(started) == 1
+    jobs.wait(started[0], timeout=30)
+    assert library.get_upgrade(uid)["status"] == "ready"
+    assert tools.resume_upgrades() == []
+    jobs.shutdown()
+
+
+def test_a_build_needing_the_safety_code_is_the_one_thing_that_stops_early(library, app, tmp_path):
+    attack = edit("jarvis_books/assistant/permissions.py", "protected", "open")
+    engine = ScriptedEngine(attack, GOOD, attack, attack, GOOD)
+    up = make(library, app, tmp_path, engine, runner=lambda root: (False, "1 failed"))
+    u = up.build(up.start("let Jarvis skip the yes")["id"])
+    assert u["status"] == "failed" and len(engine.requests) == 4 and "may never change" in u["test_output"]
+
+
+# ---- the test runner: each file on its own, the way the Windows installer does it ------------------------------
+def write_tests(app, files):
+    for name, text in files.items():
+        (app / "tests" / name).write_text(text)
+
+
+def test_run_tests_runs_each_file_alone_and_reports_which_failed(app):
+    write_tests(app, {"test_ok.py": "def test_ok():\n    assert True\n",
+                      "test_bad.py": "def test_bad():\n    assert 1 == 2, 'broken on purpose'\n"})
+    ok, out = run_tests(app, timeout_s=120)
+    assert not ok and out.startswith("2 test files passed, 1 failed: tests/test_bad.py")
+    assert "broken on purpose" in out
+
+
+def test_a_flaky_file_passes_on_its_retry(app, tmp_path):
+    marker = tmp_path / "ran-once"
+    write_tests(app, {"test_flaky.py": f"from pathlib import Path\n\ndef test_flaky():\n    m = Path({str(marker)!r})\n"
+                                       "    first = not m.exists()\n    m.write_text('x')\n    assert not first\n"})
+    ok, out = run_tests(app, timeout_s=120)
+    assert ok and "tests/test_flaky.py (on retry)" in out
+
+
+def test_a_crashing_file_is_run_one_test_at_a_time(app):
+    write_tests(app, {"test_crash.py": "import os\n\ndef test_fine():\n    assert True\n\n"
+                                       "def test_crash():\n    os._exit(3)\n\ndef test_also_fine():\n    assert True\n"})
+    ok, out = run_tests(app, timeout_s=120)
+    assert not ok and "tests/test_crash.py::test_crash" in out
+    assert "test_fine" not in out.split("FAILED", 1)[1].split("\n")[0]
+
+
+def test_run_tests_needs_tests(tmp_path):
+    (tmp_path / "jarvis_books").mkdir()
+    assert run_tests(tmp_path) == (False, "no tests found under tests/")
+
+
+# ---- test_app: Jarvis tests himself and repairs what fails --------------------------------------------------------
+def test_test_app_reports_all_passing(library, app, tmp_path):
+    jobs = JobManager(library, workers=2)
+    gate = PermissionGate(library)
+    tools = ToolBox(library, writer=None, index=None, jobs=jobs, gate=gate)
+    tools.upgrader = make(library, app, tmp_path, ScriptedEngine())
+    ask = tools.call("test_app")
+    assert ask["needs_approval"] and "keeps fixing it" in ask["asking"]
+    started = gate.answer(True)["result"]
+    assert jobs.wait(started["job_id"], timeout=30).result == "every test passes"
+    assert library.list_upgrades() == []
+    jobs.shutdown()
+
+
+def test_test_app_starts_a_repair_that_keeps_going_until_the_tests_pass(library, app, tmp_path):
+    jobs = JobManager(library, workers=2)
+    gate = PermissionGate(library)
+    gate.full_control = lambda: True
+    tools = ToolBox(library, writer=None, index=None, jobs=jobs, gate=gate)
+    results = [(False, "FAILED tests/test_feature.py::test_greet"), (False, "still failing"), (True, "all passed")]
+    tools.upgrader = make(library, app, tmp_path, ScriptedEngine(*numbered(2)), runner=lambda root: results.pop(0))
+    started = tools.call("test_app")
+    assert "keeps going" in jobs.wait(started["job_id"], timeout=30).result
+    repair = library.list_upgrades()[0]
+    assert "FAILED tests/test_feature.py::test_greet" in repair["request"]
+    build = next(j for j in jobs.recent() if j.kind == "upgrade")
+    jobs.wait(build.id, timeout=30)
+    assert library.get_upgrade(repair["id"])["status"] == "ready"
+    assert (app / "jarvis_books/feature.py").read_text() == FEATURE  # still needs the author's yes to install
+    jobs.shutdown()
+
+
+def test_the_studio_resumes_unfinished_upgrades_and_stops_them_cleanly_on_close(tmp_path):
+    from jarvis_books.studio import Studio
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=None)
+    try:
+        assert studio.upgrader.closing() is False
+        studio.jobs.closing = True
+        assert studio.upgrader.closing() is True
+        studio.jobs.closing = False
     finally:
         studio.close()
