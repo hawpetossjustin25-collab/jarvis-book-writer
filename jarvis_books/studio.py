@@ -98,7 +98,14 @@ class Studio:
         self.writer.guidance = self.memory.writing_guidance
         self.warroom.memory = self.memory
         self.gate.subscribe(self.memory.on_permission)
-        self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades")
+        # When Gemini has been out for hours, upgrades carry on with Qwen3-4B on this computer, given a long
+        # context and plenty of time, since an upgrade reads far more code than a chat turn.
+        self.upgrade_local = LocalEngine(self.local.client, model=RESEARCH_MODEL,
+                                         state_path=self.home / "upgrade_llm.json",
+                                         answer_budget_s=1800.0, prompt_budget_s=1800.0,
+                                         **({"hardware_probe": probe} if probe else {}))
+        self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades", fallback=self.upgrade_local)
+        self.upgrader.fallback_name = "Qwen3-4B on this computer"
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.upgrader.closing = lambda: self.jobs.closing
         # Jarvis's hands on this computer and the internet. Changes wait for the author's yes unless they

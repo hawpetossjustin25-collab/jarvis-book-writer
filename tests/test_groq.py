@@ -201,6 +201,8 @@ def test_studio_switches_to_groq_by_asking_jarvis(tmp_path, monkeypatch):
         assert s.researcher.cloud.model != s.groq.model  # research has its own daily allowance
         assert s.tools.run("change_setting", {"key": "research_brain", "value": "groq"})["value"] == "groq"
         assert "Groq" in s.researcher.status()["thinks_with"]
+        assert s.upgrader.engine is s.brain and s.upgrader.fallback is s.upgrade_local
+        assert s.upgrade_local.model == s.research_local.model and s.upgrade_local is not s.research_local
     finally:
         s.close()
 

@@ -436,3 +436,70 @@ def test_gemini_is_told_to_ask_for_files_instead_of_writing_probe_tests():
     from jarvis_books.upgrade import EDIT_SCHEMA, ENGINEER
     assert "need_files" in EDIT_SCHEMA["properties"] and "need_files" in ENGINEER
     assert "Never write tests or code whose job is to print" in ENGINEER
+
+
+class Fallback(ScriptedEngine):
+    def __init__(self, *answers, ready=True):
+        super().__init__(*answers)
+        self.available, self.ready = False, ready
+
+    def initialize(self):
+        self.available = self.ready
+        return self.ready
+
+
+def clocked(library, app, tmp_path, engine, fallback, after=100):
+    now, waits, said = [0.0], [], []
+    up = make(library, app, tmp_path, engine, fallback=fallback, fallback_after_s=after, clock=lambda: now[0],
+              wait=lambda seconds, cancel: (waits.append(seconds), now.__setitem__(0, now[0] + seconds)))
+    return up, waits, said
+
+
+def test_upgrades_wait_for_gemini_before_using_the_slower_free_model(library, app, tmp_path):
+    fallback = Fallback(GOOD)
+    up, waits, said = clocked(library, app, tmp_path, ScriptedEngine(RuntimeError("429"), RuntimeError("429"), GOOD),
+                              fallback)
+    u = up.build(up.start("hello")["id"], progress=lambda p, m: said.append(m))
+    assert u["status"] == "ready" and waits == [30, 60] and fallback.requests == []
+    assert not any("free model" in m for m in said)
+
+
+def test_after_a_long_outage_the_free_model_writes_the_change(library, app, tmp_path):
+    out = [RuntimeError("429 quota")] * 5
+    fallback = Fallback(GOOD)
+    up, waits, said = clocked(library, app, tmp_path, ScriptedEngine(*out), fallback)
+    up.fallback_name = "Qwen3-4B on this computer"
+    u = up.build(up.start("hello")["id"], progress=lambda p, m: said.append(m))
+    assert u["status"] == "ready" and u["test_output"].startswith("passed on try 1")
+    assert waits == [30, 60, 120] and len(fallback.requests) == 1  # out 90 s: too soon; out 210 s: Qwen writes it
+    assert fallback.requests[0].instruction.startswith("The author asked: hello")
+    assert any("Qwen3-4B on this computer is writing the change" in m for m in said)
+    assert "return 'hello'" in (up.work_root / str(u["id"]) / "app/jarvis_books/feature.py").read_text()
+
+
+def test_gemini_takes_over_again_as_soon_as_it_answers(library, app, tmp_path):
+    words = numbered(2)
+    engine = ScriptedEngine(RuntimeError("down"), RuntimeError("down"), RuntimeError("down"), words[1])
+    fallback = Fallback(words[0])
+    runs = []
+    up, waits, said = clocked(library, app, tmp_path, engine, fallback, after=50)
+    up.runner = lambda root: (runs.append(1), (len(runs) > 1, "ok" if len(runs) > 1 else "1 failed"))[1]
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and u["test_output"].startswith("passed on try 2")
+    assert len(fallback.requests) == 1 and len(engine.requests) == 4
+
+
+def test_a_free_model_that_is_not_downloaded_just_keeps_the_wait_going(library, app, tmp_path):
+    fallback = Fallback(GOOD, ready=False)
+    engine = ScriptedEngine(*([RuntimeError("down")] * 4), GOOD)
+    up, waits, said = clocked(library, app, tmp_path, engine, fallback)
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and waits == [30, 60, 120, 300] and fallback.requests == []
+
+
+def test_a_failing_free_model_does_not_stop_the_build(library, app, tmp_path):
+    fallback = Fallback(ConnectionError("ollama stopped"), ConnectionError("ollama stopped"))
+    engine = ScriptedEngine(*([RuntimeError("down")] * 4), GOOD)
+    up, waits, said = clocked(library, app, tmp_path, engine, fallback, after=50)
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and waits == [30, 60, 120, 300] and len(fallback.requests) == 2

@@ -42,6 +42,7 @@ TEST_TIMEOUT_S = 900
 FRESH_START_EVERY = 6  # failed tries in a row before starting over from a clean copy
 PROTECTED_STRIKES = 3  # tries at the safety code before the build is stopped
 WAIT_STEPS = (30, 60, 120, 300, 600)  # seconds to wait when Gemini can't be reached
+FALLBACK_AFTER_S = 2 * 3600  # how long the main brain may be out before the free model on this computer takes over
 
 STR = {"type": "STRING"}
 EDIT_SCHEMA = {"type": "OBJECT", "properties": {
@@ -202,9 +203,14 @@ class Stopped(Exception):
 class Upgrader:
     def __init__(self, library, engine, work_root: Path, root: Optional[Path] = None,
                  runner: Callable[[Path], tuple[bool, str]] = run_tests, max_tries: int = 0,
-                 wait: Optional[Callable[[float, object], None]] = None):
+                 wait: Optional[Callable[[float, object], None]] = None, fallback=None,
+                 fallback_after_s: float = FALLBACK_AFTER_S, clock: Callable[[], float] = time.time):
         self.library = library
         self.engine = engine
+        self.fallback = fallback  # slower free model, used only once the main brain has been out a long time
+        self.fallback_after_s = fallback_after_s
+        self.fallback_name = "the free model on this computer"
+        self.clock = clock
         self.work_root = Path(work_root)
         self.root = Path(root) if root else app_root()
         self.runner = runner
@@ -259,6 +265,7 @@ class Upgrader:
         asks = 0
         history: list[str] = []
         tries = failed_in_a_row = strikes = unreachable = 0
+        out_since: Optional[float] = None
         while not self.max_tries or tries < self.max_tries:
             if self._stopped(cancel):
                 return self.library.update_upgrade(upgrade_id, status="stopped", summary=summary, files=changed,
@@ -272,18 +279,23 @@ class Upgrader:
                             "approach. What went wrong before:\n" + "\n".join(history[-FRESH_START_EVERY:]))
             busy = min(0.9, 0.1 + 0.04 * tries)
             progress(busy, f"Jarvis is writing the change (try {tries + 1})")
+            request = LLMRequest(
+                role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
+                purpose="app upgrade", instruction=f"The author asked: {up['request']}" + feedback,
+                sections=self._sections(copy, up["request"], need + changed))
             try:
-                resp = self.engine.generate(LLMRequest(
-                    role="planner", system=ENGINEER, json_schema=EDIT_SCHEMA, temperature=0.2,
-                    purpose="app upgrade", instruction=f"The author asked: {up['request']}" + feedback,
-                    sections=self._sections(copy, up["request"], need + changed)))
+                resp = self.engine.generate(request)
+                out_since = None
             except Exception as exc:
-                delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
-                unreachable += 1
-                log.warning("upgrade %s: no brain reachable (%s); waiting %ss", upgrade_id, exc, delay)
-                progress(busy, f"No brain is answering ({str(exc)[:80]}); trying again in {delay} s")
-                self.wait(delay, cancel)
-                continue
+                out_since = self.clock() if out_since is None else out_since
+                resp = self._fall_back(request, out_since, busy, tries, progress)
+                if resp is None:
+                    delay = WAIT_STEPS[min(unreachable, len(WAIT_STEPS) - 1)]
+                    unreachable += 1
+                    log.warning("upgrade %s: no brain reachable (%s); waiting %ss", upgrade_id, exc, delay)
+                    progress(busy, f"No brain is answering ({str(exc)[:80]}); trying again in {delay} s")
+                    self.wait(delay, cancel)
+                    continue
             unreachable = 0
             tries += 1
             data = resp.data or {}
@@ -335,6 +347,25 @@ class Upgrader:
                         "Fix the code (not the tests' intent). Test output:\n" + output[-3000:])
         return self.library.update_upgrade(upgrade_id, status="failed", summary=summary, files=changed,
                                            diff=self._diff(copy, changed), test_output=output)
+
+    def _fall_back(self, request: LLMRequest, out_since: float, busy: float, tries: int,
+                   progress: Callable[[float, str], None]):
+        """The fallback's answer once the main brain has been out for fallback_after_s, else None. The main brain
+        is still asked first on every try, so it takes over again as soon as it answers."""
+        fb = self.fallback
+        out_for = self.clock() - out_since
+        if fb is None or out_for < self.fallback_after_s:
+            return None
+        try:
+            if not getattr(fb, "available", True) and not fb.initialize():
+                log.info("upgrade fallback not ready: %s", getattr(fb, "problem", ""))
+                return None
+            progress(busy, f"The main brain has been out for {out_for / 60:.0f} min, so {self.fallback_name} "
+                           f"is writing the change (try {tries + 1}); this is slower")
+            return fb.generate(request)
+        except Exception as exc:
+            log.warning("upgrade fallback failed: %s", exc)
+            return None
 
     @staticmethod
     def _readable(copy: Path, paths: list) -> list[str]:
