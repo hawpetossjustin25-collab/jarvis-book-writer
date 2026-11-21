@@ -32,7 +32,7 @@ from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
-from jarvis_books.research import RESEARCH_MODEL, ResearchClock, Researcher
+from jarvis_books.research import RESEARCH_MODEL, RESEARCH_TIME_S, ResearchClock, Researcher
 from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
@@ -124,8 +124,10 @@ class Studio:
         self.tools.planner = self.war_tools.planner = self.planner
         self.api_keys = ApiKeys(self.home)
         # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.
+        # Nobody waits on a research round, so Qwen gets room to read whole pages and write full notes.
         self.research_local = LocalEngine(self.local.client, model=RESEARCH_MODEL,
                                           state_path=self.home / "research_llm.json",
+                                          answer_budget_s=RESEARCH_TIME_S, prompt_budget_s=RESEARCH_TIME_S,
                                           **({"hardware_probe": probe} if probe else {}))
         self.researcher = Researcher(self.db, self.library, self.web, self.settings, local=self.research_local,
                                      brain=self.brain, notes_dir=self.mirror_root / "_Research")

@@ -322,6 +322,23 @@ def test_web_search_falls_back_to_bing_when_duckduckgo_wants_a_robot_check():
                               {"title": "Liquid models compared", "url": "https://plain.org/x", "snippet": ""}]
 
 
+def test_a_robot_check_rests_duckduckgo_and_says_the_engines_are_limiting():
+    from jarvis_books.computer.web import ROBOT_REST_S
+    session = Session({"duckduckgo": Resp(202, b"<form>anomaly challenge</form>"), "bing.com/search": Resp(body=b""),
+                       "wikipedia.org/w/api.php": Resp(body=b'{"query": {"search": []}}')})
+    w = Web(session, check_address=lambda u: u)
+    now = [1000.0]
+    w.clock = lambda: now[0]
+    out = w.research("solar generator battery life")
+    assert out["sources"] == [] and out["blocked"] and "limiting searches" in out["note"]
+    asked = sum("duckduckgo" in u for u, _ in session.seen)
+    assert w.search("solar generator prices").get("blocked")
+    assert sum("duckduckgo" in u for u, _ in session.seen) == asked  # left alone while it rests
+    now[0] += ROBOT_REST_S
+    session.routes["duckduckgo"] = Resp(body=_results("https://b.org/2"))
+    assert not w.search("solar generator prices").get("blocked")
+
+
 def test_off_topic_bing_results_are_dropped_and_wikipedia_answers_last():
     junk = (b'<li class="b_algo"><h2><a href="https://game.org/dead-space">Dead Space</a></h2>'
             b'<p>A horror game.</p></li>')

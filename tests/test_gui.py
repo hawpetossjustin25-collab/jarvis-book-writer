@@ -491,6 +491,21 @@ def test_workshop_reloads_a_file_jarvis_changed(window, qapp, tmp_path):
     assert pump(qapp, lambda: ws.editor.toPlainText() == "print('from jarvis')\n", timeout=15)
 
 
+def test_workshop_reloads_a_rewrite_that_kept_the_same_file_time(window, qapp, tmp_path):
+    win, studio, _ = window
+    ws, proj = win.workshop, _project(tmp_path)
+    target = proj / "hello.py"
+    ws.open_file(str(target))
+    ws.watcher.removePaths(ws.watcher.files())  # like Windows after a replace: only the poll is left
+    before = target.stat().st_mtime_ns
+    tmp = proj / "hello.py.new"
+    tmp.write_text("print('same tick')\n")
+    os.replace(tmp, target)
+    os.utime(target, ns=(before, before))  # Windows' coarse clock can give the new file the old time
+    assert pump(qapp, lambda: ws.editor.toPlainText() == "print('same tick')\n", timeout=5)
+    assert "reloaded" in ws.status.text()
+
+
 def test_workshop_runs_files_commands_and_tests(window, qapp, tmp_path):
     win, studio, _ = window
     ws, proj = win.workshop, _project(tmp_path)

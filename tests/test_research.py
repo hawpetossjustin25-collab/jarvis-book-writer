@@ -51,7 +51,8 @@ class Web:
 
     def research(self, question, pages=4, max_chars=0):
         self.asked.append(question)
-        return {"question": question, "sources": self.pages.pop(0) if self.pages else []}
+        got = self.pages.pop(0) if self.pages else []
+        return {"question": question, **got} if isinstance(got, dict) else {"question": question, "sources": got}
 
 
 def page(n):
@@ -346,3 +347,17 @@ def test_links_copied_back_slightly_differently_still_count_and_dry_rounds_say_w
     res.local.queue("researcher question", {"question": "q3"})
     res.local.queue("researcher notes", {"findings": [{"title": "X", "summary": "Y", "url": "https://other.example/7"}]})
     assert "didn't match" in res.step("solar")["why"]
+
+
+def test_a_search_limit_is_no_strike_against_the_topic(res):
+    from jarvis_books.research import BLOCKED_WAIT_S
+    res.add_topic("Solar generators")
+    res.web.pages = [{"sources": [], "blocked": True, "note": "the search engines are limiting searches right now"}]
+    res.local.queue("researcher question", {"question": "q1"})
+    out = res.step()
+    t = res.topic("solar")
+    assert out["added"] == [] and "limiting searches" in out["why"]
+    assert t["dry_rounds"] == 0 and t["next_run_at"] == res.test.clock.now + BLOCKED_WAIT_S
+    assert res.next_topic() is None
+    res.test.clock.now += BLOCKED_WAIT_S
+    assert res.next_topic()["name"] == "Solar generators"

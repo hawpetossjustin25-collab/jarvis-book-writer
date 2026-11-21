@@ -37,6 +37,8 @@ OBSERVE_MAX = 40
 PAGES = 3
 SOURCE_CHARS = 2500
 DRY_LIMIT = 5  # rounds in a row with nothing new before a topic rests for a day
+BLOCKED_WAIT_S = 20 * 60  # when the search engines limit searches, the topic waits this long
+RESEARCH_TIME_S = 300.0  # seconds a free local model may take to read pages and to write notes
 DAY = 86400.0
 START_DELAY_S = 120.0  # let the app finish starting first
 WAIT_STEPS = (60, 300, 900, 1800, 3600)  # no model answering: wait longer each time
@@ -350,11 +352,12 @@ class Researcher:
             question = str(self._think(QUESTION, ask, QUESTION_SCHEMA, "researcher question").get("question")
                            or "").strip()[:200] or f"{t['name']} {t['focus']}".strip()
             seen = {r[0] for r in self.db.query("SELECT url FROM research_findings WHERE topic_id=?", (t["id"],))}
-            why = ""
+            why, blocked = "", False
             try:
                 found = self.web.research(question, PAGES, SOURCE_CHARS)
                 pages = found.get("sources") or []
                 why = "" if pages else found.get("note") or "the search found nothing"
+                blocked = bool(found.get("blocked")) and not pages
             except Exception as exc:
                 log.info("research search failed: %s", exc)
                 pages, why = [], f"the web search failed ({exc})"[:200]
@@ -383,8 +386,11 @@ class Researcher:
                 if not added:
                     why = (f"read {len(fresh)} page(s), but the notes the model wrote didn't match them" if given
                            else f"read {len(fresh)} page(s) with nothing new or useful")
-            dry = 0 if added else t["dry_rounds"] + 1
-            wait = 0.0 if added else (DAY if dry >= DRY_LIMIT else min(DAY, self.pace_s() * 2 ** dry))
+            if blocked:  # the search engines' limit, not the topic running dry: try again later, no strike
+                dry, wait = t["dry_rounds"], max(self.pace_s(), BLOCKED_WAIT_S)
+            else:
+                dry = 0 if added else t["dry_rounds"] + 1
+                wait = 0.0 if added else (DAY if dry >= DRY_LIMIT else min(DAY, self.pace_s() * 2 ** dry))
             self.db.execute("UPDATE research_topics SET rounds=rounds+1, dry_rounds=?, last_run_at=?, next_run_at=?, "
                             "updated_at=? WHERE id=?", (dry, now, now + wait, now, t["id"]))
             rest = ", resting for a day" if dry >= DRY_LIMIT else ""

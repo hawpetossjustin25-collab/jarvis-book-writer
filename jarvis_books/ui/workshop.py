@@ -66,6 +66,15 @@ def python_exe() -> str:
     return str(console if exe.name.lower() == "pythonw.exe" and console.exists() else exe)
 
 
+def _disk_sig(path: Path) -> Optional[tuple]:
+    """What changes when anything rewrites a file, even within one tick of Windows' coarse file clock."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size, st.st_ino
+
+
 class Workshop(QWidget):
     command_finished = pyqtSignal(dict)
 
@@ -189,7 +198,7 @@ class Workshop(QWidget):
 
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._changed_on_disk)
-        self._watch_mtime: Optional[float] = None
+        self._watch_sig: Optional[tuple] = None
         self._poll = QTimer(self)
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_disk)
@@ -241,10 +250,7 @@ class Workshop(QWidget):
         if self.path is not None and str(self.path) in self.watcher.files():
             self.watcher.removePath(str(self.path))
         self.path = p
-        try:
-            self._watch_mtime = p.stat().st_mtime
-        except OSError:
-            self._watch_mtime = None
+        self._watch_sig = _disk_sig(p)
         self.saved_text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         self.editor.setPlainText(self.saved_text)
         self.watcher.addPath(str(p))
@@ -263,10 +269,7 @@ class Workshop(QWidget):
             self.status.setText(f"Not saved: {exc}")
             return False
         self.saved_text = text
-        try:
-            self._watch_mtime = self.path.stat().st_mtime  # our own save isn't a change from outside
-        except OSError:
-            pass
+        self._watch_sig = _disk_sig(self.path) or self._watch_sig  # our own save isn't a change from outside
         path, backup = out["written"], out["backup"]
         self.studio.tools._push_undo(f"saving {path} in the Workshop",
                                      lambda: self.studio.computer.restore(backup, path))
@@ -280,16 +283,16 @@ class Workshop(QWidget):
             self._update_title()
 
     def _poll_disk(self) -> None:
-        """Windows QFileSystemWatcher can miss writes; poll the open file's mtime as a fallback."""
-        if self.path is None or not self.path.exists():
+        """Windows QFileSystemWatcher can miss writes (and loses a file that was replaced), so poll as a fallback.
+        Windows file times are coarse, so a quick rewrite can keep the same mtime: size and file id count too."""
+        if self.path is None:
             return
-        try:
-            m = self.path.stat().st_mtime
-        except OSError:
+        sig = _disk_sig(self.path)
+        if sig is None:
             return
-        if self._watch_mtime is not None and m != self._watch_mtime:
+        if self._watch_sig is not None and sig != self._watch_sig:
             self._changed_on_disk(str(self.path))
-        self._watch_mtime = m
+        self._watch_sig = sig
 
     def _changed_on_disk(self, path: str) -> None:
         """Jarvis (or another program) changed the open file: show it, unless the author has unsaved edits."""

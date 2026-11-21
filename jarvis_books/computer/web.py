@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import socket
+import time
 import zipfile
 from html.parser import HTMLParser
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ MAX_PAGE_BYTES = 3_000_000
 MAX_TEXT = 15_000
 RESEARCH_CHARS = 4_000  # per page when several pages are read at once
 THIN_PAGE = 200  # fewer characters than this: the page needs JavaScript or is a wall
+ROBOT_REST_S = 15 * 60  # after DuckDuckGo asks for a robot check, leave it alone this long
 KEEP_FREE_BYTES = 2 * 1024 ** 3
 API_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 REDIRECTS = (301, 302, 303, 307, 308)
@@ -254,6 +256,8 @@ class Web:
             self.session.headers["User-Agent"] = UA  # sites like Wikipedia refuse the default one
         self.check = check_address
         self.timeout_s = timeout_s
+        self.clock: Callable[[], float] = time.time
+        self._ddg_rest_until = 0.0  # DuckDuckGo limits quick searches; asking again only extends the block
 
     def _get(self, url: str, **kw) -> requests.Response:
         try:
@@ -335,10 +339,15 @@ class Web:
     def search(self, query: str, limit: int = 8) -> dict:
         """DuckDuckGo first; when it answers with a robot check (or nothing), Bing."""
         first_error = None
+        blocked = self.clock() < self._ddg_rest_until
         try:
-            results, engine = self._duckduckgo(query, limit), "duckduckgo"
+            if blocked:
+                results, engine = [], "duckduckgo"
+            else:
+                results, engine = self._duckduckgo(query, limit), "duckduckgo"
         except NotFound as exc:
             results, first_error = [], exc
+            blocked = self.clock() < self._ddg_rest_until
         keywords = _keywords(query)
         for q in dict.fromkeys((query, keywords)):  # plain questions first, then just the key words
             if results or not q:
@@ -354,7 +363,10 @@ class Web:
                 if first_error is not None:  # nothing answered: most likely no internet
                     raise first_error from exc
                 results = []
-        return {"query": query, "engine": engine, "results": results}
+        out = {"query": query, "engine": engine, "results": results}
+        if blocked and not results:
+            out["blocked"] = True  # the engines are limiting searches, not a sign the subject has nothing
+        return out
 
     def _wikipedia(self, query: str, limit: int) -> list[dict]:
         resp = self._get("https://en.wikipedia.org/w/api.php",
@@ -369,6 +381,9 @@ class Web:
 
     def _duckduckgo(self, query: str, limit: int) -> list[dict]:
         resp = self._get("https://html.duckduckgo.com/html/", params={"q": query})
+        if resp.status_code == 202 or ("result__a" not in resp.text and "anomaly" in resp.text):
+            self._ddg_rest_until = self.clock() + ROBOT_REST_S
+            raise NotFound("DuckDuckGo asked for a robot check")
         results = []
         for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>(.*?)'
                              r'(?:class="result__snippet"[^>]*>(.*?)</a>|(?=<a[^>]+class="result__a"))', resp.text, re.S):
@@ -460,7 +475,8 @@ class Web:
         """Search the web and read the best few results, so Jarvis can answer from real pages with sources."""
         want = max(1, min(int(pages or 4), 8))
         results, seen = [], set()
-        for r in self.search(question, limit=12)["results"]:
+        found = self.search(question, limit=12)
+        for r in found["results"]:
             u = r["url"].split("#")[0]
             if u.startswith(("http://", "https://")) and u not in seen:
                 seen.add(u)
@@ -471,7 +487,10 @@ class Web:
                     "text": p["text"]} for p in read]
         out = {"question": question, "sources": sources, "skipped": skipped[:8],
                "other_results": [by_url[u] for u in unread[:6]]}
-        if not sources:
+        if not sources and found.get("blocked"):
+            out["blocked"] = True
+            out["note"] = "the search engines are limiting searches right now; try again in a few minutes"
+        elif not sources:
             out["note"] = ("no page could be read; try other words, or use the snippets in other_results"
                            if results else "the search found nothing; try other words")
         return out
