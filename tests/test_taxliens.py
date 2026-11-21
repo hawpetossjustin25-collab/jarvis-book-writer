@@ -412,3 +412,40 @@ def test_nothing_found_anywhere_says_what_to_try_next():
 def test_a_cut_off_gemini_list_keeps_the_rows_it_finished():
     text = '[{"parcel": "1", "address": "A"}, {"parcel": "2", "address": "B"}, {"parcel": "3", "addr'
     assert [r["parcel"] for r in parse_json_rows(text)] == ["1", "2"]
+
+
+# ---- Fulton without Gemini ---------------------------------------------------------------------------------
+def fulton_routes():
+    return {FULTON_PAGE: Resp(body=FULTON.encode()), "Sale-List--1st-Posting": Resp(body=b"%PDF-1.4 scanned"),
+            "Tyler_TaxParcels": arcgis_join({"14 017600180553": {"ParcelID": "14 017600180553", "TotAssess": 100000,
+                                                                 "ImprAppr": 200000, "ClassCode": "R3"}}, "ParcelID")}
+
+
+OCR_PAGES = [["1226-57192 14 -0176-0018-055-3 605 SOUTH EUGENIA PL NW"]]
+
+
+def test_fulton_falls_back_to_windows_ocr_when_gemini_fails():
+    def gemini(pdf):
+        raise RuntimeError("out of quota")
+    tl, _ = liens(fulton_routes(), read_pdf=gemini)
+    tl.ocr = lambda pdf: OCR_PAGES
+    rows = tl.fulton()
+    assert [(r.address, r.price, r.kind) for r in rows] == [("605 SOUTH EUGENIA PL NW", 4000.0, "house")]
+    assert rows[0].extra["read_by"] == "Windows text reader"
+
+
+def test_fulton_uses_gemini_first_and_reports_when_both_readers_fail():
+    gem = [{"sale_number": "1", "parcel": "14 -0176-0018-055-3", "address": "605 SOUTH EUGENIA PL NW"}]
+    tl, _ = liens(fulton_routes(), read_pdf=lambda pdf: gem)
+    tl.ocr = lambda pdf: pytest.fail("OCR shouldn't run when Gemini read the list")
+    assert tl.fulton()[0].extra["read_by"] == "Gemini"
+
+    def gemini(pdf):
+        raise RuntimeError("out of quota")
+
+    def bad_ocr(pdf):
+        raise RuntimeError("no OCR language")
+    tl, _ = liens(fulton_routes(), read_pdf=gemini)
+    tl.ocr = bad_ocr
+    with pytest.raises(NotFound, match="out of quota.*no OCR language"):
+        tl.fulton()

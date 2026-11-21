@@ -1357,8 +1357,10 @@ class ToolBox(PlannerTools, DesktopTools):
 
     def _liens(self):
         if getattr(self, "tax_liens", None) is None:
+            from jarvis_books.computer import ocr
             from jarvis_books.computer.taxliens import TaxLiens, gemini_pdf_reader
-            self.tax_liens = TaxLiens(self._web(), gemini_pdf_reader(self.vision) if self.vision else None)
+            self.tax_liens = TaxLiens(self._web(), gemini_pdf_reader(self.vision) if self.vision else None,
+                                      ocr=ocr.windows_ocr if ocr.available() else None)
         return self.tax_liens
 
     def _t_tax_lien_listings(self, area: str, max_price: Optional[float] = None, min_price: Optional[float] = None,

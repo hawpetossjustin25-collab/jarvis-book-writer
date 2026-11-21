@@ -354,10 +354,12 @@ def official(url: str) -> bool:
 
 
 class TaxLiens:
-    def __init__(self, web: Web, read_pdf: Optional[Callable[[bytes], list[dict]]] = None,
-                 clock: Callable[[], float] = time.time, today: Callable[[], date] = date.today):
+    def __init__(self, web: Web, read_pdf: Optional[Callable[..., list[dict]]] = None,
+                 clock: Callable[[], float] = time.time, today: Callable[[], date] = date.today,
+                 ocr: Optional[Callable[[bytes], list[list[str]]]] = None):
         self.web = web
         self.read_pdf = read_pdf
+        self.ocr = ocr
         self.clock = clock
         self.today = today
         self._cache: dict[str, tuple[float, list[Listing]]] = {}
@@ -378,11 +380,33 @@ class TaxLiens:
                 r.value, r.kind = f.get("APPRAISED_VALUE"), kind_of(r.property_type, f.get("BLDG_VALUE"))
         return rows
 
+    def _read_fulton(self, pdf: bytes) -> tuple[list[dict], str]:
+        """Gemini reads the scan best; Windows' own OCR reads it when Gemini can't (no key, out of quota)."""
+        problem = "reading Fulton's scanned sale list needs Gemini or Windows' text reader"
+        if self.read_pdf is not None:
+            try:
+                rows = self.read_pdf(pdf)
+                if rows:
+                    return rows, "Gemini"
+            except Exception as exc:  # Gemini down or out of quota: fall back to OCR
+                problem = f"Gemini couldn't read it ({exc})"
+                log.warning("Fulton list via Gemini failed: %s", exc)
+        if self.ocr is not None:
+            from jarvis_books.computer.ocr import fulton_rows
+            try:
+                rows = fulton_rows(self.ocr(pdf))
+            except Exception as exc:
+                raise NotFound(f"{problem}; Windows' text reader failed too ({exc})") from exc
+            if rows:
+                return rows, "Windows text reader"
+            problem += "; Windows' text reader found no rows"
+        raise NotFound(problem)
+
     def fulton(self) -> list[Listing]:
-        if self.read_pdf is None:
-            raise NotFound("reading Fulton's scanned sale list needs Gemini, which isn't set up")
+        if self.read_pdf is None and self.ocr is None:
+            raise NotFound("reading Fulton's scanned sale list needs Gemini or Windows' text reader")
         url, when = latest_fulton_list(self.web._get(FULTON_PAGE).text, self.today())
-        rows = self.read_pdf(self.web._get(url).content)
+        rows, reader = self._read_fulton(self.web._get(url).content)
         parcels = {fulton_parcel(r["parcel"]): r for r in rows}
         facts = self._arcgis(FULTON_PARCELS, "ParcelID", list(parcels),
                              "ParcelID,Address,Owner,TotAssess,TotAppr,ImprAppr,ClassCode,LandAcres")
@@ -398,7 +422,7 @@ class TaxLiens:
                 value=f.get("TotAppr"), link=url,
                 property_type=CLASSES.get((f.get("ClassCode") or " ")[0], f.get("ClassCode") or ""),
                 kind=kind_of(CLASSES.get((f.get("ClassCode") or " ")[0], ""), f.get("ImprAppr")) if f else "unknown",
-                extra={"sale_number": r.get("sale_number", ""), "acres": f.get("LandAcres")}))
+                extra={"sale_number": r.get("sale_number", ""), "acres": f.get("LandAcres"), "read_by": reader}))
         return out
 
     def maricopa(self, kind: str = "unsold") -> list[Listing]:
