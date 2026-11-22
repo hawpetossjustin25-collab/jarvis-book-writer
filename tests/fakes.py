@@ -119,6 +119,7 @@ class FakeOllama:
         self.chats: list[dict] = []
         self.pulls: list[str] = []
         self.loaded: list[dict] = []  # what /api/ps reports as in memory
+        self.timeouts: list[tuple] = []  # (timeout, idle_s) of each chat
 
     def _check(self):
         if not self.online:
@@ -150,9 +151,10 @@ class FakeOllama:
                              "prompt_eval_duration": int(prompt_tokens / 50 * 1e9), "eval_count": output_tokens,
                              "eval_duration": int(output_tokens / 8 * 1e9)})
 
-    def chat(self, payload, timeout=None):
+    def chat(self, payload, timeout=None, idle_s=None):
         self._check()
         self.chats.append(payload)
+        self.timeouts.append((timeout, idle_s))
         if not self.replies:
             return {"message": {"role": "assistant", "content": "ok from LFM3"}, "prompt_eval_count": 100,
                     "prompt_eval_duration": int(2e9), "eval_count": 16, "eval_duration": int(2e9)}

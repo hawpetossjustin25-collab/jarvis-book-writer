@@ -11,7 +11,7 @@ from jarvis_books.assistant.permissions import PermissionGate, level_of
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.jobs import JobManager
-from jarvis_books.upgrade import (FRESH_START_EVERY, Stopped, Upgrader, apply_edits, check_path, clean_env,
+from jarvis_books.upgrade import (FRESH_START_EVERY, UPGRADE_ANSWER_CAP_S, Stopped, Upgrader, apply_edits, check_path, clean_env,
                                   excerpt, run_tests)
 
 FEATURE = "def greet():\n    return 'hi'\n"
@@ -563,6 +563,7 @@ def test_the_studio_gives_upgrades_a_qwen_sized_to_each_request(tmp_path):
     st = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=None)
     try:
         assert st.upgrade_local.fit_request and st.upgrade_local.label == "Qwen3-4B"
+        assert st.upgrade_local.stream_cap_s == UPGRADE_ANSWER_CAP_S and st.research_local.stream_cap_s is None
         assert st.research_local.label == "Qwen3-4B" and not st.research_local.fit_request
     finally:
         st.ready.set()  # never started, so close needn't wait for startup probes

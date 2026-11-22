@@ -43,6 +43,7 @@ FRESH_START_EVERY = 6  # failed tries in a row before starting over from a clean
 PROTECTED_STRIKES = 3  # tries at the safety code before the build is stopped
 WAIT_STEPS = (30, 60, 120, 300, 600)  # seconds to wait when Gemini can't be reached
 FALLBACK_AFTER_S = 2 * 3600  # how long the main brain may be out before the free model on this computer takes over
+UPGRADE_ANSWER_CAP_S = 4 * 3600  # longest one answer from the free model may take while it keeps writing
 EXCERPT_OVER = 12000  # characters: a changed file bigger than this reaches the free model as the parts around changes
 EXCERPT_CONTEXT = 60  # lines kept on each side of a change in such an excerpt
 

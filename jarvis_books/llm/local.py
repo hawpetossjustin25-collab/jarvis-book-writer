@@ -98,6 +98,15 @@ def find_ollama() -> Optional[str]:
     return None
 
 
+def launch_command(exe: str) -> list[str]:
+    """How to start Ollama. On Windows its tray app owns the server: a bare `ollama serve` started first holds
+    the port, and the tray app then retries its own server every few seconds forever, eating CPU."""
+    app = Path(exe).with_name("ollama app.exe")
+    if sys.platform == "win32" and app.exists():
+        return [str(app)]
+    return [exe, "serve"]
+
+
 class OllamaClient:
     """Ollama's REST API (/api/chat, /api/tags, /api/show, /api/pull)."""
 
@@ -118,8 +127,9 @@ class OllamaClient:
             return False
         self._launched = True
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
-        for _ in range(20):
+        subprocess.Popen(launch_command(exe), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+        for _ in range(40):
             time.sleep(0.5)
             try:
                 self.session.get(self.base_url + "/api/version", timeout=2)
@@ -166,8 +176,38 @@ class OllamaClient:
     def show(self, model: str) -> dict:
         return self._call("POST", "/api/show", {"model": model}, timeout=30).json()
 
-    def chat(self, payload: dict, timeout: Optional[float] = None) -> dict:
-        return self._call("POST", "/api/chat", dict(payload, stream=False), timeout=timeout).json()
+    def chat(self, payload: dict, timeout: Optional[float] = None, idle_s: Optional[float] = None) -> dict:
+        """One answer. With idle_s the answer streams: it may take up to `timeout` in all, as long as the model
+        never goes quiet for idle_s (reading the prompt counts as quiet, so idle_s must cover that too)."""
+        if idle_s is None:
+            return self._call("POST", "/api/chat", dict(payload, stream=False), timeout=timeout).json()
+        deadline = time.monotonic() + (timeout or self.timeout_s)
+        resp = self._call("POST", "/api/chat", dict(payload, stream=True), timeout=(10, idle_s), stream=True)
+        text: list[str] = []
+        calls: list[dict] = []
+        try:
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                msg = json.loads(line)
+                if msg.get("error"):
+                    raise LLMError(f"{LABEL} error: {str(msg['error'])[:300]}", kind="unknown")
+                part = msg.get("message") or {}
+                text.append(part.get("content") or "")
+                calls.extend(part.get("tool_calls") or [])
+                if msg.get("done"):
+                    message = dict(part, role="assistant", content="".join(text))
+                    if calls:
+                        message["tool_calls"] = calls
+                    return dict(msg, message=message)
+                if time.monotonic() > deadline:
+                    raise LLMError(f"{LABEL} took too long to answer", kind="network")
+        except requests.RequestException as exc:
+            raise LLMError(f"{LABEL} took too long to answer (nothing new for {idle_s / 60:.0f} min)",
+                           kind="network") from exc
+        finally:
+            resp.close()
+        raise LLMError(f"{LABEL} stopped before finishing its answer", kind="network")
 
     def pull(self, model: str, progress: Optional[Callable[[float, str], None]] = None,
              cancel: Optional[Callable[[], bool]] = None) -> None:
@@ -222,8 +262,12 @@ class LocalEngine:
     def __init__(self, client: OllamaClient, model: str = DEFAULT_MODEL, state_path: Optional[Path] = None,
                  hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
                  answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0, label: str = LABEL,
-                 fit_request: bool = False, ram_probe: Callable[[], Optional[int]] = available_ram):
+                 fit_request: bool = False, ram_probe: Callable[[], Optional[int]] = available_ram,
+                 stream_cap_s: Optional[float] = None):
         self.client = client
+        # stream_cap_s: stream answers and allow up to this long for one, as long as the model keeps writing.
+        # A slow CPU's real speed on a long prompt is far below what short requests measure.
+        self.stream_cap_s = stream_cap_s
         self.label = label
         # fit_request: size the context to each request (as far as the RAM free at that moment allows) instead of
         # to the time budget alone. For long, unattended jobs such as upgrades that read a lot of code.
@@ -331,6 +375,11 @@ class LocalEngine:
     def output_tokens(self) -> int:
         return max(256, min(4096, int(self.speed.output_tps * self.answer_budget_s)))
 
+    def quiet_limit_s(self) -> float:
+        """How long a streamed answer may go without a word: loading the model and reading the whole context at a
+        third of the measured speed, and never less than the prompt budget."""
+        return max(self.prompt_budget_s, 3 * self.num_ctx / max(1.0, self.speed.prompt_tps)) + 300
+
     def answer_tokens(self) -> int:
         """Room for the answer in the current context: never more than half of it."""
         return min(self.output_tokens(), self.num_ctx // 2)
@@ -430,7 +479,10 @@ class LocalEngine:
             for attempt in (1, 2):
                 start = time.perf_counter()
                 try:
-                    body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
+                    if self.stream_cap_s:
+                        body = self.client.chat(payload, timeout=self.stream_cap_s, idle_s=self.quiet_limit_s())
+                    else:
+                        body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
                 except LLMError as exc:
                     if self.label == LABEL:
                         raise
@@ -489,4 +541,4 @@ def _kv_bytes(model_info: dict) -> int:
         return 128 * 1024  # unknown layout: assume a generous 128 KB per token
 
 
-__all__ = ["OllamaClient", "LocalEngine", "DEFAULT_MODEL", "LABEL", "find_ollama"]
+__all__ = ["OllamaClient", "LocalEngine", "DEFAULT_MODEL", "LABEL", "find_ollama", "launch_command"]
