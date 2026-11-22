@@ -263,8 +263,11 @@ class LocalEngine:
                  hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
                  answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0, label: str = LABEL,
                  fit_request: bool = False, ram_probe: Callable[[], Optional[int]] = available_ram,
-                 stream_cap_s: Optional[float] = None):
+                 stream_cap_s: Optional[float] = None, max_ctx: Optional[int] = None):
         self.client = client
+        # max_ctx: the most context this engine ever uses. Reading a long prompt slows down on a small CPU far
+        # more than short requests show, so a request-sized context still needs a ceiling.
+        self.max_ctx = max_ctx or self.MAX_CTX
         # stream_cap_s: stream answers and allow up to this long for one, as long as the model keeps writing.
         # A slow CPU's real speed on a long prompt is far below what short requests measure.
         self.stream_cap_s = stream_cap_s
@@ -343,7 +346,7 @@ class LocalEngine:
         kv_room = max(0, free - p.size_bytes - self.HEADROOM)
         by_ram = kv_room // max(1, p.kv_bytes_per_token)
         by_time = int(self.speed.prompt_tps * self.prompt_budget_s) + self.output_tokens()
-        ctx = min(p.context_window, self.MAX_CTX, by_ram, max(self.MIN_CTX, by_time))
+        ctx = min(p.context_window, self.max_ctx, by_ram, max(self.MIN_CTX, by_time))
         if need is not None:
             ctx = min(ctx, -(-need // 1024) * 1024)
         self.num_ctx = max(self.MIN_CTX, int(ctx) // 1024 * 1024)
@@ -451,9 +454,12 @@ class LocalEngine:
             if request.json_schema:
                 instruction += "\n\nAnswer with JSON only."
             fit = fit_sections(instruction, request.sections, max(512, budget_in - used), cpt)
-            if self.fit_request and used + fit.tokens > budget_in:
+            # Optional parts are trimmed to fit; only what must come whole can make a request too big.
+            must = estimate_tokens(instruction, cpt) + sum(estimate_tokens(s.render(), cpt)
+                                                           for s in request.sections if s.required)
+            if self.fit_request and used + must > budget_in:
                 raise LLMError(f"{self.label} has room for about {budget_in} tokens with the memory free on this "
-                               f"computer right now, and this needs about {used + fit.tokens}; closing other "
+                               f"computer right now, and this needs about {used + must}; closing other "
                                f"programs frees more", kind="too_big")
             contents.append({"role": "user", "parts": [{"text": fit.text}]})
         if not contents:

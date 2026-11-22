@@ -37,7 +37,7 @@ from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
 from jarvis_books.storage.mirror import BackupManager, BookMirror
-from jarvis_books.upgrade import UPGRADE_ANSWER_CAP_S, Upgrader
+from jarvis_books.upgrade import UPGRADE_ANSWER_CAP_S, UPGRADE_LOCAL_CTX, Upgrader
 from jarvis_books.warroom import WAR_ROOM_GUIDE, WarRoom
 from jarvis_books.writer import BookWriter
 
@@ -104,6 +104,7 @@ class Studio:
                                          state_path=self.home / "upgrade_llm.json",
                                          answer_budget_s=1800.0, prompt_budget_s=1800.0, label="Qwen3-4B",
                                          fit_request=True, stream_cap_s=UPGRADE_ANSWER_CAP_S,
+                                         max_ctx=UPGRADE_LOCAL_CTX,
                                          **({"hardware_probe": probe} if probe else {}))
         self.upgrader = Upgrader(self.library, self.brain.only(GEMINI), self.home / "upgrades",
                                  fallback=self.upgrade_local)

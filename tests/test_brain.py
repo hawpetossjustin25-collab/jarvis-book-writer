@@ -436,6 +436,22 @@ def test_an_upgrade_too_big_for_the_free_ram_is_refused_before_ollama_is_asked(t
     assert "closing other programs" in str(err.value) and client.chats == []
 
 
+def test_a_ceiling_keeps_optional_code_from_growing_the_context_past_what_the_cpu_reads_in_time(tmp_path):
+    from jarvis_books.llm.models import PromptSection
+    client = FakeOllama()
+    eng = upgrade_engine(tmp_path, client, 12 * 1024 ** 3, max_ctx=16384)
+    extra = [PromptSection(f"f{n}.py", "y = 2\n" * 3000, priority=60) for n in range(8)]  # ~48,000 tokens
+    need = PromptSection("need.py", "z = 3\n" * 600, required=True)
+    eng.generate(LLMRequest(role="planner", system="s", instruction="change it", sections=[need, *extra]))
+    sent = client.chats[-1]
+    assert sent["options"]["num_ctx"] == 16384
+    assert sent["messages"][-1]["content"].count("z = 3") == 600  # what must come in full still does
+    assert sent["messages"][-1]["content"].count("y = 2") < 8 * 3000  # the optional rest was trimmed
+    with pytest.raises(LLMError) as err:  # required code past the ceiling is refused, not truncated
+        eng.generate(LLMRequest(role="planner", system="s", instruction="change it", sections=[_big_file()]))
+    assert err.value.kind == "too_big"
+
+
 def test_memory_the_model_already_holds_in_ollama_counts_as_free_for_it(tmp_path):
     client = FakeOllama()
     client.loaded = [{"name": client.model, "size": 1_100_000_000}, {"name": "other", "size": 5_000_000_000}]
