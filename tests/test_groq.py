@@ -186,6 +186,20 @@ def test_groq_is_skipped_without_a_key_and_can_be_first():
     assert brain({"brain": "groq", "brain_auto": "0"}, None, q, l).ready()
 
 
+def test_upgrades_ask_only_gemini_so_groq_and_lfm3_never_answer_them():
+    g, q, l = Stub("gemini", fail="quota"), Stub("groq"), Stub("local")
+    b = brain({"brain": "groq", "brain_auto": "1"}, g, q, l)
+    one = b.only(GEMINI)
+    with pytest.raises(LLMError):
+        one.generate(LLMRequest(role="planner", instruction="upgrade"))
+    assert len(g.calls) == 1 and not q.calls and not l.calls
+    b.gemini = Stub("new gemini")  # a new key replaces the engine
+    assert one.generate(LLMRequest(role="planner", instruction="upgrade")).text == "new gemini"
+    assert Brain(None, l, lambda: {}, groq=q).only(GEMINI).brain.gemini is None
+    with pytest.raises(LLMError, match="no Gemini key"):
+        Brain(None, l, lambda: {}, groq=q).only(GEMINI).generate(LLMRequest(role="planner", instruction="x"))
+
+
 def test_studio_switches_to_groq_by_asking_jarvis(tmp_path, monkeypatch):
     for var in ("JARVIS_GROQ_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(var, raising=False)
@@ -201,7 +215,8 @@ def test_studio_switches_to_groq_by_asking_jarvis(tmp_path, monkeypatch):
         assert s.researcher.cloud.model != s.groq.model  # research has its own daily allowance
         assert s.tools.run("change_setting", {"key": "research_brain", "value": "groq"})["value"] == "groq"
         assert "Groq" in s.researcher.status()["thinks_with"]
-        assert s.upgrader.engine is s.brain and s.upgrader.fallback is s.upgrade_local
+        assert s.upgrader.engine.brain is s.brain and s.upgrader.engine.which == GEMINI
+        assert s.upgrader.fallback is s.upgrade_local
         assert s.research_local.answer_budget_s == s.research_local.prompt_budget_s == 300.0
         assert s.upgrade_local.model == s.research_local.model and s.upgrade_local is not s.research_local
     finally:

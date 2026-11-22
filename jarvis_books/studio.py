@@ -19,7 +19,7 @@ from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
-from jarvis_books.llm.brain import Brain
+from jarvis_books.llm.brain import GEMINI, Brain
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
     load_groq_key, save_groq_key
 from jarvis_books.llm.engine import AdaptiveLLMEngine
@@ -105,7 +105,8 @@ class Studio:
                                          answer_budget_s=1800.0, prompt_budget_s=1800.0, label="Qwen3-4B",
                                          fit_request=True,
                                          **({"hardware_probe": probe} if probe else {}))
-        self.upgrader = Upgrader(self.library, self.brain, self.home / "upgrades", fallback=self.upgrade_local)
+        self.upgrader = Upgrader(self.library, self.brain.only(GEMINI), self.home / "upgrades",
+                                 fallback=self.upgrade_local)
         self.upgrader.fallback_name = "Qwen3-4B on this computer"
         self.tools.upgrader = self.war_tools.upgrader = self.upgrader
         self.upgrader.closing = lambda: self.jobs.closing

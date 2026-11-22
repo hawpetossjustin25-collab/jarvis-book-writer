@@ -114,6 +114,11 @@ class Brain:
             return replace(request, tools=request.local_tools)
         return request
 
+    def only(self, which: str) -> "OneBrain":
+        """This brain alone, with no stand-ins (app upgrades send far more code than Groq's free plan or LFM3
+        take, so they have their own fallback). It always uses the current engine, so a new key takes effect."""
+        return OneBrain(self, which)
+
     def get_runtime_configuration(self) -> RuntimeConfig:
         last: Optional[Exception] = None
         for which in self.order():
@@ -139,3 +144,11 @@ class Brain:
         if gemini is None:
             raise LLMError(f"{name} needs Gemini (no key is set)", kind="unavailable")
         return getattr(gemini, name)
+
+
+class OneBrain:
+    def __init__(self, brain: Brain, which: str):
+        self.brain, self.which = brain, which
+
+    def generate(self, request: LLMRequest) -> LLMResponse:
+        return self.brain._engine(self.which).generate(request)
