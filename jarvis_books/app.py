@@ -6,7 +6,9 @@ import logging.handlers
 import sys
 import threading
 
+from jarvis_books.lifecycle import exit_now, install_running, relaunch
 from jarvis_books.paths import data_dir
+from jarvis_books.watchdog import FreezeWatchdog
 
 
 def setup_logging() -> None:
@@ -20,6 +22,16 @@ def setup_logging() -> None:
     root.addHandler(handler)
     for noisy in ("urllib3", "websockets"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def restart_stuck_app() -> None:
+    """The window froze: start a fresh Jarvis and end this one. Saved work is in the database already
+    (the editor saves 1.5 s after typing stops), and background jobs resume on the next start."""
+    try:
+        relaunch()
+    except OSError:
+        logging.getLogger("jarvis_books").exception("could not start a fresh Jarvis")
+    exit_now(3)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,12 +48,25 @@ def main(argv: list[str] | None = None) -> int:
     sys.excepthook = log_unhandled
     app = QApplication(sys.argv[:1] + argv)
     app.setApplicationName("Jarvis Book Writer")
+    if install_running():
+        # Its files are being replaced and the installer reopens it when done; starting now would freeze.
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(None, "Jarvis Book Writer",
+                                "Jarvis is being updated right now. He opens by himself when the update is done.")
+        return 0
+    from PyQt6.QtCore import QTimer
+
     studio = Studio()
     threading.Thread(target=studio.start, name="studio-start", daemon=True).start()
-    window = MainWindow(studio)
+    watchdog = FreezeWatchdog(restart_stuck_app, history=data_dir() / "freeze_restarts.json")
+    window = MainWindow(studio, watchdog=watchdog)
+    heartbeat = QTimer(window)
+    heartbeat.setInterval(1000)
+    heartbeat.timeout.connect(watchdog.beat)
+    heartbeat.start()
     window.show()
+    watchdog.start()
     if "--smoke-test" in argv:
-        from PyQt6.QtCore import QTimer
         def check():
             if studio.ready.is_set():
                 print("SMOKE", "error=" + str(studio.start_error), flush=True)

@@ -640,3 +640,28 @@ def test_chat_links_are_clickable(window, qapp):
     page = win.chat_view.toHtml()
     assert 'href="https://liveauctions.govease.com/"' in page and 'href="https://treasurer.maricopa.gov"' in page
     assert win.chat_view.openExternalLinks() and win.voice_log.openExternalLinks() and win.war_view.openExternalLinks()
+
+
+def test_closing_hides_the_window_at_once_and_stops_the_freeze_watchdog(qapp, tmp_path):
+    from conftest import hardware
+    from jarvis_books.ui.main_window import MainWindow
+    from jarvis_books.watchdog import FreezeWatchdog
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=FakeGemini(),
+                    engine_kwargs={"hardware_probe": hardware, "sleep": lambda s: None})
+    studio.start(probe=False)
+    fired = []
+    dog = FreezeWatchdog(lambda: fired.append(1), dump_after_s=0, restart_after_s=0)
+    win = MainWindow(studio, watchdog=dog)
+    win.show()
+    qapp.processEvents()
+    seen = {}
+    real_close = studio.close
+
+    def close():
+        seen["visible"] = win.isVisible()
+        real_close()
+    studio.close = close
+    win.close()
+    qapp.processEvents()
+    assert seen == {"visible": False}
+    assert dog.check() is None and not fired

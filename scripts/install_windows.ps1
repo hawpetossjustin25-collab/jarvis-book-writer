@@ -13,6 +13,13 @@ if (-not $py) { throw 'Python 3 not found' }
 $pyw = Join-Path (Split-Path $py) 'pythonw.exe'
 
 New-Item -ItemType Directory -Force -Path $root | Out-Null
+# While the lock exists, a Jarvis opened by hand says it is updating instead of starting on half-replaced files.
+$lock = Join-Path $root 'installing.lock'
+Set-Content -Path $lock -Value (Get-Date -Format o)
+try {
+Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe' OR Name = 'python.exe'" |
+    Where-Object { $_.CommandLine -like '*-m jarvis_books*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 $tmp = Join-Path $root 'extract'
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 if ($Source) {
@@ -47,6 +54,9 @@ if (-not $SkipTests) {
     Remove-Item Env:QT_QPA_PLATFORM
     Pop-Location
     if ($testExit -ne 0) { throw "tests failed ($testExit)" }
+}
+} finally {
+    Remove-Item -Force $lock -ErrorAction SilentlyContinue
 }
 
 $desktop = Join-Path $env:OneDrive 'Desktop'

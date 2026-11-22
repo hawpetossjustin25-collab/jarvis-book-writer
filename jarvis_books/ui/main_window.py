@@ -4,7 +4,6 @@ from __future__ import annotations
 import html
 import logging
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -24,12 +23,13 @@ from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import GEMINI_CATALOG, NARRATOR, describe_voice, who
 from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
+from jarvis_books.lifecycle import relaunch
 from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
 from jarvis_books.text import word_count, linkify
 from jarvis_books.writer.pipeline import MAX_CHAPTERS
 from jarvis_books.ui.approval import ApprovalBar
-from jarvis_books.upgrade import app_root, describe as describe_upgrade
+from jarvis_books.upgrade import describe as describe_upgrade
 from jarvis_books.ui.planner import AlarmCenter, PlannerTab
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.research import ResearchTab
@@ -96,8 +96,9 @@ class MainWindow(QMainWindow):
     _ui_call = pyqtSignal(object)
     _brain_event = pyqtSignal(str, str, str)
 
-    def __init__(self, studio: Studio):
+    def __init__(self, studio: Studio, watchdog=None):
         super().__init__()
+        self.watchdog = watchdog  # FreezeWatchdog: restarts the app if this window stops responding
         self.studio = studio
         self.approval_bars: list[ApprovalBar] = []
         self.setWindowTitle("Jarvis Book Writer")
@@ -436,9 +437,7 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         self.close()
-        flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0  # DETACHED_PROCESS | NEW_PROCESS_GROUP
-        subprocess.Popen([sys.executable, "-m", "jarvis_books"], cwd=str(app_root()), creationflags=flags,
-                         close_fds=True)
+        relaunch()
 
     def _end_voice(self) -> None:
         if self._closed:
@@ -2015,6 +2014,11 @@ class MainWindow(QMainWindow):
                                      "Tell the user briefly.)")
 
     def closeEvent(self, event) -> None:
+        # Closing waits for storage and background work; that is not a freeze, and nobody should watch a
+        # window that is going away sit there as "Not Responding".
+        if self.watchdog is not None:
+            self.watchdog.stop()
+        self.hide()
         self._autosave.stop()
         self._expire_timer.stop()
         self._refresh_timer.stop()
