@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 import traceback
@@ -52,16 +53,25 @@ class JobManager:
     def _update(self, job: Job, **changes: Any) -> None:
         for k, v in changes.items():
             setattr(job, k, v)
-        self.library.db.execute(
-            "INSERT INTO jobs (id, book_id, kind, status, progress, message, error, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, progress=excluded.progress, "
-            "message=excluded.message, error=excluded.error, updated_at=excluded.updated_at",
-            (job.id, job.book_id, job.kind, job.status, job.progress, job.message[:500], job.error, job.created_at, time.time()))
+        try:
+            self._save(job)
+        except sqlite3.ProgrammingError:
+            # The app closed its database while this job was still finishing up; nothing is left to save it to.
+            if not self.closing:
+                raise
+            return
         for listener in list(self._listeners):
             try:
                 listener(job)
             except Exception:
                 log.exception("job listener failed")
+
+    def _save(self, job: Job) -> None:
+        self.library.db.execute(
+            "INSERT INTO jobs (id, book_id, kind, status, progress, message, error, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, progress=excluded.progress, "
+            "message=excluded.message, error=excluded.error, updated_at=excluded.updated_at",
+            (job.id, job.book_id, job.kind, job.status, job.progress, job.message[:500], job.error, job.created_at, time.time()))
 
     def submit(self, kind: str, title: str, fn: Callable[[Callable[[float, str], None], threading.Event], Any],
                book_id: Optional[str] = None) -> Job:
