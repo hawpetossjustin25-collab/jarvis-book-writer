@@ -199,7 +199,8 @@ def _keywords(query: str) -> str:
 
 
 def _relevant(query: str, result: dict) -> bool:
-    """Bing sometimes answers robots with unrelated pages; keep results that share the query's key words."""
+    """Bing (when it suspects a robot) and Wikipedia (on long questions) send unrelated pages; keep results that share
+    the query's key words."""
     words = {w for w in re.findall(r"[a-z0-9]{3,}", query.lower()) if w not in _STOP}
     if not words:
         return True
@@ -366,7 +367,8 @@ class Web:
                 results = []
         if not results:
             try:
-                results, engine = self._wikipedia(keywords or query, limit), "wikipedia"
+                results = [r for r in self._wikipedia(keywords or query, limit) if _relevant(query, r)]
+                engine = "wikipedia"
             except NotFound as exc:
                 if first_error is not None:  # nothing answered: most likely no internet
                     raise first_error from exc

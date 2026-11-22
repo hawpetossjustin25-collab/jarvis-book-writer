@@ -351,6 +351,22 @@ def test_off_topic_bing_results_are_dropped_and_wikipedia_answers_last():
                                "snippet": "the tallest lighthouse"}]
 
 
+def test_off_topic_wikipedia_pages_are_dropped_so_a_blocked_search_says_so():
+    wiki = json.dumps({"query": {"search": [
+        {"title": "Bicycle lighting", "snippet": "lights powered by a <b>portable</b> battery"},
+        {"title": "Photovoltaic system", "snippet": "a <b>solar</b> power system for the <b>home</b>"},
+        {"title": "Solar-powered generator", "snippet": "<b>portable</b> <b>solar</b> <b>generators</b> for <b>backup</b>"}]}})
+    session = Session({"duckduckgo": Resp(202, b"anomaly"), "bing.com/search": Resp(body=b""),
+                       "wikipedia.org/w/api.php": Resp(body=wiki.encode())})
+    w = Web(session, check_address=lambda u: u)
+    out = w.search("cheapest reliable portable solar generators for home backup 2024")
+    assert [r["title"] for r in out["results"]] == ["Solar-powered generator"]
+    session.routes["wikipedia.org/w/api.php"] = Resp(body=json.dumps({"query": {"search": [
+        {"title": "Bicycle lighting", "snippet": "lights powered by a <b>portable</b> battery"}]}}).encode())
+    out = w.search("cheapest reliable portable solar generators for home backup 2024")
+    assert out["results"] == [] and out["blocked"]
+
+
 def test_bing_results_sharing_only_a_couple_of_long_question_words_are_dropped():
     from jarvis_books.computer.web import _relevant
     q = "cheapest reliable portable solar generators for home backup 2024"
