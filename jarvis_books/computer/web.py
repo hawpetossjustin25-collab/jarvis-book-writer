@@ -6,6 +6,7 @@ import hashlib
 import html
 import ipaddress
 import json
+import logging
 import os
 import re
 import shutil
@@ -22,6 +23,8 @@ import requests
 
 from jarvis_books.errors import NotFound
 
+log = logging.getLogger(__name__)
+
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/130.0 Safari/537.36")
 UA = "JarvisBookWriter/1.0 (+https://github.com/hawpetossjustin25-collab/jarvis-book-writer)"
@@ -29,7 +32,7 @@ MAX_PAGE_BYTES = 3_000_000
 MAX_TEXT = 15_000
 RESEARCH_CHARS = 4_000  # per page when several pages are read at once
 THIN_PAGE = 200  # fewer characters than this: the page needs JavaScript or is a wall
-ROBOT_REST_S = 15 * 60  # after DuckDuckGo asks for a robot check, leave it alone this long
+ROBOT_REST_S = 15 * 60  # after DuckDuckGo asks for a robot check (or Bing sends only junk), leave it alone this long
 KEEP_FREE_BYTES = 2 * 1024 ** 3
 API_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 REDIRECTS = (301, 302, 303, 307, 308)
@@ -267,6 +270,9 @@ class Web:
         self.timeout_s = timeout_s
         self.clock: Callable[[], float] = time.time
         self._ddg_rest_until = 0.0  # DuckDuckGo limits quick searches; asking again only extends the block
+        self._bing_rest_until = 0.0  # Bing, once it answers a suspected robot with first-word-only junk
+        # A search that doesn't run from this computer (Groq's search tool), for when the free engines block it.
+        self.ai_search: Optional[Callable[[str, int], list[dict]]] = None
 
     def _get(self, url: str, **kw) -> requests.Response:
         try:
@@ -346,7 +352,8 @@ class Web:
 
     # ---- the web ------------------------------------------------------------------------------
     def search(self, query: str, limit: int = 8) -> dict:
-        """DuckDuckGo first; when it answers with a robot check (or nothing), Bing."""
+        """DuckDuckGo first; when it answers with a robot check (or nothing), Bing; when Bing sends only junk,
+        the AI search (Groq's, from its own servers); Wikipedia last."""
         first_error = None
         blocked = self.clock() < self._ddg_rest_until
         try:
@@ -358,13 +365,27 @@ class Web:
             results, first_error = [], exc
             blocked = self.clock() < self._ddg_rest_until
         keywords = _keywords(query)
+        junk = None  # Bing answered, but with nothing about the question
         for q in dict.fromkeys((query, keywords)):  # plain questions first, then just the key words
-            if results or not q:
+            if results or not q or self.clock() < self._bing_rest_until:
                 break
             try:
-                results, engine = [r for r in self._bing(q, limit) if _relevant(query, r)], "bing"
+                found = self._bing(q, limit)
             except NotFound:
-                results = []
+                found = []
+            results, engine = [r for r in found if _relevant(query, r)], "bing"
+            junk = bool(found) and not results if junk in (None, True) else False
+        if junk:  # Bing does this to a suspected robot (results for the first word only); give it a rest
+            self._bing_rest_until = self.clock() + ROBOT_REST_S
+        if not results and self.ai_search is not None:
+            try:
+                found = self.ai_search(query, limit)
+            except Exception:
+                log.exception("the AI web search failed")
+                found = []
+            results = [r for r in found if str(r.get("url", "")).startswith(("http://", "https://"))][:limit]
+            if results:
+                engine = "groq"
         if not results:
             try:
                 results = [r for r in self._wikipedia(keywords or query, limit) if _relevant(query, r)]

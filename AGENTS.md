@@ -74,9 +74,9 @@ links, the researcher's interest detection, and Groq chat with Gemini taking ove
 
 ## Unfinished
 
-- Researcher: research rounds on the laptop haven't saved notes yet. Commit 7af606d gives Qwen 5 minutes per
-  step and rests DuckDuckGo after a robot check; this still needs checking on the laptop.
-- A real self-upgrade run on the laptop, including the Qwen fallback.
+- Researcher: the laptop's internet address is treated as a robot by DuckDuckGo (202 robot check), Bing
+  (results for the first word only), Google, Startpage and Mojeek, so web search falls back to Groq's
+  browser_search tool (GroqSearch in llm/groq.py) and rests Bing after junk. Notes on the laptop still need checking.
 - Character voices stage 3: Jarvis reads in character voices, plus voice commands to recast a character.
 - YouTube upload: needs Justin's Google sign-in (OAuth client) and a private test upload.
 - Web limits: DuckDuckGo blocks quick searches, Bid4Assets answers 403, and Zeus and RealAuction don't publish

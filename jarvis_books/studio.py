@@ -21,7 +21,7 @@ from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
 from jarvis_books.llm.brain import GEMINI, Brain
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
-    load_groq_key, save_groq_key
+    GroqSearch, load_groq_key, save_groq_key
 from jarvis_books.llm.engine import AdaptiveLLMEngine
 from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
 from jarvis_books.llm.models import LLMRequest
@@ -118,6 +118,7 @@ class Studio:
         self.terminal = Terminal(self.home / "computer")
         self.desktop = Desktop(self.home / "computer")
         self.web = Web()
+        self.web.ai_search = GroqSearch(self._groq_key).search
         for box in (self.tools, self.war_tools):
             box.computer, box.terminal, box.desktop, box.vision = self.computer, self.terminal, self.desktop, \
                 self._look if self.engine is not None else None

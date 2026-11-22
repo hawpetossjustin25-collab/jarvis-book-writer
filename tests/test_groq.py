@@ -238,3 +238,59 @@ def test_the_key_can_be_saved_before_jarvis_made_his_folder(tmp_path):
     from jarvis_books.llm.groq import load_groq_key, save_groq_key
     save_groq_key(" gsk_new ", tmp_path / "not-yet")
     assert load_groq_key(tmp_path / "not-yet") == "gsk_new"
+
+
+def _searched(*rows, opened=()):
+    tools = [{"type": "browser_search", "search_results": {"results": list(rows)}}]
+    tools += [{"type": "browser.open", "search_results": {"results": [o]}} for o in opened]
+    return Resp(200, {"choices": [{"message": {"role": "assistant", "content": "done", "executed_tools": tools}}]})
+
+
+def test_groq_web_search_returns_the_pages_its_search_tool_found():
+    from jarvis_books.llm.groq import RESEARCH_MODEL, GroqSearch
+    session = Session(_searched(
+        {"title": "The Best  Solar Generators", "url": "https://www.bobvila.com/best", "content": ""},
+        {"title": "Portable power stations", "url": "https://outdoorlife.com/guide", "content": "A guide."},
+        {"title": "repeat", "url": "https://www.bobvila.com/best"},
+        {"title": "not a page", "url": "javascript:alert(1)"},
+        opened=[{"title": "www.bobvila.com - viewing lines", "url": "https://www.bobvila.com/best",
+                 "content": "We tested 12 solar generators."}]))
+    found = GroqSearch(lambda: "gsk_test", session=session).search("portable solar generators")
+    assert found == [{"title": "The Best Solar Generators", "url": "https://www.bobvila.com/best",
+                      "snippet": "We tested 12 solar generators."},
+                     {"title": "Portable power stations", "url": "https://outdoorlife.com/guide", "snippet": "A guide."}]
+    sent = session.posts[0]
+    assert sent["json"]["model"] == RESEARCH_MODEL and sent["json"]["tools"] == [{"type": "browser_search"}]
+    assert "portable solar generators" in sent["json"]["messages"][0]["content"]
+    assert sent["headers"]["Authorization"] == "Bearer gsk_test"
+
+
+def test_groq_web_search_without_a_key_asks_groq_nothing():
+    from jarvis_books.llm.groq import GroqSearch
+    session = Session()
+    assert GroqSearch(lambda: None, session=session).search("solar") == []
+
+    def broken():
+        raise OSError("unreadable")
+    assert GroqSearch(broken, session=session).search("solar") == []
+    assert session.posts == []
+
+
+def test_groq_web_search_rests_while_the_free_limit_is_used_up():
+    from jarvis_books.llm.groq import GroqSearch
+    now = [100.0]
+    session = Session(Resp(429, {"error": {"message": "limit"}}, {"retry-after": "30"}),
+                      _searched({"title": "Solar", "url": "https://s.org/x"}))
+    s = GroqSearch(lambda: "gsk_test", session=session, clock=lambda: now[0])
+    assert s.search("solar") == []
+    assert s.search("solar") == [] and len(session.posts) == 1  # resting: Groq isn't asked
+    now[0] += 30
+    assert [r["url"] for r in s.search("solar")] == ["https://s.org/x"]
+
+
+def test_groq_web_search_failures_find_nothing_instead_of_crashing():
+    from jarvis_books.llm.groq import GroqSearch
+    session = Session(requests.ConnectionError("down"), Resp(500, {"error": {}}), Resp(200, {"choices": []}),
+                      Resp(200, {"choices": [{"message": {"content": "no tools ran"}}]}))
+    s = GroqSearch(lambda: "gsk_test", session=session)
+    assert [s.search("solar") for _ in range(4)] == [[], [], [], []]

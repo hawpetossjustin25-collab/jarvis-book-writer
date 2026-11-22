@@ -543,3 +543,70 @@ def test_api_html_and_files_are_handled():
     page = w.call_api("https://a.org/page")
     assert page["title"] == "T" and "hello" in page["text"]
     assert "download_file" in w.call_api("https://a.org/zip")["note"]
+
+
+FIRST_WORD_ONLY = (b'<li class="b_algo"><h2><a href="https://portableapps.com/">PortableApps.com - Portable software</a>'
+                   b'</h2><p>Portable apps.</p></li><li class="b_algo"><h2><a href="https://www.merriam-webster.com/'
+                   b'dictionary/portable">PORTABLE Definition</a></h2><p>Portable.</p></li>')
+
+
+def test_when_the_free_engines_block_this_computer_the_ai_search_finds_the_pages():
+    from jarvis_books.computer.web import ROBOT_REST_S
+    session = Session({"duckduckgo": Resp(202, b"anomaly"), "bing.com/search": Resp(body=FIRST_WORD_ONLY),
+                       "wikipedia.org/w/api.php": Resp(body=b'{"query": {"search": []}}'),
+                       "bobvila.com": _page("https://www.bobvila.com/best", "Best solar generators")})
+    w = Web(session, check_address=lambda u: u)
+    now = [1000.0]
+    w.clock = lambda: now[0]
+    asked = []
+
+    def ai(query, limit):
+        asked.append((query, limit))
+        return [{"title": "Best Solar Generators", "url": "https://www.bobvila.com/best", "snippet": ""},
+                {"title": "bad", "url": "file:///etc/passwd", "snippet": ""}]
+    w.ai_search = ai
+    out = w.search("portable solar generator reviews")
+    assert out["engine"] == "groq" and not out.get("blocked")
+    assert [r["url"] for r in out["results"]] == ["https://www.bobvila.com/best"]
+    assert asked == [("portable solar generator reviews", 8)]
+    bing_asks = sum("bing" in u for u, _ in session.seen)
+    found = w.research("portable solar generator reviews", 2)
+    assert [s["url"] for s in found["sources"]] == ["https://www.bobvila.com/best"]
+    assert sum("bing" in u for u, _ in session.seen) == bing_asks  # Bing rests after sending only junk
+    now[0] += ROBOT_REST_S
+    w.search("portable solar generator reviews")
+    assert sum("bing" in u for u, _ in session.seen) > bing_asks
+
+
+def test_bing_isnt_rested_when_its_key_word_search_answers():
+    good = (b'<li class="b_algo"><h2><a href="https://s.org/solar">Solar generator guide</a></h2>'
+            b'<p>Portable solar generators compared.</p></li>')
+    replies = iter([FIRST_WORD_ONLY, good, good])
+    session = Session({"duckduckgo": Resp(202, b"anomaly"),
+                       "bing.com/search": lambda: Resp(body=next(replies))})
+    w = Web(session, check_address=lambda u: u)
+    assert w.search("what are the best portable solar generators")["engine"] == "bing"
+    assert w._bing_rest_until == 0.0
+
+
+def test_a_failing_ai_search_falls_back_to_wikipedia():
+    wiki = json.dumps({"query": {"search": [{"title": "Solar generator", "snippet": "a portable solar generator"}]}})
+    session = Session({"duckduckgo": Resp(202, b"anomaly"), "bing.com/search": Resp(body=b""),
+                       "wikipedia.org/w/api.php": Resp(body=wiki.encode())})
+    w = Web(session, check_address=lambda u: u)
+
+    def broken(query, limit):
+        raise RuntimeError("Groq changed its answer")
+    w.ai_search = broken
+    out = w.search("portable solar generator")
+    assert out["engine"] == "wikipedia" and out["results"][0]["title"] == "Solar generator"
+
+
+def test_the_app_searches_through_groq_when_the_engines_block_it(tmp_path):
+    from fakes import FakeGemini
+    from jarvis_books.studio import Studio
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=FakeGemini())
+    try:
+        assert studio.web.ai_search.__self__.key == studio._groq_key
+    finally:
+        studio.close()

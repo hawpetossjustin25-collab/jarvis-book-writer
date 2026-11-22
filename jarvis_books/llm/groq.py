@@ -260,3 +260,83 @@ class GroqEngine:
                                    prompt_tokens=usage.get("prompt_tokens"), output_tokens=usage.get("completion_tokens"),
                                    latency_s=latency, attempts=attempt)
         raise LLMError("generation failed", kind="unknown")
+
+
+class GroqSearch:
+    """Web search through Groq's own search tool (browser_search on the research model).
+
+    Free search engines often treat a home computer that searches all day as a robot: DuckDuckGo asks for a
+    robot check, and Bing answers with results for the first word only. Groq searches from its own servers, so
+    this is the researcher's way to the web when those engines are blocked. It uses the research model's daily
+    allowance; with no key, or while Groq's limit is used up, it finds nothing and asks Groq nothing."""
+
+    def __init__(self, key: Callable[[], Optional[str]], model: str = RESEARCH_MODEL,
+                 session: Optional[requests.Session] = None, timeout_s: float = 90.0, base_url: str = GROQ_URL,
+                 clock: Callable[[], float] = time.time):
+        self.key = key
+        self.model = model
+        self.session = session or requests.Session()
+        self.timeout_s = timeout_s
+        self.base_url = base_url.rstrip("/")
+        self.clock = clock
+        self.rest_until = 0.0
+
+    def search(self, query: str, limit: int = 8) -> list[dict]:
+        try:
+            key = self.key()
+        except Exception as exc:
+            log.warning("could not read the Groq key: %s", type(exc).__name__)
+            return []
+        if not key or not query.strip() or self.clock() < self.rest_until:
+            return []
+        payload = {"model": self.model, "tools": [{"type": "browser_search"}], "reasoning_effort": "low",
+                   "max_completion_tokens": 1024,
+                   "messages": [{"role": "user", "content": f"Search the web for: {query.strip()[:300]}\n"
+                                                            "Then reply with just the word done."}]}
+        try:
+            resp = self.session.post(self.base_url + "/chat/completions", json=payload, timeout=self.timeout_s,
+                                     headers={"Authorization": f"Bearer {key}"})
+        except requests.RequestException as exc:
+            log.info("Groq web search could not reach Groq (%s)", type(exc).__name__)
+            return []
+        if resp.status_code == 429:
+            retry = str(resp.headers.get("retry-after") or "")
+            self.rest_until = self.clock() + (float(retry) if retry.replace(".", "", 1).isdigit() else 60.0)
+            log.info("Groq web search: the free limit is used up for now")
+            return []
+        if resp.status_code != 200:
+            log.info("Groq web search answered %s", resp.status_code)
+            return []
+        try:
+            message = resp.json()["choices"][0]["message"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            return []
+        return search_results(message, limit)
+
+
+def search_results(message: dict, limit: int) -> list[dict]:
+    """The pages Groq's search found, in order; text from the pages it opened becomes their snippet."""
+    found, opened = [], {}
+    for tool in message.get("executed_tools") or []:
+        rows = tool.get("search_results") if isinstance(tool, dict) else None
+        rows = rows.get("results") if isinstance(rows, dict) else rows
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            url = str(row.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            if tool.get("type") == "browser_search":
+                found.append({"title": " ".join(str(row.get("title") or "").split())[:200], "url": url,
+                              "snippet": " ".join(str(row.get("content") or "").split())[:300]})
+            elif row.get("content"):
+                opened.setdefault(url, " ".join(str(row["content"]).split())[:300])
+    out, seen = [], set()
+    for r in found:
+        if r["url"] in seen:
+            continue
+        seen.add(r["url"])
+        r["snippet"] = r["snippet"] or opened.get(r["url"], "")
+        out.append(r)
+    return out[:limit]
+
