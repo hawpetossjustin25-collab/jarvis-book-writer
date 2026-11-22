@@ -14,6 +14,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
@@ -23,7 +24,8 @@ LEVELS = (READ, SAFE, CHANGE, OUTSIDE, SYSTEM)
 NEEDS_YES = (CHANGE, OUTSIDE, SYSTEM)
 LEVEL_LABELS = {READ: "Read", SAFE: "Safe change", CHANGE: "Change", OUTSIDE: "Outside world", SYSTEM: "System"}
 
-TOOL_LEVELS: dict[str, str] = {
+# Read-only, so no other module can relabel a tool at run time.
+TOOL_LEVELS = MappingProxyType({
     "list_books": READ, "open_book": READ, "read_chapter": READ, "search_books": READ, "story_bible": READ,
     "writing_advice": READ, "job_status": READ, "war_briefing": READ, "find_gaps": READ, "list_proposals": READ,
     "list_posts": READ, "app_status": READ, "get_settings": READ, "recall_memories": READ,
@@ -52,7 +54,7 @@ TOOL_LEVELS: dict[str, str] = {
     "research_status": READ, "research_notes": READ, "research_topic": SAFE, "change_research": SAFE,
     "research_now": SAFE, "researcher_switch": SAFE, "drop_research": CHANGE,
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
-}
+})
 # Replacing the app's own code always waits for a yes, even in Full control.
 ALWAYS_ASK = ("install_upgrade", "undo_upgrade")
 FULL_CONTROL_SETTING = "full_control"
@@ -73,7 +75,13 @@ def heard_answer(text: str) -> Optional[bool]:
 
 
 def level_of(tool: str) -> str:
-    return TOOL_LEVELS.get(tool, SYSTEM)  # anything unlisted is treated as the most sensitive
+    """The built-in level, else the one a self-upgrade gave its new tool; anything unlisted (or with an unknown
+    level) is treated as the most sensitive."""
+    if tool in TOOL_LEVELS:
+        return TOOL_LEVELS[tool]
+    from jarvis_books.assistant.upgrade_levels import ADDED_TOOL_LEVELS
+    level = ADDED_TOOL_LEVELS.get(tool, SYSTEM)
+    return level if level in LEVELS else SYSTEM
 
 
 @dataclass

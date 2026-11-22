@@ -436,6 +436,43 @@ def test_gemini_is_told_to_ask_for_files_instead_of_writing_probe_tests():
     from jarvis_books.upgrade import EDIT_SCHEMA, ENGINEER
     assert "need_files" in EDIT_SCHEMA["properties"] and "need_files" in ENGINEER
     assert "Never write tests or code whose job is to print" in ENGINEER
+    assert "jarvis_books/assistant/upgrade_levels.py" in ENGINEER
+
+
+@pytest.mark.parametrize("code", [
+    'TOOL_LEVELS["total_words"] = READ',
+    "permissions.TOOL_LEVELS = {}",
+    "TOOL_LEVELS.update({'run_command': 'read'})",
+    "permissions.level_of = lambda tool: 'read'",
+    "setattr(permissions, 'level_of', print)",
+    "ALWAYS_ASK += ('x',)",
+])
+def test_upgrades_cannot_relabel_the_permission_gate_from_unprotected_files(tmp_path, code):
+    from jarvis_books.upgrade import apply_edits
+    rel = "jarvis_books/assistant/tools.py"
+    (tmp_path / rel).parent.mkdir(parents=True)
+    (tmp_path / rel).write_text("X = 1\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="protected yes/no permission levels"):
+        apply_edits(tmp_path, [{"path": rel, "search": "X = 1", "replace": "X = 1\n" + code}])
+    assert (tmp_path / rel).read_text(encoding="utf-8") == "X = 1\n"
+    ok = "if level_of(tool) == TOOL_LEVELS.get(tool):\n    pass"
+    assert apply_edits(tmp_path, [{"path": rel, "search": "X = 1", "replace": "X = 1\n" + ok}]) == [rel]
+
+
+def test_the_built_in_permission_levels_cannot_be_changed_at_run_time():
+    from jarvis_books.assistant.permissions import TOOL_LEVELS
+    with pytest.raises(TypeError):
+        TOOL_LEVELS["run_command"] = "read"  # type: ignore[index]
+    assert level_of("run_command") == "system"
+
+
+def test_an_upgrade_can_give_its_new_tool_a_level_without_touching_the_protected_gate(tmp_path):
+    from jarvis_books.upgrade import apply_edits
+    rel = "jarvis_books/assistant/upgrade_levels.py"
+    (tmp_path / rel).parent.mkdir(parents=True)
+    (tmp_path / rel).write_text("ADDED_TOOL_LEVELS: dict[str, str] = {}\n", encoding="utf-8")
+    assert apply_edits(tmp_path, [{"path": rel, "search": "{}", "replace": '{"total_words": "read"}'}]) == [rel]
+    assert '"total_words": "read"' in (tmp_path / rel).read_text(encoding="utf-8")
 
 
 class Fallback(ScriptedEngine):

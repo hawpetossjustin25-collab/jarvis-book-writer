@@ -67,7 +67,9 @@ ENGINEER = (
     "'search' and the whole file as 'replace'. At most " + str(MAX_FILES) + " files. Large apps don't fit "
     "whole: if a file you need isn't shown in full below (or ends in [...omitted...]), list it in "
     "'need_files' with no edits and it comes in full next time. Never write tests or code whose job is to "
-    "print, raise or otherwise show you the app's source.")
+    "print, raise or otherwise show you the app's source. A new Jarvis tool needs its permission level ('read', "
+    "'safe', 'change', 'outside' or 'system') in ADDED_TOOL_LEVELS in jarvis_books/assistant/upgrade_levels.py; "
+    "built-in tools keep theirs.")
 
 
 def excerpt(old: str, new: str, context: int = EXCERPT_CONTEXT, head: int = 30) -> str:
@@ -112,6 +114,14 @@ def check_path(path: str) -> str:
     return p
 
 
+# New code that rebinds or mutates the yes/no gate's tables or functions from outside permissions.py.
+GATE_TAMPERING = re.compile(
+    r"\b(TOOL_LEVELS|ALWAYS_ASK|NEEDS_YES|LEVELS|level_of|PermissionGate)\b\s*(\[[^\]]*\]\s*)?"
+    r"(=(?!=)|[|+]=|\.(update|setdefault|pop|popitem|clear|append|extend|insert|remove)\s*\()"
+    r"|\b(setattr|delattr)\s*\([^)]*\b(permissions|TOOL_LEVELS|level_of|PermissionGate)\b"
+    r"|\b(TOOL_LEVELS|level_of)\b[^\n]*\b(__dict__|_mapping)\b")
+
+
 def apply_edits(root: Path, edits: list[dict]) -> list[str]:
     """Apply search/replace edits to the copy at root. All are checked before any file is written."""
     staged: dict[str, str] = {}
@@ -120,6 +130,9 @@ def apply_edits(root: Path, edits: list[dict]) -> list[str]:
         target = root / path
         current = staged.get(path, target.read_text(encoding="utf-8") if target.exists() else None)
         search, replace = e.get("search", ""), e.get("replace", "")
+        if GATE_TAMPERING.search(replace or ""):
+            raise ValidationError(f"not allowed in {path}: changing the protected yes/no permission levels; give a "
+                                  "new tool its level in jarvis_books/assistant/upgrade_levels.py instead")
         if not search:
             if current is not None:
                 raise ValidationError(f"{path} already exists; give the exact text to replace")

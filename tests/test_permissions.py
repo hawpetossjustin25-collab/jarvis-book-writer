@@ -36,8 +36,19 @@ def outline_title(library, book_id):
 
 
 def test_every_tool_has_a_level_and_unknown_tools_are_most_sensitive():
-    assert {d["name"] for d in DECLARATIONS} == set(TOOL_LEVELS)
+    from jarvis_books.assistant.upgrade_levels import ADDED_TOOL_LEVELS
+    assert {d["name"] for d in DECLARATIONS} == set(TOOL_LEVELS) | set(ADDED_TOOL_LEVELS)
+    assert not set(ADDED_TOOL_LEVELS) & set(TOOL_LEVELS)  # upgrades never relabel a built-in tool
     assert level_of("rm_rf_everything") == "system"
+
+
+def test_tools_added_by_upgrades_get_their_level_but_never_override_built_ins(monkeypatch):
+    from jarvis_books.assistant import upgrade_levels
+    monkeypatch.setattr(upgrade_levels, "ADDED_TOOL_LEVELS",
+                        {"total_words": "read", "run_command": "read", "odd_tool": "whatever"})
+    assert level_of("total_words") == "read"
+    assert level_of("run_command") == "system"
+    assert level_of("odd_tool") == "system"
 
 
 @pytest.mark.parametrize("text,answer", [
