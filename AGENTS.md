@@ -80,7 +80,9 @@ links, the researcher's interest detection, and Groq chat with Gemini taking ove
 - Character voices stage 3 is done and checked on the laptop with real Gemini speech (recast, swap, samples),
   and in the real app window: a recast while the audiobook plays carries on, and later passages use the new
   voices (Gemini or the Edge backup; a recast changes both). Laptop check: DevinConnect\jb_recast_play.py.
-- YouTube upload: needs Justin's Google sign-in (OAuth client) and a private test upload.
+- YouTube upload works through the Studio website (jarvis_books/publish/studio.py, Edge profile
+  JarvisBooks\youtube_browser) since Google Cloud needs 2-step, which Justin won't use. Private test upload passed
+  on the laptop (DevinConnect\jb_yt_check.py). The API route still works if a Google client file is loaded.
 - Web limits: DuckDuckGo blocks quick searches, Bid4Assets answers 403, and Zeus and RealAuction don't publish
   parcel prices.
 - The Groq key was pasted in a chat, so it should be rotated.
