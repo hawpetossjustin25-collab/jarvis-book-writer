@@ -1,8 +1,11 @@
 """Multi-voice narration, stage 1: who says each line, and a voice cast with a narrator per book."""
 import json
+
+import pytest
 from pathlib import Path
 
-from jarvis_books.audio.script import Line, VoiceDirector, is_plain_tag, merge_lines, split_spans, trim_tags
+from jarvis_books.audio.script import Line, VoiceDirector, is_plain_tag, merge_lines, split_spans, tag_labels, \
+    trim_tags
 from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, another_voice, assign_voices, default_style,
                                        parse_edge_voice, who)
 from jarvis_books.llm.errors import LLMError
@@ -303,3 +306,26 @@ def test_spoken_names_with_the_find_the_character(library, make_engine):
     assert director._resolve(book.id, "the captain") == "Captain Reyes"
     assert director._resolve(book.id, "little Lily") == "Lily"
     assert director._resolve(book.id, "the cook") is None
+
+
+def test_speech_tags_name_the_speaker_when_the_ai_labeller_cannot():
+    text = ('A small sound came from the crate. "Who is in there?" he growled. The lid lifted. "I am Lily," she '
+            'said. "I want to see the sea." Reyes frowned and said, "The sea is no place for a child." "Please?"')
+    names = {"he": "Captain Reyes", "she": "Lily", "reyes": "Captain Reyes"}
+    labels = tag_labels(split_spans(text), lambda who: names.get(who.lower()))
+    assert labels == [{"n": 1, "speaker": "Captain Reyes", "style": ""}, {"n": 2, "speaker": "Lily", "style": ""},
+                      {"n": 3, "speaker": "Lily", "style": ""}, {"n": 4, "speaker": "Captain Reyes", "style": ""}]
+
+
+@pytest.mark.parametrize("kind,kept", [("safety", True), ("network", False)])
+def test_a_refused_passage_is_voiced_from_its_tags_and_kept(library, make_engine, kind, kept):
+    d, book, engine = make(library, make_engine, profiles=PROFILES)
+    d.build_cast(book.id)
+    text = '"Who is in there?" he growled. "I am Lily," she said.'
+
+    def refuse(request):
+        raise LLMError("response blocked (PROHIBITED_CONTENT)", kind=kind)
+    d.engine = type("Refuses", (), {"generate": staticmethod(refuse)})()
+    lines = d.script(book.id, text)
+    assert [ln.speaker for ln in lines if ln.speaker != NARRATOR] == ["Captain Reyes", "Lily"]
+    assert (d.script(book.id, text, offline=True) is not None) is kept

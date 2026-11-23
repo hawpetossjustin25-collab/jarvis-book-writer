@@ -25,6 +25,8 @@ NAMES = {GEMINI: "Gemini", GROQ: "Groq", LOCAL: LABEL}
 BACKUPS = {GEMINI: (GROQ, LOCAL), GROQ: (GEMINI, LOCAL), LOCAL: (GEMINI, GROQ)}
 # Our own bad request or a blocked answer is not the brain's fault; everything else may switch.
 NO_SWITCH = ("invalid",)
+# A refusal is about one request (Gemini's filter blocked that passage), so another brain answers it but nobody rests.
+NO_REST = ("safety",)
 
 
 class Brain:
@@ -87,8 +89,9 @@ class Brain:
                 if exc.kind in NO_SWITCH:
                     raise
                 reasons.append(f"{NAMES[which]}: {exc}")
-                with self._lock:
-                    self._down[which] = (self.clock() + self.cooldown_s, str(exc))
+                if exc.kind not in NO_REST:
+                    with self._lock:
+                        self._down[which] = (self.clock() + self.cooldown_s, str(exc))
                 log.warning("%s failed for %s (%s)", NAMES[which], request.role, exc)
                 continue
             with self._lock:

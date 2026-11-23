@@ -118,6 +118,34 @@ _TAG = re.compile(rf"^[\s,.;:\u2014\u2013-]*(?:(?i:{_SPEECH})\s+{_WHO}|{_WHO}\s+
                   rf"(?:\s+(?i:[a-z]+ly))?{_TO}(?:\s+(?i:[a-z]+ly))?[\s,.!?;:\u2014\u2013-]*$")
 
 
+_AFTER = re.compile(rf"^[\s,.;:\u2014\u2013-]*(?:(?i:{_SPEECH})\s+(?P<a>{_WHO})|(?P<b>{_WHO})\s+(?i:{_SPEECH}))\b")
+_BEFORE = re.compile(rf"(?:^\s*|[.!?]\s+)(?P<who>{_WHO})(?:\s+[a-z]+){{0,3}}?\s+(?i:{_SPEECH})\b[^.!?\"\u201c]*[,:]?\s*$")
+_LAST_SENTENCE = re.compile(rf"(?P<who>{_WHO})\s+(?i:{_SPEECH})\b[^.!?\"\u201c]*[.!?,]?\s*$")
+
+
+def tag_labels(spans: list[tuple[str, str]], resolve: Callable[[str], Optional[str]]) -> list[dict]:
+    """Who says each quote, read from the speech tags around it ('said Lily', 'he growled'). Used when the AI
+    labeller can't answer; untagged quotes stay with the narrator rather than guessing."""
+    labels, n = [], 0
+    for i, (kind, _) in enumerate(spans):
+        if kind != "quote":
+            continue
+        n += 1
+        after = spans[i + 1][1] if i + 1 < len(spans) and spans[i + 1][0] == "narration" else ""
+        before = spans[i - 1][1] if i > 0 and spans[i - 1][0] == "narration" else ""
+        who = None
+        m = _AFTER.match(after)
+        if m:
+            who = resolve(m.group("a") or m.group("b"))
+        if who is None and before:
+            m = _BEFORE.search(before) or _LAST_SENTENCE.search(before)
+            if m:
+                who = resolve(m.group("who"))
+        if who:
+            labels.append({"n": n, "speaker": who, "style": ""})
+    return labels
+
+
 def is_plain_tag(text: str) -> bool:
     """True for a bare speech tag ('said Tom.', 'she whispered softly,') that only tells who is talking."""
     return bool(_TAG.match(text or ""))
@@ -258,10 +286,30 @@ class VoiceDirector:
                 return None
             try:
                 labels = self._label(book_id, spans, before)
-            except (LLMError, JarvisError) as exc:  # no speech labels right now: the narrator reads it, try again next time
-                log.info("dialogue labels unavailable (%s); narrator reads this passage", exc)
-                return merge_lines(spans, {})
+            except (LLMError, JarvisError) as exc:
+                # The speech tags still say who talks. A refused passage is refused every time, so its tag labels
+                # are kept; after a passing outage the AI labeller tries again next time.
+                labels = tag_labels(spans, lambda who: self._spoken_name(book_id, who))
+                log.info("dialogue labels unavailable (%s); %d of %d quotes voiced from their speech tags",
+                         exc, len(labels), len(quotes))
+                if getattr(exc, "kind", "") != "safety":
+                    return self._merge(book_id, spans, labels)
             self.library.save_voice_script(book_id, key, labels)
+        return self._merge(book_id, spans, labels)
+
+    def _spoken_name(self, book_id: str, who: str) -> Optional[str]:
+        """A name or pronoun from a speech tag: 'she' only means someone when one character is female."""
+        word = who.strip().lower()
+        gender = {"he": "male", "him": "male", "she": "female", "her": "female"}.get(word)
+        if gender:
+            matches = [m["name"] for m in self.characters(book_id) if m["gender"] == gender]
+            return matches[0] if len(matches) == 1 else None
+        if word in ("i", "we", "you", "they", "it"):
+            return None
+        found = self._resolve(book_id, who)
+        return found if found != NARRATOR else None
+
+    def _merge(self, book_id: str, spans: list[tuple[str, str]], labels: list[dict]) -> list[Line]:
         speakers = {}
         for item in labels:
             who = self._resolve(book_id, item.get("speaker", "")) or NARRATOR

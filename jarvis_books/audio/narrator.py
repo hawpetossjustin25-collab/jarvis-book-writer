@@ -212,8 +212,10 @@ class Narrator:
         plan = self._plan(segment, offline=True)
         if plan is None:
             return None
-        h = text_hash(segment.text)
-        for key in plan["keys"]:
+        return self._recorded(text_hash(segment.text), plan["keys"])
+
+    def _recorded(self, h: str, keys: list[str]) -> Optional[Path]:
+        for key in keys:
             row = self.library.db.query_one(
                 "SELECT id, path FROM audio_segments WHERE text_hash=? AND voice_key=? ORDER BY id DESC LIMIT 1", (h, key))
             if row and Path(row["path"]).exists():
@@ -233,6 +235,9 @@ class Narrator:
             if cached:
                 return cached
             plan = self._plan(segment, offline=False)
+            recorded = self._recorded(h, plan["keys"])  # unlabelled passages are recorded once, not every time
+            if recorded:
+                return recorded
             if "lines" in plan:
                 data, key, ext = self._synthesize_cast(plan)
             else:

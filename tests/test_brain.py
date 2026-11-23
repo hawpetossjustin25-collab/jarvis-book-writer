@@ -195,7 +195,7 @@ def test_gemini_answers_first_by_default():
     assert ask(b) == "gemini" and l.calls == 0 and b.status()["answering_now"] == "Gemini"
 
 
-@pytest.mark.parametrize("kind", ["quota", "rate", "overload", "network", "unavailable", "unknown", "safety"])
+@pytest.mark.parametrize("kind", ["quota", "rate", "overload", "network", "unavailable", "unknown"])
 def test_switches_to_lfm3_when_gemini_fails_and_back_when_it_works(kind):
     b, g, l, _, clock = brain()
     switches = []
@@ -210,6 +210,14 @@ def test_switches_to_lfm3_when_gemini_fails_and_back_when_it_works(kind):
     g.fail = None
     clock[0] += 121
     assert ask(b) == "gemini" and switches[-1][:2] == (GEMINI, LOCAL)
+
+
+def test_a_blocked_answer_goes_to_the_backup_but_gemini_keeps_answering_everything_else():
+    b, g, l, _, _ = brain()
+    g.fail = "safety"
+    assert ask(b) == "lfm3"
+    g.fail = None
+    assert ask(b) == "gemini" and not b.status()["gemini"].startswith("resting")
 
 
 def test_a_bad_request_does_not_switch():
