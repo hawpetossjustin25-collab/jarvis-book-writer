@@ -16,8 +16,8 @@ from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_W
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
-from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_voice, \
-    default_style, describe_voice, edge_matching, who
+from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_edge, \
+    another_voice, default_style, describe_voice, edge_matching, who
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.errors import NotFound
 from jarvis_books.jobs import JobManager
@@ -1198,6 +1198,10 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
         if voice:
             fields["voice"] = voice
             fields["edge_voice"] = current["edge_voice"] if character == NARRATOR else edge_matching(voice, g, a)
+            if character != NARRATOR and voice != current["voice"] and fields["edge_voice"] == current["edge_voice"]:
+                # a new voice must also sound new when Gemini speech is down and the backup voices read
+                fields["edge_voice"] = another_edge({**current, "gender": g, "age": a}, d.cast(b.id),
+                                                    d.narrator(b.id)["edge_voice"])
         elif gender or age:
             fields.update(voice="", edge_voice="")
         self.library.upsert_cast_member(b.id, character, **fields)

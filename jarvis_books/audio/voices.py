@@ -142,6 +142,16 @@ def another_voice(member: dict, cast: list[dict], narrator_voice: str) -> str:
     return _pick(pool, used, set() if member["name"] == NARRATOR else {narrator_voice})
 
 
+def another_edge(member: dict, cast: list[dict], narrator_edge: str) -> str:
+    """A fresh backup (Edge) voice for a recast, so the change is heard even when Gemini speech is unavailable."""
+    current = member.get("edge_voice", "")
+    fits = [v for v in _fits(_EDGE_FIT, member.get("gender", ""), member.get("age", "")) if v != current]
+    if not fits:
+        return current or edge_matching(member.get("voice", ""), member.get("gender", ""), member.get("age", ""))
+    used = Counter(m["edge_voice"] for m in cast if m.get("edge_voice") and m["name"] != member["name"])
+    return _pick(fits, used, {narrator_edge})
+
+
 def edge_matching(voice: str, gender: str = "", age: str = "") -> Optional[str]:
     """The first Edge voice that fits a character, for when the author picks a Gemini voice by hand."""
     if not gender:

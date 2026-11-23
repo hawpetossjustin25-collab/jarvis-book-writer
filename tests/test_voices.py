@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jarvis_books.audio.script import Line, VoiceDirector, is_plain_tag, merge_lines, split_spans, tag_labels, \
     trim_tags
-from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, another_voice, assign_voices, default_style,
+from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, another_edge, another_voice, assign_voices, default_style,
                                        parse_edge_voice, who)
 from jarvis_books.llm.errors import LLMError
 from fakes import FakeGemini, body, sample_for
@@ -242,6 +242,19 @@ def test_another_voice_fits_the_character_and_differs_from_the_cast():
     assert narrator not in ("Kore", "Leda", "Achernar", "Algenib")
 
 
+def test_another_edge_gives_a_recast_a_different_fitting_backup_voice():
+    cast = [{"name": NARRATOR, "voice": "Kore", "edge_voice": "en-US-AndrewNeural", "gender": "unknown",
+             "age": "adult"},
+            {"name": "Lily", "voice": "Leda", "edge_voice": "en-US-AnaNeural", "gender": "female", "age": "child"},
+            {"name": "Mara", "voice": "Achernar", "edge_voice": "en-US-AvaNeural", "gender": "female",
+             "age": "adult"}]
+    assert another_edge(cast[1], cast, "en-US-AndrewNeural") == "en-GB-MaisieNeural"
+    mara = another_edge(cast[2], cast, "en-US-AndrewNeural")
+    assert mara != "en-US-AvaNeural" and mara.startswith(("en-US-", "en-GB-"))
+    lone = {"name": "X", "voice": "Leda", "edge_voice": "", "gender": "female", "age": "child"}
+    assert another_edge(lone, [lone], "en-US-AndrewNeural") == "en-US-AnaNeural"
+
+
 def test_recast_swap_and_hear_voices_by_command(tmp_path):
     from jarvis_books.studio import Studio
     from conftest import hardware
@@ -260,6 +273,7 @@ def test_recast_swap_and_hear_voices_by_command(tmp_path):
         studio.gate.answer(True)
         assert ("recast", {"book_id": book.id}) in calls
         lily = studio.library.get_cast_member(book.id, "Lily")["voice"]
+        lily_edge = studio.library.get_cast_member(book.id, "Lily")["edge_voice"]
         reyes = studio.library.get_cast_member(book.id, "Captain Reyes")["voice"]
 
         r = t.call("set_voice", {"character": "lily", "voice": "different"})
@@ -268,6 +282,7 @@ def test_recast_swap_and_hear_voices_by_command(tmp_path):
         new = studio.library.get_cast_member(book.id, "Lily")
         assert new["voice"] != lily and new["voice"] in r["asking"] and new["locked"]
         assert GEMINI_CATALOG[new["voice"]][0] == "female"
+        assert new["edge_voice"] and new["edge_voice"] != lily_edge  # heard even when Gemini speech is down
 
         calls.clear()
         r = t.call("swap_voices", {"first": "Reyes", "second": "Lily"})
