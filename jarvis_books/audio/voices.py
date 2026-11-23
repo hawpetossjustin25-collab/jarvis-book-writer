@@ -128,6 +128,20 @@ def assign_voices(members: list[dict], narrator_voice: str, narrator_edge: str) 
     return out
 
 
+ANOTHER = ("different", "another", "new", "other", "a different one", "a different voice", "something else")
+
+
+def another_voice(member: dict, cast: list[dict], narrator_voice: str) -> str:
+    """A fresh Gemini voice for a recast: it fits the member's gender and age, isn't their current voice, and is the
+    one the rest of the cast uses least (a character never gets the narrator's voice unless nothing else fits)."""
+    gender, current = member.get("gender", ""), member.get("voice", "")
+    fits = list(_fits(_GEMINI_FIT, gender, member.get("age", "")))
+    same = [v for v, (g, _) in GEMINI_CATALOG.items() if gender not in ("male", "female") or g == gender]
+    pool = [v for v in dict.fromkeys(fits + same) if v != current] or [v for v in GEMINI_CATALOG if v != current]
+    used = Counter(m["voice"] for m in cast if m.get("voice") and m["name"] != member["name"])
+    return _pick(pool, used, set() if member["name"] == NARRATOR else {narrator_voice})
+
+
 def edge_matching(voice: str, gender: str = "", age: str = "") -> Optional[str]:
     """The first Edge voice that fits a character, for when the author picks a Gemini voice by hand."""
     if not gender:

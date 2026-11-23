@@ -41,6 +41,7 @@ class AudiobookPlayer(QObject):
         self.playing = False
         self._waiting = False
         self._prefetching: set[int] = set()
+        self._sample = False  # a voice sample is loaded instead of a passage
         self._lock = threading.Lock()
 
     @property
@@ -91,7 +92,7 @@ class AudiobookPlayer(QObject):
             self.error.emit("Nothing to play yet: this book has no written chapters.")
             return
         self.playing = True
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PausedState:
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.PausedState and not self._sample:
             self.player.play()
             self.state_changed.emit("playing")
             return
@@ -131,6 +132,7 @@ class AudiobookPlayer(QObject):
             self.state_changed.emit("finished")
             return
         self.index = i
+        self._sample = False
         seg = self.segments[i]
         self.position_changed.emit(seg.chapter_number, i, len(self.segments))
         path = self.narrator.cached_path(seg)
@@ -145,6 +147,24 @@ class AudiobookPlayer(QObject):
             self._fetch(i)
         for j in range(i + 1, min(len(self.segments), i + 1 + PREFETCH)):
             self._fetch(j)
+
+    def record_ahead(self, book_id: str) -> bool:
+        """After a voice change, record the next passages in the new voices so playback carries on without a gap."""
+        if book_id != self.book_id or not self.playing or not self.segments:
+            return False
+        for j in range(self.index + 1, min(len(self.segments), self.index + 1 + PREFETCH)):
+            self._fetch(j)
+        return True
+
+    def play_file(self, path) -> None:
+        """Play one clip (a voice sample) in place of the audiobook; play() afterwards carries on with the book."""
+        if self.playing:
+            self.pause()
+        self._waiting = False
+        self._sample = True
+        self._set_source(path)
+        self.player.play()
+        self.state_changed.emit("sample")
 
     def _fetch(self, i: int) -> None:
         with self._lock:

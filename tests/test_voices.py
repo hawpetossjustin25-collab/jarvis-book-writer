@@ -1,9 +1,10 @@
 """Multi-voice narration, stage 1: who says each line, and a voice cast with a narrator per book."""
 import json
+from pathlib import Path
 
 from jarvis_books.audio.script import Line, VoiceDirector, is_plain_tag, merge_lines, split_spans, trim_tags
-from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, assign_voices, default_style, parse_edge_voice,
-                                       who)
+from jarvis_books.audio.voices import (GEMINI_CATALOG, NARRATOR, another_voice, assign_voices, default_style,
+                                       parse_edge_voice, who)
 from jarvis_books.llm.errors import LLMError
 from fakes import FakeGemini, body, sample_for
 
@@ -223,3 +224,73 @@ def test_dialogue_tags_setting_values():
     import pytest
     with pytest.raises(ValueError):
         ToolBox._setting_value("dialogue_tags", "lots")
+
+
+def test_another_voice_fits_the_character_and_differs_from_the_cast():
+    cast = [{"name": NARRATOR, "voice": "Kore", "gender": "unknown", "age": "adult"},
+            {"name": "Lily", "voice": "Leda", "gender": "female", "age": "child"},
+            {"name": "Mara", "voice": "Achernar", "gender": "female", "age": "adult"},
+            {"name": "Reyes", "voice": "Algenib", "gender": "male", "age": "elder"}]
+    lily = another_voice(cast[1], cast, "Kore")
+    assert GEMINI_CATALOG[lily][0] == "female" and lily not in ("Leda", "Achernar", "Kore")
+    reyes = another_voice(cast[3], cast, "Kore")
+    assert GEMINI_CATALOG[reyes][0] == "male" and reyes != "Algenib"
+    narrator = another_voice(cast[0], cast, "Kore")
+    assert narrator not in ("Kore", "Leda", "Achernar", "Algenib")
+
+
+def test_recast_swap_and_hear_voices_by_command(tmp_path):
+    from jarvis_books.studio import Studio
+    from conftest import hardware
+    client = FakeGemini(responder(profiles=PROFILES))
+    studio = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=client,
+                    engine_kwargs={"hardware_probe": hardware, "sleep": lambda s: None})
+    try:
+        studio.start(probe=False)
+        book = studio.library.create_book("The Salt Road", "fantasy")
+        studio.library.upsert_bible(book.id, "character", "Lily", "a seven-year-old stowaway")
+        studio.library.upsert_bible(book.id, "character", "Captain Reyes", "old captain")
+        t, calls = studio.tools, []
+        t.current_book_id = book.id
+        t.audio_handler = lambda action, args: calls.append((action, args)) or {"ok": True, "playing_sample": True}
+        t.call("cast_voices")
+        studio.gate.answer(True)
+        assert ("recast", {"book_id": book.id}) in calls
+        lily = studio.library.get_cast_member(book.id, "Lily")["voice"]
+        reyes = studio.library.get_cast_member(book.id, "Captain Reyes")["voice"]
+
+        r = t.call("set_voice", {"character": "lily", "voice": "different"})
+        assert r["needs_approval"] and "different" not in r["asking"]
+        studio.gate.answer(True)
+        new = studio.library.get_cast_member(book.id, "Lily")
+        assert new["voice"] != lily and new["voice"] in r["asking"] and new["locked"]
+        assert GEMINI_CATALOG[new["voice"]][0] == "female"
+
+        calls.clear()
+        r = t.call("swap_voices", {"first": "Reyes", "second": "Lily"})
+        assert r["needs_approval"] and "Captain Reyes" in r["asking"] and "Lily" in r["asking"]
+        studio.gate.answer(True)
+        assert studio.library.get_cast_member(book.id, "Captain Reyes")["voice"] == new["voice"]
+        assert studio.library.get_cast_member(book.id, "Lily")["voice"] == reyes
+        assert calls == [("recast", {"book_id": book.id})]
+        t.run("undo_last_change")
+        assert studio.library.get_cast_member(book.id, "Lily")["voice"] == new["voice"]
+        assert "error" in t.call("swap_voices", {"first": "Lily", "second": "Lily"})
+        assert "error" in t.call("swap_voices", {"first": "Lily", "second": "Nobody"})
+
+        calls.clear()
+        before = client.tts_calls
+        r = t.call("hear_voice", {"character": "the captain"})
+        assert r["playing_sample"] and r["character"] == "Captain Reyes" and "needs_approval" not in r
+        action, args = calls[0]
+        assert action == "preview" and Path(args["path"]).exists()
+        assert client.tts_log[-1][1] == studio.library.get_cast_member(book.id, "Captain Reyes")["voice"]
+        assert "Captain Reyes" in client.tts_log[-1][0]
+        t.call("hear_voice", {"character": "Reyes"})
+        assert client.tts_calls == before + 1  # the sample is recorded once
+        assert "error" in t.call("hear_voice", {"character": "Nobody"})
+
+        assert "swap_voices" in {d["name"] for d in t.select("swap the voices of Lily and Reyes")}
+        assert "hear_voice" in {d["name"] for d in t.select("let me hear how Lily sounds")}
+    finally:
+        studio.close()

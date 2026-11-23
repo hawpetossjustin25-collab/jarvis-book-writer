@@ -1512,6 +1512,12 @@ class MainWindow(QMainWindow):
         return self._on_ui(lambda: self._audio_do(action, args))
 
     def _audio_do(self, action: str, args: dict) -> dict:
+        if action == "recast":
+            return {"ok": True, "recording_ahead": self.player.record_ahead(args["book_id"])}
+        if action == "preview":
+            self.player.play_file(args["path"])
+            return {"ok": True, "playing_sample": True, "note": "The audiobook is paused while the sample plays; "
+                    "play_audiobook carries on from the same spot."}
         if action != "play":
             self.player.pause()
             return {"ok": True, "action": action}

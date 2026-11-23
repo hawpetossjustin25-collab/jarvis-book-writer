@@ -16,8 +16,8 @@ from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_W
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
-from jarvis_books.audio.voices import AGES, GEMINI_CATALOG, GENDERS, NARRATOR, default_style, describe_voice, \
-    edge_matching, who
+from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_voice, \
+    default_style, describe_voice, edge_matching, who
 from jarvis_books.craft import get_structure, match_genre
 from jarvis_books.errors import NotFound
 from jarvis_books.jobs import JobManager
@@ -305,11 +305,17 @@ DECLARATIONS = [
     _decl("cast_voices", "Find every character in the story bible and give each a fitting voice for the "
           "audiobook (voices the author picked are kept).", {"book": BOOK}),
     _decl("set_voice", "Change how the narrator or a character sounds in the audiobook. character: a name, or "
-          "'narrator'. voice: one of " + ", ".join(describe_voice(v) for v in GEMINI_CATALOG) + ". gender: male, "
+          "'narrator'. voice: 'different' for another fitting voice, or one of "
+          + ", ".join(describe_voice(v) for v in GEMINI_CATALOG) + ". gender: male, "
           "female or unknown. age: child, teen, adult or elder. style: a short direction like 'deep and slow' or "
           "'a shy girl about ten'.",
           {"book": BOOK, "character": S, "voice": S, "gender": {"type": "STRING", "enum": list(GENDERS)},
            "age": {"type": "STRING", "enum": list(AGES)}, "style": S}, ["character"]),
+    _decl("swap_voices", "Swap the audiobook voices of two characters (or a character and the narrator), e.g. "
+          "'give Lily Tom's voice and Tom Lily's'.", {"book": BOOK, "first": S, "second": S}, ["first", "second"]),
+    _decl("hear_voice", "Let the author hear how the narrator or a character sounds: plays a short sample line in "
+          "that voice (the audiobook pauses). Use it after a recast, or when they ask how someone sounds.",
+          {"book": BOOK, "character": S}, ["character"]),
 ]
 
 DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS
@@ -342,6 +348,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
         self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
         self.upgrader = None  # set by the Studio
         self.director = None  # set by the Studio (voice cast)
+        self.narrator = None  # set by the Studio (voice samples)
         self.memory = None  # set by the Studio (Jarvis's long-term memory)
         self.computer = None  # set by the Studio (files on the author's computer)
         self.terminal = None  # set by the Studio
@@ -429,7 +436,9 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
             "download_file": ("download", "get the file", "save the file", "grab", "hugging", "model"),
             "github_download": ("github", "repo", "clone", "download"),
             "cast_voices": ("voice", "cast", "characters sound", "give them voices"),
-            "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent"),
+            "set_voice": ("voice", "narrator", "sound", "deeper", "higher", "older", "younger", "accent", "recast"),
+            "swap_voices": ("swap", "switch", "trade", "exchange", "voice"),
+            "hear_voice": ("hear", "sound", "sample", "voice", "listen to"),
             **{d["name"]: PLANNER_WORDS for d in PLANNER_DECLARATIONS},
             **{d["name"]: DESKTOP_WORDS for d in DESKTOP_DECLARATIONS},
             **{d["name"]: RESEARCH_WORDS for d in RESEARCH_DECLARATIONS},
@@ -495,6 +504,11 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
             args["expect"] = self.undo[-1]["id"]
         if decl["name"] == "set_voice":
             args.update(self._voice_change(args))
+        if decl["name"] == "swap_voices":
+            b = self._book(args.get("book"))
+            args["first"], args["second"] = (self._cast_name(b.id, args.get(k, "")) for k in ("first", "second"))
+            if args["first"] == args["second"]:
+                raise ValueError("pick two different characters to swap")
         if decl["name"] == "forget_memory":
             self.library.get_memory(args["memory_id"])
         if decl["name"] in COMPUTER_PINS:
@@ -567,6 +581,8 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
                     who(args["gender"], args["age"]).lower() if args.get("gender") and args.get("age") else "",
                     f"'{args['style']}'" if args.get("style") else ""]
             return f"Change the voice of {args['character']} in '{book}' to " + ", ".join(b for b in bits if b)
+        if name == "swap_voices":
+            return f"Swap the audiobook voices of {args['first']} and {args['second']} in '{book}'"
         if name == "test_app":
             return ("Run the app's full test suite, and if anything fails, build a repair upgrade in a separate "
                     "test copy that keeps fixing it until every test passes")
@@ -1089,19 +1105,18 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
         before = self.library.list_cast(b.id)
         cast = self._director().build_cast(b.id)
         self._push_undo(f"the audiobook voices of '{b.title}'", lambda: self.library.replace_cast(b.id, before))
+        self._cast_changed(b.id)
         return {"book": b.title, "cast": [self._cast_view(m) for m in cast]}
 
     def _voice_change(self, args: dict) -> dict:
         """Check a voice change and fill in what follows from it (the matching backup voice, the age style)."""
         b = self._book(args.get("book"))
         d = self._director()
-        name = args.get("character", "").strip()
-        resolved = NARRATOR if name.lower() in ("narrator", "the narrator") else d._resolve(b.id, name)
-        if resolved is None:
-            names = ", ".join(m["name"] for m in d.characters(b.id)) or "none yet (use cast_voices)"
-            raise NotFound(f"no character called '{name}' in '{b.title}'. Characters: {names}")
+        resolved = self._cast_name(b.id, args.get("character", ""))
         out = {"character": resolved}
-        if args.get("voice"):
+        if str(args.get("voice") or "").strip().lower() in ANOTHER:
+            out["voice"] = self._another(b.id, resolved)
+        elif args.get("voice"):
             match = {v.lower(): v for v in GEMINI_CATALOG}.get(str(args["voice"]).strip().lower())
             if match is None:
                 raise ValueError("voice must be one of " + ", ".join(GEMINI_CATALOG))
@@ -1110,10 +1125,64 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
             raise ValueError("say what to change: voice, gender, age or style")
         return out
 
+    def _cast_name(self, book_id: str, name: str) -> str:
+        """The cast member a spoken name means ('Reyes', 'the narrator'), or NotFound listing the real names."""
+        d = self._director()
+        name = (name or "").strip()
+        resolved = NARRATOR if name.lower() in ("narrator", "the narrator") else d._resolve(book_id, name)
+        if resolved is None:
+            names = ", ".join(m["name"] for m in d.characters(book_id)) or "none yet (use cast_voices)"
+            raise NotFound(f"no character called '{name}' in '{self.library.get_book(book_id).title}'. "
+                           f"Characters: {names}")
+        return resolved
+
+    def _member(self, book_id: str, name: str) -> dict:
+        d = self._director()
+        return d.narrator(book_id) if name == NARRATOR else self.library.get_cast_member(book_id, name)
+
+    def _another(self, book_id: str, name: str) -> str:
+        d = self._director()
+        return another_voice(self._member(book_id, name), d.cast(book_id), d.narrator(book_id)["voice"])
+
+    def _cast_changed(self, book_id: str) -> None:
+        """A playing audiobook records its next passages in the new voices straight away."""
+        if self.audio_handler is None:
+            return
+        try:
+            self.audio_handler("recast", {"book_id": book_id})
+        except Exception:
+            log.exception("could not tell the player about the new voices")
+
+    def _t_swap_voices(self, first: str, second: str, book: str = "") -> dict:
+        b = self._book(book)
+        names = [self._cast_name(b.id, first), self._cast_name(b.id, second)]
+        if names[0] == names[1]:
+            raise ValueError("pick two different characters to swap")
+        before = self.library.list_cast(b.id)
+        one, two = (self._member(b.id, n) for n in names)
+        for name, src in ((names[0], two), (names[1], one)):
+            self.library.upsert_cast_member(b.id, name, voice=src["voice"], edge_voice=src["edge_voice"], locked=True)
+        self._push_undo(f"swapping the voices of {names[0]} and {names[1]} in '{b.title}'",
+                        lambda: self.library.replace_cast(b.id, before))
+        self._cast_changed(b.id)
+        return {"book": b.title, "changed": [self._cast_view(self._member(b.id, n)) for n in names]}
+
+    def _t_hear_voice(self, character: str, book: str = "") -> dict:
+        b = self._book(book)
+        name = self._cast_name(b.id, character)
+        if self.narrator is None or self.audio_handler is None:
+            return {"error": "the audio player is not available"}
+        member = self._member(b.id, name)
+        path = self.narrator.sample(b.title, name, member)
+        played = self.audio_handler("preview", {"path": str(path)})
+        return {"character": name, "voice": describe_voice(member["voice"] or self.narrator.voice), **played}
+
     def _t_set_voice(self, character: str, book: str = "", voice: str = "", gender: str = "", age: str = "",
                      style: str = "") -> dict:
         b = self._book(book)
         d = self._director()
+        if voice.strip().lower() in ANOTHER:
+            voice = self._another(b.id, character)
         current = d.narrator(b.id) if character == NARRATOR else self.library.get_cast_member(b.id, character)
         if current is None:
             raise NotFound(f"no character called '{character}' in '{b.title}'")
@@ -1137,6 +1206,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
         if character == NARRATOR and voice:
             self.library.upsert_cast_member(b.id, NARRATOR, edge_voice=current["edge_voice"])
         self._push_undo(f"the voice of {character} in '{b.title}'", lambda: self.library.replace_cast(b.id, before))
+        self._cast_changed(b.id)
         return {"book": b.title, "changed": self._cast_view(self.library.get_cast_member(b.id, character))}
 
     def _brain(self):

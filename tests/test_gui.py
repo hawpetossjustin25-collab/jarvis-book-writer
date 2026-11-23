@@ -410,6 +410,26 @@ def test_play_reports_playing_only_with_audio_ready(window, qapp, monkeypatch, t
     assert win._audio_do("stop", {}) == {"ok": True, "action": "stop"}
 
 
+def test_voice_samples_pause_the_book_and_recasts_record_ahead(window, qapp, monkeypatch, tmp_path):
+    win, studio, book = window
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFF")
+    fetched = []
+    monkeypatch.setattr(win.player.narrator, "cached_path", lambda seg: clip)
+    monkeypatch.setattr(win.player, "player", _QuietMedia(win.player.player))
+    monkeypatch.setattr(win.player, "_fetch", fetched.append)
+    assert win._audio_do("recast", {"book_id": book.id}) == {"ok": True, "recording_ahead": False}
+    win._audio_do("play", {"book_id": book.id, "chapter": 1})
+    fetched.clear()
+    assert win._audio_do("recast", {"book_id": book.id})["recording_ahead"] is True
+    assert fetched == list(range(win.player.index + 1, min(len(win.player.segments), win.player.index + 4)))
+    assert win._audio_do("recast", {"book_id": "another book"})["recording_ahead"] is False
+    result = win._audio_do("preview", {"path": str(clip)})
+    assert result["ok"] and result["playing_sample"] and not win.player.playing and win.player._sample
+    win.player.play()
+    assert win.player.playing and not win.player._sample
+
+
 def test_brain_settings_switch_and_switch_notice(window, qapp):
     win, studio, book = window
     assert "LFM3" in win.brain_state.text() and not win.brain_download.isHidden()  # tests use an offline Ollama

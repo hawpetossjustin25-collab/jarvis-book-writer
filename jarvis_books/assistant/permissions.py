@@ -43,7 +43,7 @@ TOOL_LEVELS = MappingProxyType({
     "github_search": READ, "github_read": READ,
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,
-    "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE,
+    "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE, "swap_voices": CHANGE, "hear_voice": SAFE,
     "show_planner": READ, "list_reminders": READ,
     "add_to_planner": SAFE, "update_planner_item": SAFE, "set_reminder": SAFE, "change_reminder": SAFE,
     "cancel_reminder": SAFE, "snooze_reminder": SAFE, "stop_alarm": SAFE,

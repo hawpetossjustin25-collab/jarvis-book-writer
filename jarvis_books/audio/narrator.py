@@ -316,6 +316,35 @@ class Narrator:
         self.last_backend = "edge"
         return b"".join(parts), rest[0], "mp3"
 
+    def sample(self, title: str, name: str, member: dict) -> Path:
+        """A short line in one cast member's voice, so the author can hear it before or after a recast."""
+        voice, edge = member.get("voice") or self.voice, member.get("edge_voice") or self.edge_voice
+        if name == NARRATOR:
+            text, style = f"I'm the narrator of {title}. This is how the story sounds when I read it.", self.style
+        else:
+            text = f"Hello, I'm {name}. This is how I sound in {title}."
+            style = f"Speak as {name}" + (f", {member['style']}" if member.get("style") else "") + ", in character"
+        folder = self.cache_dir / "samples"
+        folder.mkdir(parents=True, exist_ok=True)
+        key = text_hash(json.dumps([text, voice, style, edge]))[:16]
+        for ext in ("wav", "mp3"):
+            if (folder / f"{key}.{ext}").exists():
+                return folder / f"{key}.{ext}"
+        try:
+            data, ext = self.engine.tts(text, voice, style), "wav"
+        except LLMError as exc:
+            if not self.edge_fallback or exc.kind == "auth":
+                raise
+            log.info("Gemini speech unavailable (%s); the sample uses the Edge voice", exc.kind)
+            data, ext = self._edge(text, edge), "mp3"
+        if not data:
+            raise LLMError("speech synthesis returned no audio", kind="unavailable")
+        path = folder / f"{key}.{ext}"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+        return path
+
     def prepare(self, segments: list[Segment], cancel: Optional[threading.Event] = None, progress=None) -> int:
         made = 0
         for i, seg in enumerate(segments):

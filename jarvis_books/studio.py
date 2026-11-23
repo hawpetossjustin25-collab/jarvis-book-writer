@@ -90,6 +90,7 @@ class Studio:
         self.director = VoiceDirector(self.library, self.brain, self.settings)
         self.tools.director = self.war_tools.director = self.director
         self.narrator.director = self.director
+        self.tools.narrator = self.war_tools.narrator = self.narrator
         self.tools.publisher = self.war_tools.publisher = self.publisher
         self.tools.settings_store = self.war_tools.settings_store = self
         self.memory = JarvisMemory(self.library, self.brain, self.settings)
