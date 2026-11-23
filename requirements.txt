@@ -9,3 +9,4 @@ openwakeword>=0.6
 onnxruntime>=1.17
 certifi
 livekit>=1.0  # WebRTC echo cancellation for Jarvis voice
+playwright>=1.45  # YouTube Studio uploads (drives the installed Edge; no browser download)

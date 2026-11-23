@@ -924,10 +924,9 @@ class MainWindow(QMainWindow):
             self.pub_account.setText(f"YouTube: <b>{html.escape(yt['account'])}</b>")
             self.pub_connect_btn.setText("Disconnect YouTube")
         else:
-            self.pub_account.setText("YouTube: not connected" if pub.has_google_client() else
-                                     "YouTube: load the Google client file first")
+            self.pub_account.setText("YouTube: not connected")
             self.pub_connect_btn.setText("Connect YouTube")
-        self.pub_connect_btn.setEnabled(pub.has_google_client() or bool(yt))
+        self.pub_connect_btn.setEnabled(True)
 
     def _pub_load_client(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Google OAuth client (Desktop app)", "", "JSON (*.json)")
@@ -946,7 +945,8 @@ class MainWindow(QMainWindow):
             self._pub_refresh_account()
             return
         self.pub_connect_btn.setEnabled(False)
-        self.pub_account.setText("Finish signing in in your browser...")
+        self.pub_account.setText("Sign in to YouTube in the Edge window that opened, then close that window..."
+                                 if pub.studio_mode() else "Finish signing in in your browser...")
         run_async(pub.connect_youtube, lambda name: self._pub_refresh_account(),
                   lambda err: (QMessageBox.warning(self, "YouTube", str(err)), self._pub_refresh_account()))
 

@@ -1,6 +1,7 @@
 import json
 import threading
 import urllib.request
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -263,3 +264,72 @@ def test_jarvis_asks_before_posting_and_then_posts(studio, tmp_path):
     studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
     [post] = tools.call("list_posts", {"book": "Glass"})["posts"]
     assert post["status"] == "published" and post["url"] == "https://youtu.be/vid123"
+
+
+class FakeStudioSite:
+    """Stands in for the YouTube Studio website route (its browser driving is tested in test_studio_upload)."""
+
+    def __init__(self):
+        self.uploads, self.forgotten = [], False
+
+    def sign_in(self, cancel=None):
+        return {"id": "UCjustin", "title": "Justin Reads"}
+
+    def upload(self, path, title, description, tags, privacy, progress=None, cancel=None):
+        self.uploads.append({"path": Path(path), "title": title, "description": description, "tags": tags,
+                             "privacy": privacy})
+        progress(0.5)
+        progress(1.0)
+        return {"id": "vidStudio01", "url": "https://youtu.be/vidStudio01", "notes": []}
+
+    def forget(self):
+        self.forgotten = True
+
+
+def test_without_a_google_client_youtube_goes_through_studio_privately(studio):
+    pub = studio.publisher
+    site = pub.studio = FakeStudioSite()
+    assert not pub.has_google_client() and pub.studio_mode()
+    assert pub.connect_youtube() == "Justin Reads"
+    assert pub.connected()["youtube"]["account"] == "Justin Reads"
+    lib = studio.library
+    b = lib.create_book("The Iron Gale", "fantasy", "A storm-witch hunts a ship.")
+    lib.set_outline(b.id, [{"number": 1, "title": "Landfall", "outline": "x"}])
+    lib.save_chapter_text(lib.get_chapter(b.id, 1).id, "Rain fell on the docks. Mara watched the ship.")
+    with pytest.raises(PublishError, match="scheduling"):
+        pub.publish_youtube(b.id, publish_at="2026-12-01T18:00:00Z")
+    [post] = pub.publish_youtube(b.id, tags=("fantasy",), description="A tale")
+    job = studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
+    assert job.status == "done", job.error
+    post = lib.get_post(post.id)
+    assert post.status == "published" and post.url == "https://youtu.be/vidStudio01"
+    assert post.remote_id == "vidStudio01" and post.privacy == "private"
+    assert "playlist not updated" in post.error  # the extras are explained, the video is still posted
+    [up] = site.uploads
+    assert up["privacy"] == "private" and up["path"].exists() and up["tags"] == ["fantasy"]
+    assert "AI voice" in up["description"] and up["title"] == "The Iron Gale"
+    pub.disconnect("youtube")
+    assert site.forgotten and pub.connected() == {}
+
+
+def test_studio_upload_failure_marks_the_post_failed_for_retry(studio):
+    pub = studio.publisher
+    site = pub.studio = FakeStudioSite()
+    pub.connect_youtube()
+
+    def refuse(*a, **k):
+        raise PublishError("YouTube Studio, waiting for the upload: Daily upload limit reached", retryable=True)
+
+    site.upload = refuse
+    lib = studio.library
+    b = lib.create_book("Glass City", "mystery", "A detective.")
+    lib.set_outline(b.id, [{"number": 1, "title": "Shards", "outline": "x"}])
+    lib.save_chapter_text(lib.get_chapter(b.id, 1).id, "The towers rang like bells.")
+    [post] = pub.publish_youtube(b.id, privacy="unlisted")
+    studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
+    post = lib.get_post(post.id)
+    assert post.status == "failed" and "Daily upload limit" in post.error
+    site.upload = FakeStudioSite().upload
+    pub.retry(post.id)
+    studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
+    assert lib.get_post(post.id).status == "published"

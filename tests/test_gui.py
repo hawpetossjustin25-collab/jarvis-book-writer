@@ -184,7 +184,7 @@ def test_publish_tab_validates_and_lists_posts(window, qapp, monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *a: warnings.append(a[2]))
-    assert "client file" in win.pub_account.text() and not win.pub_connect_btn.isEnabled()
+    assert "not connected" in win.pub_account.text() and win.pub_connect_btn.isEnabled()  # Studio route needs no client file
     assert win._parse_chapters("1-3, 5") == [1, 2, 3, 5]
     win.pub_book.setCurrentIndex(win.pub_book.findData(book.id))
     win._pub_post()

@@ -16,6 +16,7 @@ import requests
 from jarvis_books.audio.export import _run, chapter_audio, ffmpeg_path
 from jarvis_books.publish.errors import PublishError
 from jarvis_books.publish.oauth import AccountStore, GoogleOAuth, load_client
+from jarvis_books.publish.studio import StudioUploader
 from jarvis_books.publish.video import chapter_timestamps, render_video
 from jarvis_books.publish.youtube import SCOPES, YouTube
 from jarvis_books.storage.models import Post
@@ -45,6 +46,7 @@ class Publisher:
         self.accounts = AccountStore(self.home)
         self.client_path = self.home / "google_client.json"
         self.out_dir = self.home / "publish"
+        self.studio = StudioUploader(self.home / "youtube_browser", self.http, sleep=sleep)
 
     # ---- accounts ---------------------------------------------------------------------
     def has_google_client(self) -> bool:
@@ -62,7 +64,18 @@ class Publisher:
     def youtube(self) -> YouTube:
         return YouTube(self.accounts, self._oauth(), self.http, sleep=self.sleep)
 
+    def studio_mode(self) -> bool:
+        """True when YouTube goes through the Studio website (no Google client file, or connected that way)."""
+        record = self.accounts.get("youtube")
+        return record.get("mode") == "studio" if record else not self.has_google_client()
+
     def connect_youtube(self, cancel: Optional[threading.Event] = None) -> str:
+        """Sign in through Google's API when a client file is loaded, otherwise through YouTube Studio's website."""
+        if not self.has_google_client():
+            channel = self.studio.sign_in(cancel)
+            self.accounts.put("youtube", {"mode": "studio", "account": channel["title"], "channel_id": channel["id"],
+                                          "connected_at": time.time()})
+            return channel["title"]
         tokens = self._oauth().sign_in(SCOPES, cancel)
         self.accounts.put("youtube", {**tokens, "account": "", "connected_at": time.time()})
         try:
@@ -76,7 +89,9 @@ class Publisher:
 
     def disconnect(self, provider: str) -> None:
         record = self.accounts.get(provider)
-        if record and provider == "youtube" and self.has_google_client():
+        if record and provider == "youtube" and record.get("mode") == "studio":
+            self.studio.forget()
+        elif record and provider == "youtube" and self.has_google_client():
             self._oauth().revoke(record)
         self.accounts.remove(provider)
 
@@ -98,6 +113,8 @@ class Publisher:
                         cover: str = "") -> list[Post]:
         if privacy not in PRIVACY:
             raise PublishError(f"privacy must be one of {', '.join(PRIVACY)}")
+        if publish_at and self.studio_mode():
+            raise PublishError("scheduling needs the Google API sign-in; post it now, or leave the schedule empty")
         if publish_at:
             privacy = "private"  # YouTube only schedules private videos; it goes public at publish_at
         if not self.accounts.get("youtube"):
@@ -176,6 +193,8 @@ class Publisher:
                                                 text_hash=self._text_hash(post.book_id, post.chapters),
                                                 settings={**post.settings, "final_description": description})
             self.library.update_post(post_id, status="uploading")
+            if (self.accounts.get("youtube") or {}).get("mode") == "studio":
+                return self._studio_upload(post, path, description, progress, cancel)
             s = post.settings
             status = {"privacyStatus": post.privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True}
             if s.get("publish_at"):
@@ -199,6 +218,21 @@ class Publisher:
             cancelled = cancel is not None and cancel.is_set()
             self.library.update_post(post_id, status="cancelled" if cancelled else "failed", error=str(exc)[:500])
             raise
+
+    def _studio_upload(self, post: Post, path: Path, description: str, progress, cancel) -> str:
+        video = self.studio.upload(path, post.title, description, post.settings.get("tags", []), post.privacy,
+                                   progress=lambda f: (progress(0.5 + 0.45 * f, "Uploading to YouTube Studio"),
+                                                       self.library.update_post(post.id, progress=f)),
+                                   cancel=cancel)
+        notes = list(video["notes"])
+        if post.settings.get("playlist"):
+            notes.append("playlist not updated (needs the Google API sign-in)")
+        if post.settings.get("cover"):
+            notes.append("thumbnail not set (needs the Google API sign-in)")
+        self.library.update_post(post.id, status="published", remote_id=video["id"], url=video["url"],
+                                 upload_uri="", progress=1.0, error="; ".join(notes))
+        progress(1.0, "Posted to YouTube")
+        return video["url"]
 
     def _after_upload(self, yt: YouTube, post: Post, video_id: str) -> list[str]:
         """Playlist and thumbnail are extras: if they fail the video is still published."""
