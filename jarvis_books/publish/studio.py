@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -64,6 +65,49 @@ def find_edge() -> str:
     return shutil.which("msedge") or ""
 
 
+def window_titles(pid: int) -> list[str]:
+    """Titles of the visible top-level windows a process owns (Windows only; [] elsewhere)."""
+    if sys.platform != "win32":
+        return []
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    titles: list[str] = []
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, buf, 512)
+            if buf.value:
+                titles.append(buf.value)
+        return True
+
+    user32.EnumWindows(proto(visit), 0)
+    return titles
+
+
+def close_windows(pid: int) -> None:
+    """Ask a process's windows to close, the same as clicking X (the browser saves its session first)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+        return True
+
+    user32.EnumWindows(proto(visit), 0)
+
+
 def video_id_from(url: str) -> str:
     m = VIDEO_ID.search(url or "")
     return m.group(1) if m else ""
@@ -76,6 +120,7 @@ class StudioUploader:
                  upload_url: str = UPLOAD_URL, sign_in_url: str = SIGN_IN_URL, oembed_url: str = OEMBED_URL,
                  browser_cmd: Optional[list[str]] = None, run_browser: Callable = subprocess.Popen,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+                 titles: Callable[[int], list[str]] = window_titles, close: Callable[[int], None] = close_windows,
                  step_timeout_ms: int = 60_000, stall_s: float = 600.0, poll_s: float = 2.0):
         self.profile = Path(profile)
         self.http = http
@@ -85,13 +130,15 @@ class StudioUploader:
         self.browser_cmd = browser_cmd
         self.run_browser = run_browser
         self.sleep, self.clock = sleep, clock
+        self.titles, self.close = titles, close
         self.step_timeout_ms, self.stall_s, self.poll_s = step_timeout_ms, stall_s, poll_s
         self._lock = threading.Lock()  # one browser on the profile at a time
 
     # ---- signing in -----------------------------------------------------------------
     def sign_in(self, cancel: Optional[threading.Event] = None, timeout_s: float = 1200.0) -> dict:
-        """Open a normal Edge window on Jarvis's profile (no automation, so Google allows the sign-in), wait for
-        it to be closed, then confirm the channel from the saved session."""
+        """Open a normal Edge window on Jarvis's profile (no automation, so Google allows the sign-in). Once the
+        window reaches YouTube Studio, Jarvis closes it himself (or it can be closed by hand), then confirms the
+        channel from the saved session."""
         self.profile.mkdir(parents=True, exist_ok=True)
         self._no_background_mode()
         cmd = self.browser_cmd or [find_edge()]
@@ -99,12 +146,21 @@ class StudioUploader:
             raise PublishError("Microsoft Edge is needed to sign in to YouTube, and it isn't installed")
         proc = self.run_browser(cmd + [f"--user-data-dir={self.profile}", "--no-first-run",
                                        "--no-default-browser-check", "--new-window", self.sign_in_url])
-        deadline = self.clock() + timeout_s
+        deadline, signed_at, closing_at = self.clock() + timeout_s, None, None
         while proc.poll() is None:
-            if (cancel is not None and cancel.is_set()) or self.clock() > deadline:
+            now = self.clock()
+            if closing_at is not None and now - closing_at > 30:
+                proc.terminate()  # the window is gone but Edge lingers; the session was saved before closing
+                break
+            if (cancel is not None and cancel.is_set()) or now > deadline:
                 proc.terminate()
                 raise PublishError("YouTube sign-in was cancelled" if cancel is not None and cancel.is_set()
                                    else "YouTube sign-in took too long; try Connect YouTube again")
+            if closing_at is None and any("YouTube Studio" in t for t in self.titles(proc.pid)):
+                signed_at = signed_at if signed_at is not None else now
+                if now - signed_at >= 10:  # give Edge time to write the sign-in to disk
+                    self.close(proc.pid)
+                    closing_at = now
             self.sleep(1.0)
         return self.channel()
 

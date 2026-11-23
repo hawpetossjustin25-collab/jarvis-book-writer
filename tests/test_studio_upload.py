@@ -200,13 +200,55 @@ def test_sign_in_opens_a_plain_window_on_jarvis_profile_and_the_session_lasts(fa
 
 def test_sign_in_gives_up_when_the_window_is_left_open_too_long(fake_studio, tmp_path):
     ended = []
-    proc = type("Proc", (), {"poll": lambda self: None, "terminate": lambda self: ended.append(True)})()
+    proc = type("Proc", (), {"pid": 1, "poll": lambda self: None, "terminate": lambda self: ended.append(True)})()
     t = [0.0]
     up = make(fake_studio, tmp_path / "p", browser_cmd=["edge.exe"], run_browser=lambda cmd: proc,
-              sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+              sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0],
+              titles=lambda pid: ["Sign in - Google Accounts"])
     with pytest.raises(PublishError, match="too long"):
         up.sign_in(timeout_s=5)
     assert ended == [True]
+
+
+def test_sign_in_window_closes_itself_once_studio_is_showing(fake_studio, tmp_path):
+    profile = tmp_path / "youtube_browser"
+    sign_in_by_hand(fake_studio, profile)
+    state = {"open": True, "closed_at": None}
+    t = [0.0]
+
+    class Proc:
+        pid = 4242
+
+        def poll(self):
+            return None if state["open"] else 0
+
+        def terminate(self):
+            state["open"] = False
+
+    def close(pid):
+        assert pid == 4242
+        state["closed_at"] = t[0]
+        state["open"] = False
+
+    titles = lambda pid: ["Sign in - Google Accounts"] if t[0] < 5 else ["Channel dashboard - YouTube Studio"]
+    up = make(fake_studio, profile, browser_cmd=["edge.exe"], run_browser=lambda cmd: Proc(),
+              sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0], titles=titles, close=close)
+    assert up.sign_in()["title"] == "Justin Reads"
+    assert state["closed_at"] == 15  # Studio showed at 5 s, then 10 s for Edge to save the sign-in
+
+
+def test_lingering_edge_is_ended_after_its_window_closes(fake_studio, tmp_path):
+    profile = tmp_path / "p"
+    sign_in_by_hand(fake_studio, profile)
+    ended = []
+    t = [0.0]
+    proc = type("Proc", (), {"pid": 7, "poll": lambda self: 0 if ended else None,
+                             "terminate": lambda self: ended.append(t[0])})()
+    up = make(fake_studio, profile, browser_cmd=["edge.exe"], run_browser=lambda cmd: proc,
+              sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0],
+              titles=lambda pid: ["YouTube Studio"], close=lambda pid: None)
+    assert up.sign_in()["title"] == "Justin Reads"
+    assert ended and 40 <= ended[0] <= 42
 
 
 def test_private_upload_fills_studio_and_saves_only_after_the_file_is_up(fake_studio, tmp_path):
