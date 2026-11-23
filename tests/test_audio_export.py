@@ -45,6 +45,27 @@ def test_edge_fallback_when_gemini_quota_is_used_up(library, engine, tmp_path, m
     assert path.suffix == ".mp3" and narrator.last_backend == "edge"
 
 
+def test_gemini_speech_rests_after_running_out_so_passages_do_not_wait(library, engine, tmp_path, monkeypatch):
+    book = make_book(library)
+    calls = []
+
+    def no_quota(*a, **k):
+        calls.append(a)
+        raise LLMError("quota", kind="quota")
+    monkeypatch.setattr(engine, "tts", no_quota)
+    narrator = Narrator(library, engine, tmp_path / "audio", edge_synth=lambda text, voice: b"ID3fake-mp3")
+    now = [1000.0]
+    narrator.clock = lambda: now[0]
+    first, second = narrator.book_segments(book.id)[:2]
+    assert narrator.ensure(first).suffix == ".mp3" and len(calls) == 1
+    assert narrator.ensure(second).suffix == ".mp3" and len(calls) == 1  # straight to Edge, no Gemini wait
+    narrator.sample(book.title, "Narrator", {})
+    assert len(calls) == 1
+    now[0] += 181
+    narrator.sample(book.title, "Lily", {"voice": "Leda", "edge_voice": "en-US-AnaNeural"})
+    assert len(calls) == 2  # Gemini is tried again once the rest is over
+
+
 def test_auth_error_is_not_hidden_by_fallback(library, engine, tmp_path, monkeypatch):
     book = make_book(library)
 

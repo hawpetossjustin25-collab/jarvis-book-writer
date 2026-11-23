@@ -117,6 +117,10 @@ def edge_tts_bytes(text: str, voice: str) -> bytes:
     return asyncio.run(run())
 
 
+GEMINI_REST_S = 180.0
+GEMINI_REST_KINDS = ("quota", "rate", "unavailable")
+
+
 class Narrator:
     def __init__(self, library: Library, engine, cache_dir: Path, voice: str = "Kore",
                  edge_voice: str = "en-US-AndrewNeural", style: str = DEFAULT_STYLE, passage_words: int = 220,
@@ -134,6 +138,8 @@ class Narrator:
         self._locks: dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
         self.last_backend = ""
+        self.clock = time.monotonic
+        self._gemini_rest_until = 0.0  # after Gemini speech runs out, passages go straight to Edge for a while
         self.director = None  # the VoiceDirector (narrator per book + character voices); set by the Studio
         self._texts: dict[str, tuple[str, list[str]]] = {}  # chapter id -> (text hash, passage texts)
 
@@ -255,16 +261,27 @@ class Narrator:
                  wav_duration_ms(data) if ext == "wav" else None, now, now))
             return path
 
+    def _gemini_speech(self, backup: bool) -> None:
+        """Raise straight away while Gemini speech is resting, so a book keeps playing without waiting on it."""
+        if backup and self.clock() < self._gemini_rest_until:
+            raise LLMError("Gemini speech is resting after running out", kind="resting")
+
+    def _gemini_failed(self, exc: LLMError) -> None:
+        if exc.kind in GEMINI_REST_KINDS:
+            self._gemini_rest_until = self.clock() + GEMINI_REST_S
+
     def _synthesize(self, text: str, plan: Optional[dict] = None) -> tuple[bytes, str, str]:
         plan = plan or {"keys": self._keys(), "voice": self.voice, "edge_voice": self.edge_voice}
         gemini_key, *rest = plan["keys"]
         try:
+            self._gemini_speech(bool(rest))
             data = self.engine.tts(text, plan["voice"], self.style)
             self.last_backend = "gemini"
             return data, gemini_key, "wav"
         except LLMError as exc:
             if not rest or exc.kind == "auth":
                 raise
+            self._gemini_failed(exc)
             log.info("Gemini speech unavailable (%s); narrating with Edge voice", exc.kind)
         data = self._edge(text, plan["edge_voice"])
         if not data:
@@ -303,6 +320,7 @@ class Narrator:
         cast = plan["cast"]
         lines = [ln for ln in plan["lines"] if re.search(r"\w", speech_text(ln))]  # skip stray ', ' or '.'
         try:
+            self._gemini_speech(bool(rest))
             chunks = chunk_lines(lines)
             if len(chunks) == 1:
                 data = join_wavs([self._gemini_chunk(chunks[0], cast)])
@@ -314,6 +332,7 @@ class Narrator:
         except LLMError as exc:
             if not rest or exc.kind == "auth":
                 raise
+            self._gemini_failed(exc)
             log.info("Gemini speech unavailable (%s); voicing the cast with Edge voices", exc.kind)
         parts = [self._edge(speech_text(ln), cast[ln.speaker]["edge_voice"]) for ln in lines]
         if not all(parts):
@@ -336,10 +355,12 @@ class Narrator:
             if (folder / f"{key}.{ext}").exists():
                 return folder / f"{key}.{ext}"
         try:
+            self._gemini_speech(self.edge_fallback)
             data, ext = self.engine.tts(text, voice, style), "wav"
         except LLMError as exc:
             if not self.edge_fallback or exc.kind == "auth":
                 raise
+            self._gemini_failed(exc)
             log.info("Gemini speech unavailable (%s); the sample uses the Edge voice", exc.kind)
             data, ext = self._edge(text, edge), "mp3"
         if not data:
