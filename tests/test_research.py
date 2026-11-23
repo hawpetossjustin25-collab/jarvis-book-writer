@@ -362,3 +362,45 @@ def test_a_search_limit_is_no_strike_against_the_topic(res):
     assert res.next_topic() is None
     res.test.clock.now += BLOCKED_WAIT_S
     assert res.next_topic()["name"] == "Solar generators"
+
+
+def test_groq_waits_out_its_per_minute_limit_instead_of_handing_over_to_the_slow_model(res):
+    class Minute(Model):
+        def generate(self, req):
+            if not self.asked:
+                self.asked.append(req)
+                raise LLMError("tokens per minute used up", kind="rate", retry_after_s=7.0)
+            return super().generate(req)
+
+    res.cloud, slept = Minute("openai/gpt-oss-20b"), []
+    res.pause = slept.append
+    res.add_topic("Solar")
+    res.test.settings["research_brain"] = "groq"
+    res.cloud.queue("researcher question", {"question": "after the wait"})
+    assert res.step()["question"] == "after the wait"
+    assert slept == [8.0] and not res.local.asked and res.problem == ""
+
+
+def test_groq_out_for_the_day_hands_over_without_waiting(res):
+    class Daily(Model):
+        def generate(self, req):
+            raise LLMError("requests per day used up", kind="rate", retry_after_s=3600.0)
+
+    res.cloud, slept = Daily("openai/gpt-oss-20b"), []
+    res.pause = slept.append
+    res.add_topic("Solar")
+    res.test.settings["research_brain"] = "groq"
+    res.local.queue("researcher question", {"question": "local"})
+    assert res.step()["question"] == "local" and slept == [] and "requests per day" in res.problem
+
+
+def test_a_local_model_out_of_room_is_not_waited_on(res):
+    class Busy(Model):
+        def generate(self, req):
+            raise LLMError("busy", kind="rate", retry_after_s=1.0)
+
+    res.local, res.backup, slept = Busy(), Model("lfm3"), []
+    res.pause = slept.append
+    res.add_topic("Solar")
+    res.backup.queue("researcher question", {"question": "q"})
+    assert res.step()["question"] == "q" and slept == []

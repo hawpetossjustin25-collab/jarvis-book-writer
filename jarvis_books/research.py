@@ -36,6 +36,7 @@ OBSERVE_MIN = 3  # new author messages before the researcher reads the conversat
 OBSERVE_MAX = 40
 PAGES = 3
 SOURCE_CHARS = 2500
+MINUTE_LIMIT_WAIT_S = 65.0  # Groq's tokens-per-minute limit refills within a minute
 DRY_LIMIT = 5  # rounds in a row with nothing new before a topic rests for a day
 BLOCKED_WAIT_S = 20 * 60  # when the search engines limit searches, the topic waits this long
 RESEARCH_TIME_S = 300.0  # seconds a free local model may take to read pages and to write notes
@@ -121,6 +122,7 @@ class Researcher:
         self.cloud = None  # Groq's free cloud model: chosen in Settings, or the last resort when no local model runs
         self.brain = brain  # Gemini first; used only when the author picks it in Settings
         self.clock = clock
+        self.pause: Callable[[float], None] = time.sleep
         self.notes_dir = notes_dir
         self.problem = ""
         self.last_round: Optional[dict] = None
@@ -153,7 +155,7 @@ class Researcher:
                 problems.append(f"{engine.model}: {engine.problem}")
                 continue
             try:
-                data = engine.generate(req).data
+                data = self._generate(engine, req)
             except LLMError as exc:
                 if exc.kind in ("invalid", "invalid_output"):
                     raise
@@ -165,6 +167,20 @@ class Researcher:
             return data if isinstance(data, dict) else {}
         raise LLMError("no free model can research right now: " + ("; ".join(problems) or "none set up"),
                        kind="unavailable")
+
+    def _generate(self, engine, req: LLMRequest):
+        """Groq's free plan counts tokens per minute, and its web search alone uses most of a minute's share, so the
+        notes right after a search are often refused for a few seconds. Waiting that out beats handing the pages to
+        the much slower model on this computer."""
+        try:
+            return engine.generate(req).data
+        except LLMError as exc:
+            wait = exc.retry_after_s if exc.retry_after_s is not None else MINUTE_LIMIT_WAIT_S
+            if engine is not self.cloud or exc.kind != "rate" or wait > MINUTE_LIMIT_WAIT_S:
+                raise
+            log.info("Groq's per-minute limit is used up; waiting %.0fs", wait)
+            self.pause(wait + 1)
+            return engine.generate(req).data
 
     # ---- topics -----------------------------------------------------------------------
     def _row(self, r) -> dict:
