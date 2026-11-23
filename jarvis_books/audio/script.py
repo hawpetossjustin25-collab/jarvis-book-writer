@@ -231,9 +231,10 @@ class VoiceDirector:
         for m in self.cast(book_id):
             if name == m["name"].lower() or name in (a.lower() for a in m["aliases"]):
                 return m["name"]
+        bare = re.sub(r"^(the|a|an|old|young|little)\s+", "", name)  # "the captain" means Captain Reyes
         for m in self.cast(book_id):  # "Captain Reyes" vs "Reyes"
             first = m["name"].lower()
-            if first in name.split() or name in first.split():
+            if first in name.split() or name in first.split() or bare in first.split():
                 return m["name"]
         return None
 

@@ -294,3 +294,12 @@ def test_recast_swap_and_hear_voices_by_command(tmp_path):
         assert "hear_voice" in {d["name"] for d in t.select("let me hear how Lily sounds")}
     finally:
         studio.close()
+
+
+def test_spoken_names_with_the_find_the_character(library, make_engine):
+    director, book, _ = make(library, make_engine)
+    library.upsert_cast_member(book.id, "Captain Reyes", gender="male", age="elder")
+    library.upsert_cast_member(book.id, "Lily", gender="female", age="child")
+    assert director._resolve(book.id, "the captain") == "Captain Reyes"
+    assert director._resolve(book.id, "little Lily") == "Lily"
+    assert director._resolve(book.id, "the cook") is None
