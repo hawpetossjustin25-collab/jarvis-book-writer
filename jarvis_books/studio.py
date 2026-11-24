@@ -31,6 +31,7 @@ from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
 from jarvis_books.game import Game
+from jarvis_books.game.trading import TradingClock
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.research import RESEARCH_MODEL, RESEARCH_TIME_S, ResearchClock, Researcher
@@ -147,6 +148,7 @@ class Studio:
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.game = Game(self.home / "game" / "atlanta.json")
         self.tools.game = self.war_tools.game = self.game
+        self.trading_clock = TradingClock(self.game)
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)
@@ -195,6 +197,7 @@ class Studio:
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
         self.research_clock.start()
+        self.trading_clock.start()
         try:
             self._start_local()
         except Exception:
@@ -279,6 +282,7 @@ class Studio:
 
     def close(self) -> None:
         self.research_clock.stop()
+        self.trading_clock.stop()
         self.reminder_clock.stop()
         self.memory.shutdown()
         self.jobs.shutdown(wait=False)

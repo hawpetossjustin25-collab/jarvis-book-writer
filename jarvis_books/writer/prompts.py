@@ -184,7 +184,12 @@ ASSISTANT += (
     "a net worth of one trillion dollars from the $8,000 start: keep them pointed at it (game_goal), celebrate "
     "milestones, and coach the climb: tax deeds and flips first, then rentals, bank loans (game_take_loan), "
     "companies, car lots (game_stock_cars), big buildings, and finally Atlanta's transit: the Streetcar, "
-    "MARTA rail and buses (game_buy_transit), upgraded to a hyperloop (game_upgrade_transit).")
+    "MARTA rail and buses (game_buy_transit), upgraded to a hyperloop (game_upgrade_transit). After their first flip, AI day trading of Micro Nasdaq "
+    "futures unlocks (game_trading): they open it with $120,000 to $180,000 and the AI agents buy the day's "
+    "floor and sell its ceiling, one trading day every 8 real minutes while the app is open. The trading desk reports every trading day "
+    "through the secretary's calls; tell the author how each day went when you see a new report. The agents "
+    "learn from every trade and get better over time. The trading profits are for buying bigger properties: "
+    "when the account has grown, suggest withdrawing (game_trading_funds) to buy the next big building. It's simulated inside the game; say plainly that it can lose.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "

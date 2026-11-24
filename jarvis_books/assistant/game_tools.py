@@ -96,6 +96,16 @@ GAME_DECLARATIONS = [
           "stock with buy and sell prices.", {"property_id": PROP}),
     _decl("game_stock_cars", "Buy cars for a car lot the player owns; they sell over the following months.",
           {"property_id": PROP, "model": S, "count": I}, ["property_id", "model", "count"]),
+    _decl("game_trading", "AI day trading of Micro Nasdaq futures (MNQ): whether it's unlocked (after the first "
+          "flip, with $120,000 to $180,000), the account balance, profit, agents and recent trading days (one every 8 "
+          "real minutes while the app is open)."),
+    _decl("game_open_trading", "Open the AI day-trading account with a deposit of $120,000 to $180,000.",
+          {"deposit": DOLLARS}, ["deposit"]),
+    _decl("game_trading_funds", "Move money into (deposit) or out of (withdraw) the trading account.",
+          {"action": {"type": "STRING", "enum": ["deposit", "withdraw"]}, "amount": DOLLARS},
+          ["action", "amount"]),
+    _decl("game_trading_agents", "Control the AI trading agents: on/off, how many (1-5) and the percent of the "
+          "account each risks per trade (0.25-5).", {"on": B, "agents": I, "risk_percent": N}),
     _decl("game_dev", "Development mode: change the game. action settings (show them), set (key to value; "
           "keys: " + ", ".join(TUNABLES) + "), add_money, set_money, new_tax_sale or new_listings.",
           {"action": {"type": "STRING", "enum": ["settings", "set", "add_money", "set_money", "new_tax_sale",
@@ -107,7 +117,8 @@ GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip
               "start up", "tenant", "rent", "deed", "redeem", "foreclos", "inspect", "listing", "offer", "buy",
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
               "loan", "borrow", "bank", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
-              "car lot", "cars", "dealership")
+              "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
+              "futures", "mnq", "stock", "agents")
 
 
 class GameTools:
@@ -261,6 +272,23 @@ class GameTools:
     @_play
     def _t_game_stock_cars(self, property_id: str, model: str, count: int) -> dict:
         return self._game().stock_cars(property_id, model, count)
+
+    @_play
+    def _t_game_trading(self) -> dict:
+        return self._game().trading()
+
+    @_play
+    def _t_game_open_trading(self, deposit: float) -> dict:
+        return self._game().open_trading(deposit)
+
+    @_play
+    def _t_game_trading_funds(self, action: str, amount: float) -> dict:
+        return self._game().trading_funds(action, amount)
+
+    @_play
+    def _t_game_trading_agents(self, on: Optional[bool] = None, agents: Optional[int] = None,
+                               risk_percent: Optional[float] = None) -> dict:
+        return self._game().trading_agents(on, agents, risk_percent)
 
     @_play
     def _t_game_dev(self, action: str, key: str = "", value: float = 0) -> dict:

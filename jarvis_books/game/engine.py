@@ -20,6 +20,7 @@ from typing import Any, Optional
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.game import rules
 from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
+from jarvis_books.game.trading import Trading
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
                                        kind_for, renovations_for, size_factor)
 
@@ -37,6 +38,8 @@ TUNABLES = {
     "listings_per_month": 10.0,
     "parcels_per_sale": 8.0,
     "bid_increment": 100.0,
+    "trading_minutes": 8.0,  # real minutes per AI trading day while Jarvis is open
+    "agent_skill": 0.55,  # how often an AI trading agent's trade reaches the ceiling
 }
 MAX_DAYS_PER_ADVANCE = 3660
 BIG_DEALS = ("car_lot", "mixed_use", "office_tower", "stadium", "hotel", "college")
@@ -47,7 +50,7 @@ def money(x: float) -> str:
     return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-class Game(Empire):
+class Game(Empire, Trading):
     def __init__(self, path: Path, seed: Optional[int] = None, today: Optional[date] = None):
         self.path = Path(path)
         self._lock = threading.RLock()
@@ -359,6 +362,12 @@ class Game(Empire):
         net = price - commission - transfer - loan
         self._earn(net)
         profit = round(net - p.get("paid", 0), 2)
+        if p["kind"] in ("house", "duplex", "condo", "townhouse"):
+            first = not self.state.get("flips")
+            self.state["flips"] = self.state.get("flips", 0) + 1
+            if first:
+                self._call("info", "Secretary", "Your first flip is done! AI day trading of Micro Nasdaq futures "
+                           "is unlocked; you can open the account with $120,000 to $180,000.")
         self._note(f"Sold {p['address']} to {buyer} for {money(price)}; profit {money(profit)}.")
         return {"sold": p["address"], "price": price, "agent_commission": commission, "transfer_tax": transfer,
                 "loan_paid_off": loan,
@@ -783,10 +792,12 @@ class Game(Empire):
         deeds = sum(d["paid"] + d["taxes_paid"] for d in self.state["deeds"].values())
         companies = sum(self.company_value(c) for c in self.state["companies"].values())
         transit, cars, loans = self._transit_value(), self._cars_value(), self.loan_total()
+        trading = self._trading_value()
         return {"cash": self.state["cash"], "properties": round(props, 2), "tax_deeds": round(deeds, 2),
                 "companies": round(companies, 2), "transit": round(transit, 2), "cars": round(cars, 2),
-                "loans": -loans,
-                "net_worth": round(self.state["cash"] + props + deeds + companies + transit + cars - loans, 2)}
+                "trading_account": round(trading, 2), "loans": -loans,
+                "net_worth": round(self.state["cash"] + props + deeds + companies + transit + cars + trading - loans,
+                                   2)}
 
     def company_value(self, c: dict) -> float:
         if c["status"] != "active":

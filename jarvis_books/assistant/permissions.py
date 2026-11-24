@@ -62,7 +62,8 @@ TOOL_LEVELS = MappingProxyType({
     "game_calls": SAFE, "game_answer_call": SAFE, "game_advance": SAFE, "game_dev": SAFE,
     "game_new": CHANGE, "game_goal": READ, "game_transit": READ, "game_car_lot": READ,
     "game_take_loan": SAFE, "game_repay_loan": SAFE, "game_buy_transit": SAFE, "game_upgrade_transit": SAFE,
-    "game_stock_cars": SAFE,
+    "game_stock_cars": SAFE, "game_trading": READ, "game_open_trading": SAFE, "game_trading_funds": SAFE,
+    "game_trading_agents": SAFE,
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 })
 # Replacing the app's own code always waits for a yes, even in Full control.

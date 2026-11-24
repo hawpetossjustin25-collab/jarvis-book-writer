@@ -100,7 +100,12 @@ class GameTab(QWidget):
                               ", ".join(t.get("done") or []) + (f" (building {t['building']['upgrade']} until "
                                                                 f"{t['building']['until']})" if t.get("building")
                                                                 else "")] for t in tr])
-            self.owned.setHtml(f"<h3>Properties</h3>{owned}<h3>Tax deeds (redemption period)</h3>{deeds}"
+            tr_acct = self.game.trading()
+            trading = (f"<p>Balance {money(tr_acct['balance'])} (profit {money(tr_acct['profit'])}), "
+                       f"{tr_acct['agents']} AI agents {'on' if tr_acct['on'] else 'off'}, Nasdaq "
+                       f"{tr_acct['nasdaq_level']:,.2f}</p>" if "balance" in tr_acct else
+                       f"<p>Locked: {html.escape('; '.join(tr_acct['needs']) or 'ready to open')}</p>")
+            self.owned.setHtml(f"<h3>AI day trading (MNQ)</h3>{trading}<h3>Properties</h3>{owned}<h3>Tax deeds (redemption period)</h3>{deeds}"
                                f"<h3>Companies</h3>{companies}<h3>Bank loans</h3>{loans}<h3>Transit</h3>{transit}")
             ts = self.game.tax_sale()
             sale = _rows(["ID", "Property", "Owner", "Worth", "Opening bid", "Problems"],

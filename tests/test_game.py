@@ -430,3 +430,106 @@ def test_a_car_lot_stocks_cars_and_sells_them_for_a_profit(game):
     report = game.car_lot(pid)["lots"][0]
     assert report["sold_total"] > 0 and report["cars"].get("suv", 0) == 20 - report["sold_total"]
     assert any("Sold" in c["text"] and "cars" in c["text"] for c in game.state["calls"])
+
+
+# ---- AI day trading -----------------------------------------------------------------------------------
+def flip_a_house(game):
+    game.dev("set_money", value=10_000_000)
+    p = game._make_property("house", "West End")
+    p["asking"] = p["lowest"] = game.value(p)
+    game.state["listings"]["L777"] = p
+    pid = game.make_offer("L777", p["asking"])["property_id"]
+    return game._sell(pid, game.value(game.state["properties"][pid]), "a buyer")
+
+
+def test_trading_unlocks_only_after_the_first_flip_and_with_120_to_180_thousand(game):
+    info = game.trading()
+    assert info["unlocked"] is False and "flip your first house" in info["needs"][0]
+    with pytest.raises(ValidationError, match="after you flip"):
+        game.open_trading(150_000)
+    flip_a_house(game)
+    assert any("day trading" in c["text"] and "unlocked" in c["text"] for c in game.state["calls"])
+    assert game.trading()["can_open_now"]
+    for bad in (100_000, 200_000):
+        with pytest.raises(ValidationError, match="120,000 to \\$180,000"):
+            game.open_trading(bad)
+    cash = game.state["cash"]
+    out = game.open_trading(150_000)
+    assert out["balance"] == 150_000 and game.state["cash"] == cash - 150_000
+    assert game.net_worth()["trading_account"] == 150_000
+
+
+def test_the_ai_agents_buy_the_floor_and_sell_the_ceiling_each_trading_day(game):
+    flip_a_house(game)
+    game.open_trading(150_000)
+    game.advance(30)
+    assert game.trading()["trading_days_so_far"] == 0  # game days don't trade; real minutes do
+    for _ in range(25):
+        game.trading_session()
+    days = game.trading()["last_days"]
+    assert days and game.trading()["trading_days_so_far"] == 25 and days[-1]["day"].startswith("day 25")
+    assert any("last 20 trading days" in c["text"] for c in game.state["calls"])
+    for d in days:
+        assert d["floor"] < d["ceiling"] and d["floor"] % 0.25 == 0 and d["ceiling"] % 0.25 == 0
+    a = game.state["trading"]
+    assert a["balance"] == pytest.approx(150_000 + sum(d["pnl"] for d in a["history"]), abs=0.05)
+
+
+def test_skilled_agents_grow_the_account_and_unskilled_ones_lose(tmp_path):
+    results = {}
+    for skill in (0.75, 0.25):
+        g = Game(tmp_path / f"{skill}.json", seed=5, today=DAY)
+        flip_a_house(g)
+        g.open_trading(150_000)
+        g.dev("set", "agent_skill", skill)
+        for _ in range(80):
+            g.trading_session()
+        results[skill] = g.trading()["balance"]
+    assert results[0.75] > 150_000 > results[0.25]
+
+
+def test_trading_funds_and_agent_controls(game):
+    flip_a_house(game)
+    game.open_trading(120_000)
+    game.trading_funds("deposit", 30_000)
+    assert game.trading()["deposited"] == 150_000
+    cash = game.state["cash"]
+    game.trading_funds("withdraw", 10_000)
+    assert game.state["cash"] == cash + 10_000
+    out = game.trading_agents(on=False, agents=9, risk_percent=2)
+    assert out["on"] is False and out["agents"] == 5 and out["risk_percent"] == 2
+    before = game.trading()["balance"]
+    for _ in range(10):
+        game.trading_session()
+    assert game.trading()["balance"] == before  # agents switched off don't trade
+
+
+def test_the_trading_clock_runs_a_trading_day_every_interval(game):
+    import time as _time
+    from jarvis_books.game.trading import TradingClock
+    assert game.t("trading_minutes") == 8 and TradingClock(game).interval() == 480
+    flip_a_house(game)
+    game.open_trading(150_000)
+    clock = TradingClock(game, minutes=0.05 / 60)
+    clock.start()
+    try:
+        deadline = _time.time() + 5
+        while game.trading()["trading_days_so_far"] < 3 and _time.time() < deadline:
+            _time.sleep(0.02)
+    finally:
+        clock.stop()
+    assert game.trading()["trading_days_so_far"] >= 3 and not clock.running
+
+
+def test_the_desk_reports_every_trading_day_and_the_agents_get_smarter(game):
+    flip_a_house(game)
+    game.open_trading(150_000)
+    start = game.trading()["agent_win_rate"]
+    traded = [game.trading_session() for _ in range(150)]  # the office keeps the last 200 calls
+    reports = [c for c in game.state["calls"] if c["kind"] == "trading"]
+    assert len(reports) == sum(1 for d in traded if d.get("traded")) and "floor" in reports[-1]["text"]
+    assert "win rate is now" in reports[-1]["text"]
+    later = game.trading()
+    assert later["agent_win_rate"] > start and later["agent_win_rate"] <= start + 0.12
+    assert "trades of experience" in later["learned_so_far"]
+    game.trading_funds("withdraw", 50_000)  # profits go toward bigger properties
