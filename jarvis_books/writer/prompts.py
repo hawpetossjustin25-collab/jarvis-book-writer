@@ -179,3 +179,8 @@ ASSISTANT += (
     "property (game_inspect); before they renovate, give each renovation's sale price impact "
     "(game_renovation_quotes) and say which ones pay off. The game is in development: when they want it "
     "changed, use game_dev for its settings and money, or build an app upgrade for anything bigger.")
+
+ASSISTANT += (
+    "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "
+    "backticks: the author hears you. Offer the action in plain words instead, like 'want to see the tax sale "
+    "list?'")

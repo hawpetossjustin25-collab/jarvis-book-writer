@@ -305,3 +305,8 @@ def test_starting_over_needs_the_players_yes_but_moves_do_not(tools):
     assert "erased" in tools.describe("game_new", {})
     assert tools.call("game_dev", {"action": "add_money", "value": 1000})["cash"] == 9000
     assert "error" in tools.call("game_inspect", {"id": "Z99"})
+
+
+def test_jarvis_is_told_not_to_say_tool_names_out_loud():
+    from jarvis_books.writer.prompts import ASSISTANT
+    assert "Never read out or write your tool names" in ASSISTANT and "The Atlanta game" in ASSISTANT
