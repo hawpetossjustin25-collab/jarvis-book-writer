@@ -107,6 +107,13 @@ GAME_DECLARATIONS = [
           ["action", "amount"]),
     _decl("game_trading_agents", "Control the AI trading agents: on/off, how many (1-5) and the percent of the "
           "account each risks per trade (0.25-5).", {"on": B, "agents": I, "risk_percent": N}),
+    _decl("game_bidder", "The hired bidding assistant: whether hired (possible after the first flip), budget "
+          "left, the most it bids per property, what it goes after and what it won."),
+    _decl("game_hire_bidder", "Hire a bidding assistant ($2,500 a month) who goes to every tax sale and bids for "
+          "the player against the other bidders. budget: total to spend; max_per_property: the most for one; "
+          "kinds: property types, comma separated (default house).",
+          {"budget": DOLLARS, "max_per_property": DOLLARS, "kinds": S}, ["budget", "max_per_property"]),
+    _decl("game_fire_bidder", "Let the bidding assistant go."),
     _decl("game_dev", "Development mode: change the game. action settings (show them), set (key to value; "
           "keys: " + ", ".join(TUNABLES) + "), add_money, set_money, new_tax_sale or new_listings.",
           {"action": {"type": "STRING", "enum": ["settings", "set", "add_money", "set_money", "new_tax_sale",
@@ -119,7 +126,7 @@ GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
               "loan", "borrow", "bank", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
               "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
-              "futures", "mnq", "stock", "agents")
+              "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for")
 
 
 class GameTools:
@@ -290,6 +297,18 @@ class GameTools:
     def _t_game_trading_agents(self, on: Optional[bool] = None, agents: Optional[int] = None,
                                risk_percent: Optional[float] = None) -> dict:
         return self._game().trading_agents(on, agents, risk_percent)
+
+    @_play
+    def _t_game_bidder(self) -> dict:
+        return self._game().bidder()
+
+    @_play
+    def _t_game_hire_bidder(self, budget: float, max_per_property: float, kinds: str = "house") -> dict:
+        return self._game().hire_bidder(budget, max_per_property, kinds)
+
+    @_play
+    def _t_game_fire_bidder(self) -> dict:
+        return self._game().fire_bidder()
 
     @_play
     def _t_game_dev(self, action: str, key: str = "", value: float = 0) -> dict:

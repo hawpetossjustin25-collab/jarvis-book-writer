@@ -20,6 +20,7 @@ from typing import Any, Optional
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.game import rules
 from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
+from jarvis_books.game.bidder import BIDDER_SALARY, Bidder
 from jarvis_books.game.trading import Trading
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
                                        kind_for, renovations_for, size_factor)
@@ -50,7 +51,7 @@ def money(x: float) -> str:
     return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-class Game(Empire, Trading):
+class Game(Empire, Trading, Bidder):
     def __init__(self, path: Path, seed: Optional[int] = None, today: Optional[date] = None):
         self.path = Path(path)
         self._lock = threading.RLock()
@@ -519,10 +520,8 @@ class Game(Empire, Trading):
             self.save()
             return {"sold_to": a["leader"], "price": a["high"]}
 
-    def _win(self) -> dict:
-        a = self.state["auction"]
-        parcel = self._parcel(a["parcel"])
-        price = a["high"]
+    def _award(self, parcel: dict, price: float, by: str = "you") -> dict:
+        """The player (or their bidding assistant) won the parcel: pay the sheriff and take the tax deed."""
         self._spend(price, "the winning bid")
         excess = round(max(0.0, price - parcel["opening_bid"]), 2)
         parcel["status"] = "sold to you"
@@ -530,8 +529,17 @@ class Game(Empire, Trading):
         self.state["deeds"][did] = {**parcel["property"], "was": parcel["id"], "paid": price, "taxes_paid": 0.0,
                                     "sale_day": self.state["today"], "owner": parcel["owner"],
                                     "excess_funds": excess, "notice": None}
+        self._note(f"{'Won' if by == 'you' else by.capitalize() + ' won'} the tax deed on "
+                   f"{parcel['property']['address']} for {money(price)}.")
+        return {"deed_id": did, "excess": excess}
+
+    def _win(self) -> dict:
+        a = self.state["auction"]
+        parcel = self._parcel(a["parcel"])
+        price = a["high"]
+        got = self._award(parcel, price)
+        did, excess = got["deed_id"], got["excess"]
         self.state["auction"] = None
-        self._note(f"Won the tax deed on {parcel['property']['address']} for {money(price)}.")
         self.save()
         sale_day = self.today
         return {"you_won": parcel["property"]["address"], "deed_id": did, "paid": price,
@@ -695,6 +703,7 @@ class Game(Empire, Trading):
         elif day == sale_day:
             self._call("reminder", "Secretary", "The sheriff's tax sale is today. "
                        + " / ".join(f"{k}: {v}" for k, v in rules.SALE_PLACES.items()))
+            self._bidder_at_sale()
         elif (sale_day - day).days == 7:
             self._call("reminder", "Secretary", f"The tax sale is next week, on {sale_day.isoformat()}. "
                        "The list is out in the paper.")
@@ -789,6 +798,8 @@ class Game(Empire, Trading):
                     self._call("info", "City of Atlanta", f"Renewed {c['name']}'s business license: {money(fee)}.")
                     c["gross_this_year"] = 0.0
         self._empire_month(day)
+        if self.state.get("bidder"):
+            self.state["cash"] = round(self.state["cash"] - BIDDER_SALARY, 2)
         self._refresh_market()
 
     def _tax_bills(self) -> None:

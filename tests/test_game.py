@@ -568,3 +568,37 @@ def test_a_won_tax_deed_answers_to_its_parcel_id(game):
     game.dev("set", "redemption_rate", 0.0)
     game.advance(365)
     assert game.foreclose(parcel)["notice_sent"]
+
+
+
+# ---- the bidding assistant -----------------------------------------------------------------------------
+def test_the_bidding_assistant_is_hired_after_the_first_flip_and_bids_at_every_sale(game):
+    with pytest.raises(ValidationError, match="after you flip"):
+        game.hire_bidder(20_000, 5000)
+    flip_a_house(game)
+    out = game.hire_bidder(20_000, 9000, "house")
+    assert out["hired"] and out["kinds"] == ["single-family house"]
+    cash = game.state["cash"]
+    game.go_to_tax_sale()
+    b = game.bidder()
+    report = next(c for c in game.state["calls"] if c["from"] == "Your bidding assistant")
+    assert b["won"] and "won" in report["text"]
+    spent = sum(w["paid"] for w in b["won"])
+    assert b["budget_left"] == pytest.approx(20_000 - spent)
+    assert all(w["paid"] <= 9000 for w in b["won"])
+    assert game.state["cash"] == pytest.approx(cash - spent - 2500)  # Dec 1 is also payday
+    assert {d["was"] for d in game.state["deeds"].values()} == {
+        p["id"] for p in game.state["sale"]["parcels"] if p["status"] == "sold to you"}
+    assert b["budget_left"] < 9000 or all(  # with budget left, it went after every house it could afford
+        p["status"] != "for sale" for p in game.state["sale"]["parcels"]
+        if p["property"]["kind"] == "house" and p["opening_bid"] <= b["budget_left"])
+
+
+def test_the_bidding_assistant_stops_at_its_limit_and_draws_a_salary(game):
+    flip_a_house(game)
+    game.hire_bidder(500, 500)  # below every opening bid: never bids
+    cash = game.state["cash"]
+    game.advance((date(2027, 1, 1) - DAY).days)
+    assert game.bidder()["won"] == []
+    assert game.state["cash"] <= cash - 2500  # paid on the 1st
+    assert game.fire_bidder()["let_go"] and not game.bidder()["hired"]

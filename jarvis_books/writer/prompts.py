@@ -194,7 +194,8 @@ ASSISTANT += (
     "floor and sell its ceiling, one trading day every 8 real minutes while the app is open. The trading desk reports every trading day "
     "through the secretary's calls; tell the author how each day went when you see a new report. The agents "
     "learn from every trade and get better over time. The trading profits are for buying bigger properties: "
-    "when the account has grown, suggest withdrawing (game_trading_funds) to buy the next big building. It's simulated inside the game; say plainly that it can lose.")
+    "when the account has grown, suggest withdrawing (game_trading_funds) to buy the next big building. It's simulated inside the game; say plainly that it can lose. Also after the first flip they "
+    "can hire a bidding assistant (game_hire_bidder) who bids for them at every tax sale within their budget.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "
