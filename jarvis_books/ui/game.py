@@ -71,7 +71,11 @@ class GameTab(QWidget):
             self._shown = mark
             s = self.game.status()
             m = s["money"]
-            self.meter.setText(f"Cash {money(m['cash'])}    Net worth {money(m['net_worth'])}")
+            g = s["goal"]
+            self.meter.setText(f"Cash {money(m['cash'])}    Net worth {money(m['net_worth'])}    "
+                               f"Goal $1 trillion: {g['progress_percent']:.6f}%"
+                               + (f" (next milestone {money(g['next_milestone'])})" if g["next_milestone"] else
+                                  "  YOU WON!"))
             self.when.setText(f"Game date {s['today']}  ·  next sheriff's tax sale {s['next_tax_sale']}  ·  "
                               f"{s['new_calls']} new call{'s' if s['new_calls'] != 1 else ''}  ·  saved "
                               f"automatically after every move (last {s['last_saved'] or 'now'})")
@@ -87,8 +91,17 @@ class GameTab(QWidget):
             companies = _rows(["ID", "Company", "Industry", "Employees", "Profit so far"],
                               [[c["id"], c["name"], c["industry"], c["employees"], money(c["profit_total"])]
                                for c in s["companies"]])
+            loans = _rows(["ID", "Against", "Owed"], [[ln["id"], ln["address"], money(ln["balance"])]
+                                                       for ln in s["loans"]])
+            tr = self.game.transit()["systems"]
+            transit = _rows(["System", "Owned", "Monthly income", "Upgrades"],
+                            [[t["name"], "yes" if t["owned"] else f"for sale {money(t['price'])}",
+                              money(t["monthly_income"]),
+                              ", ".join(t.get("done") or []) + (f" (building {t['building']['upgrade']} until "
+                                                                f"{t['building']['until']})" if t.get("building")
+                                                                else "")] for t in tr])
             self.owned.setHtml(f"<h3>Properties</h3>{owned}<h3>Tax deeds (redemption period)</h3>{deeds}"
-                               f"<h3>Companies</h3>{companies}")
+                               f"<h3>Companies</h3>{companies}<h3>Bank loans</h3>{loans}<h3>Transit</h3>{transit}")
             ts = self.game.tax_sale()
             sale = _rows(["ID", "Property", "Owner", "Worth", "Opening bid", "Problems"],
                          [[p["id"], f"{p['type']}, {p['address']}", p["owner"], money(p["worth"]),

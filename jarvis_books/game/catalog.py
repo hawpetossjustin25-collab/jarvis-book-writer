@@ -75,6 +75,10 @@ KINDS = (
     Kind("school", "private school campus", 3_800_000, 0.07, 45_000, True),
     Kind("college", "college campus", 22_000_000, 0.065, 300_000, True),
     Kind("hotel", "hotel", 9_500_000, 0.09, 80_000, True),
+    Kind("car_lot", "car lot (dealership)", 2_600_000, 0.06, 4_000, True),
+    Kind("mixed_use", "mixed-use development", 450_000_000, 0.07, 900_000, True),
+    Kind("office_tower", "downtown office tower (skyscraper)", 320_000_000, 0.07, 1_200_000, True),
+    Kind("stadium", "stadium", 1_600_000_000, 0.06, 1_800_000, True),
 )
 KINDS_BY_KEY = {k.key: k for k in KINDS}
 
@@ -135,7 +139,9 @@ def kind_for(text: str) -> Kind:
         if t and (t in k.label or k.key.replace("_", " ") in t):
             return k
     aliases = {"home": "house", "apartment": "apartments", "college": "college", "university": "college",
-               "storage": "storage", "shop": "store", "land": "lot", "school": "school", "mall": "strip_mall"}
+               "storage": "storage", "shop": "store", "land": "lot", "school": "school", "mall": "strip_mall",
+               "dealership": "car_lot", "car": "car_lot", "skyscraper": "office_tower", "tower": "office_tower",
+               "arena": "stadium", "development": "mixed_use"}
     for word, key in aliases.items():
         if word in t:
             return KINDS_BY_KEY[key]

@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.game import rules
+from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
                                        kind_for, renovations_for, size_factor)
 
@@ -38,6 +39,7 @@ TUNABLES = {
     "bid_increment": 100.0,
 }
 MAX_DAYS_PER_ADVANCE = 3660
+BIG_DEALS = ("car_lot", "mixed_use", "office_tower", "stadium", "hotel", "college")
 CALL_KINDS_TO_ANSWER = ("offer", "buyer", "counter")
 
 
@@ -45,7 +47,7 @@ def money(x: float) -> str:
     return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-class Game:
+class Game(Empire):
     def __init__(self, path: Path, seed: Optional[int] = None, today: Optional[date] = None):
         self.path = Path(path)
         self._lock = threading.RLock()
@@ -83,6 +85,7 @@ class Game:
             st = self.rng.getstate()
             self.state["rng"] = [st[0], list(st[1]), st[2]]
             self.state["saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            self._check_goal()
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.state), encoding="utf-8")
@@ -189,7 +192,7 @@ class Game:
         cond = max(5, 100 - lost)
         premium = sum(RENOVATIONS_BY_KEY[d].premium for d in done)
         v = kind.base * area.index * p.get("scale", 1.0) * (0.40 + 0.60 * cond / 100) * (1 + premium)
-        return round(v * self.t("price_multiplier"), -2)
+        return round(v * self.t("price_multiplier") * self.state.get("market_index", 1.0), -2)
 
     def inspection(self, p: dict) -> dict:
         """Everything wrong with a property and what each fix costs, before anyone buys it."""
@@ -212,10 +215,11 @@ class Game:
     # ---- the market ----------------------------------------------------------------------------------
     def _refresh_market(self) -> None:
         self.state["listings"] = {}
-        weights = [6 if k.key in ("house", "duplex", "condo", "townhouse") else
+        weights = [0 if k.key in BIG_DEALS else 6 if k.key in ("house", "duplex", "condo", "townhouse") else
                    3 if k.key in ("lot", "store", "apartments", "restaurant") else 1 for k in KINDS]
-        for _ in range(int(self.t("listings_per_month"))):
-            kind = self.rng.choices(KINDS, weights)[0]
+        big = [k for k in KINDS if k.key in BIG_DEALS]
+        picks = [self.rng.choices(KINDS, weights)[0] for _ in range(int(self.t("listings_per_month")))]
+        for kind in picks + self.rng.sample(big, min(len(big), 3)):
             area = self.rng.choice(AREAS)
             p = self._make_property(kind.key, area.name, self.rng.uniform(-0.15, 0.25))
             p["asking"] = round(self.value(p) * self.rng.uniform(0.92, 1.12), -2)
@@ -351,11 +355,13 @@ class Game:
         agent = (p.get("listed") or {}).get("agent") and not self._perk("real estate brokerage")
         commission = round(price * rules.AGENT_COMMISSION, 2) if agent else 0.0
         transfer = round(price / 1000 * rules.TRANSFER_TAX_PER_1000, 2)
-        net = price - commission - transfer
+        loan = self._settle_loans(pid)
+        net = price - commission - transfer - loan
         self._earn(net)
         profit = round(net - p.get("paid", 0), 2)
         self._note(f"Sold {p['address']} to {buyer} for {money(price)}; profit {money(profit)}.")
         return {"sold": p["address"], "price": price, "agent_commission": commission, "transfer_tax": transfer,
+                "loan_paid_off": loan,
                 "you_got": net, "profit": profit, "cash": self.state["cash"]}
 
     # ---- renting ------------------------------------------------------------------------------------
@@ -585,7 +591,7 @@ class Game:
             c = self.state["companies"].get(company_id.strip().upper())
             if c is None:
                 raise NotFound(f"no company {company_id}")
-            c["employees"] = max(1, int(employees))
+            c["employees"] = max(1, min(int(employees), 2_000_000))
             self.save()
             rev, cost, _, _ = INDUSTRIES[c["industry"]]
             return {"company": c["name"], "employees": c["employees"],
@@ -693,6 +699,7 @@ class Game:
                 self._call("info", "Secretary", f"A tenant signed a lease at {p['address']} for "
                            f"{money(tenant['rent'])} a month.", property_id=pid)
         self._redemptions(day)
+        self._empire_day(day)
 
     def _redemptions(self, day: date) -> None:
         rate = min(0.99, max(0.0, self.t("redemption_rate")))
@@ -735,6 +742,7 @@ class Game:
             profit = round(revenue - cost * c["employees"], 2)
             c["gross_this_year"] = round(c["gross_this_year"] + revenue, 2)
             c["profit_total"] = round(c["profit_total"] + profit, 2)
+            c["recent_profits"] = (c.get("recent_profits") or [])[-11:] + [profit]
             self.state["cash"] = round(self.state["cash"] + profit, 2)
             if profit < 0:
                 self._call("info", c["name"], f"Lost {money(-profit)} last month.")
@@ -745,6 +753,7 @@ class Game:
                     self.state["cash"] = round(self.state["cash"] - fee, 2)
                     self._call("info", "City of Atlanta", f"Renewed {c['name']}'s business license: {money(fee)}.")
                     c["gross_this_year"] = 0.0
+        self._empire_month(day)
         self._refresh_market()
 
     def _tax_bills(self) -> None:
@@ -772,10 +781,19 @@ class Game:
     def net_worth(self) -> dict:
         props = sum(self.value(p) for p in self.state["properties"].values())
         deeds = sum(d["paid"] + d["taxes_paid"] for d in self.state["deeds"].values())
-        companies = sum(max(0.0, c["profit_total"]) * 0.5 for c in self.state["companies"].values()
-                        if c["status"] == "active")
+        companies = sum(self.company_value(c) for c in self.state["companies"].values())
+        transit, cars, loans = self._transit_value(), self._cars_value(), self.loan_total()
         return {"cash": self.state["cash"], "properties": round(props, 2), "tax_deeds": round(deeds, 2),
-                "companies": round(companies, 2), "net_worth": round(self.state["cash"] + props + deeds + companies, 2)}
+                "companies": round(companies, 2), "transit": round(transit, 2), "cars": round(cars, 2),
+                "loans": -loans,
+                "net_worth": round(self.state["cash"] + props + deeds + companies + transit + cars - loans, 2)}
+
+    def company_value(self, c: dict) -> float:
+        if c["status"] != "active":
+            return 0.0
+        recent = c.get("recent_profits") or []
+        yearly = sum(recent) * 12 / len(recent) if recent else 0.0
+        return round(max(0.0, yearly) * COMPANY_PROFIT_MULTIPLE, 2)
 
     def status(self) -> dict:
         with self._lock:
@@ -792,6 +810,10 @@ class Game:
                                   for cid, c in self.state["companies"].items()],
                     "new_calls": len(new_calls), "next_tax_sale": self.state["sale"]["date"],
                     "auction_running": bool(self.state.get("auction")),
+                    "goal": self.goal(), "loans": [{"id": k, **v} for k, v in self.state.get("loans", {}).items()],
+                    "transit": {k: {"upgrades": v["upgrades"], "building": v.get("building"),
+                                    "monthly_income": self._transit_income(k)}
+                                for k, v in self.state.get("transit", {}).items()},
                     "where_we_left_off": [f"{e['day']}: {e['text']}" for e in self.state["log"][-6:]],
                     "last_saved": self.state.get("saved_at", "")}
 

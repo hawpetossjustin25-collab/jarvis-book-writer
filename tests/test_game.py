@@ -334,3 +334,99 @@ def test_starting_over_needs_the_players_yes_but_moves_do_not(tools):
 def test_jarvis_is_told_not_to_say_tool_names_out_loud():
     from jarvis_books.writer.prompts import ASSISTANT
     assert "Never read out or write your tool names" in ASSISTANT and "The Atlanta game" in ASSISTANT
+
+
+# ---- the trillion-dollar climb ------------------------------------------------------------------------
+def test_the_goal_is_a_trillion_and_milestones_call_in(game):
+    g = game.goal()
+    assert g["target"] == 1e12 and g["next_milestone"] == 100_000 and not g["milestones_reached"]
+    game.dev("set_money", value=2_000_000)
+    assert game.goal()["milestones_reached"] == [100_000, 1_000_000]
+    assert sum("Milestone" in c["text"] for c in game.state["calls"]) == 2
+    game.dev("set_money", value=1.2e12)
+    assert game.goal()["won_on"] == game.state["today"]
+    assert any("ONE TRILLION" in c["text"] for c in game.state["calls"])
+
+
+def test_bank_loans_lend_75_percent_charge_interest_and_are_paid_from_a_sale(game):
+    pid = own_a_listing(game)
+    worth = game.value(game.state["properties"][pid])
+    with pytest.raises(ValidationError, match="75%"):
+        game.take_loan(pid, worth)
+    cash = game.state["cash"]
+    loan = game.take_loan(pid, round(worth * 0.5, -2))
+    assert game.state["cash"] == pytest.approx(cash + loan["borrowed"])
+    assert game.net_worth()["loans"] == -loan["borrowed"]
+    before = game.state["cash"]
+    game.advance((date(2026, 12, 1) - DAY).days)
+    assert game.state["cash"] == pytest.approx(before - loan["monthly_interest"], abs=1)
+    sold = game._sell(pid, worth, "a buyer")
+    assert sold["loan_paid_off"] == loan["borrowed"] and not game.state["loans"]
+
+
+def test_prices_grow_each_january(game):
+    pid = own_a_listing(game)
+    before = game.value(game.state["properties"][pid])
+    game.advance((date(2027, 1, 1) - DAY).days)
+    assert game.state["market_index"] != 1.0
+    assert game.value(game.state["properties"][pid]) == pytest.approx(before * game.state["market_index"], rel=0.01)
+
+
+def test_companies_are_worth_eight_years_of_profit(game):
+    game.dev("set_money", value=10_000_000)
+    game.start_company("Big Crew", "renovation crew", employees=100)
+    game.advance((date(2027, 3, 2) - DAY).days)
+    c = next(iter(game.state["companies"].values()))
+    yearly = sum(c["recent_profits"]) * 12 / len(c["recent_profits"])
+    assert game.company_value(c) == pytest.approx(max(0, yearly) * 8, rel=1e-6)
+
+
+def test_big_buildings_are_always_on_the_market(game):
+    types = {r["type"] for r in game.market()["for_sale"]}
+    assert len(types & {"car lot (dealership)", "mixed-use development", "downtown office tower (skyscraper)",
+                        "stadium", "hotel", "college campus"}) == 3
+
+
+# ---- transit and car lots -----------------------------------------------------------------------------
+def test_buy_the_streetcar_collect_fares_and_upgrade_it_to_a_hyperloop(game):
+    game.dev("set_money", value=5e9)
+    out = game.buy_transit("light rail")
+    assert out["bought"] == "Atlanta Streetcar (light rail)" and game.net_worth()["transit"] == 120e6
+    with pytest.raises(ValidationError, match="already own"):
+        game.buy_transit("streetcar")
+    cash = game.state["cash"]
+    game.advance((date(2026, 12, 1) - DAY).days)
+    assert game.state["cash"] == pytest.approx(cash + 0.45e6)
+    up = game.upgrade_transit("streetcar", "hyperloop")
+    assert up["income_after"] == pytest.approx(0.45e6 * 9)
+    game.advance(540)
+    assert game.transit()["systems"][0]["done"] == ["hyperloop"]
+    assert any("hyperloop upgrade" in c["text"] for c in game.state["calls"])
+
+
+def test_marta_rail_and_buses_can_be_bought(game):
+    game.dev("set_money", value=20e9)
+    assert game.buy_transit("MARTA trains")["bought"] == "MARTA rail"
+    assert game.buy_transit("the bus system")["bought"] == "MARTA bus system"
+    with pytest.raises(ValidationError, match="upgrades: electric"):
+        game.upgrade_transit("bus", "hyperloop")
+
+
+def test_a_car_lot_stocks_cars_and_sells_them_for_a_profit(game):
+    game.dev("set_money", value=50_000_000)
+    lot = next((r for r in game.market()["for_sale"] if r["type"] == "car lot (dealership)"), None)
+    if lot is None:
+        p = game._make_property("car_lot", "Downtown")
+        p["asking"] = p["lowest"] = game.value(p)
+        game.state["listings"]["L999"] = p
+        lot = {"id": "L999", "asking": p["asking"]}
+    pid = game.make_offer(lot["id"], lot["asking"])["property_id"]
+    out = game.stock_cars(pid, "SUV", 20)
+    assert out["paid"] == 20 * 28_000
+    with pytest.raises(ValidationError, match="holds 80"):
+        game.stock_cars(pid, "pickup", 61)
+    game.dev("set", "market_heat", 3)
+    game.advance((date(2026, 12, 1) - DAY).days)
+    report = game.car_lot(pid)["lots"][0]
+    assert report["sold_total"] > 0 and report["cars"].get("suv", 0) == 20 - report["sold_total"]
+    assert any("Sold" in c["text"] and "cars" in c["text"] for c in game.state["calls"])

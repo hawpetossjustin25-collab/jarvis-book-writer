@@ -77,6 +77,25 @@ GAME_DECLARATIONS = [
           "come in, rent and company profits are paid on the 1st, owners redeem.", {"days": I}, ["days"]),
     _decl("game_lesson", "The real Atlanta rule behind something in the game, with its source: tax sale, "
           "redemption, foreclosure, excess funds, company, business license, buying.", {"topic": S}),
+    _decl("game_goal", "Progress toward the goal of a trillion dollars: net worth, percent of the way, the "
+          "next milestone and the milestones reached."),
+    _decl("game_take_loan", "Borrow from the bank against a property the player owns (up to 75% of its value, "
+          "8% a year, interest paid monthly; paid off from the sale if it's sold).",
+          {"property_id": PROP, "amount": DOLLARS}, ["property_id", "amount"]),
+    _decl("game_repay_loan", "Pay back a bank loan (amount 0 = all of it).", {"loan_id": S, "amount": DOLLARS},
+          ["loan_id"]),
+    _decl("game_transit", "Atlanta's transit systems the player can buy: the Atlanta Streetcar (light rail), "
+          "MARTA rail and the MARTA bus system, with price, monthly income and upgrades (hyperloop, electric "
+          "buses)."),
+    _decl("game_buy_transit", "Buy a transit system: streetcar, marta_rail or marta_bus.", {"system": S},
+          ["system"]),
+    _decl("game_upgrade_transit", "Upgrade an owned transit system: hyperloop (streetcar or MARTA rail) or "
+          "electric (buses). It takes months to build and multiplies the income.",
+          {"system": S, "upgrade": {"type": "STRING", "enum": ["hyperloop", "electric"]}}, ["system"]),
+    _decl("game_car_lot", "The player's car lots: cars in stock, space left, cars sold, and the cars they can "
+          "stock with buy and sell prices.", {"property_id": PROP}),
+    _decl("game_stock_cars", "Buy cars for a car lot the player owns; they sell over the following months.",
+          {"property_id": PROP, "model": S, "count": I}, ["property_id", "model", "count"]),
     _decl("game_dev", "Development mode: change the game. action settings (show them), set (key to value; "
           "keys: " + ", ".join(TUNABLES) + "), add_money, set_money, new_tax_sale or new_listings.",
           {"action": {"type": "STRING", "enum": ["settings", "set", "add_money", "set_money", "new_tax_sale",
@@ -86,7 +105,9 @@ GAME_TOOLS = tuple(d["name"] for d in GAME_DECLARATIONS)
 GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip", "renovat", "fix up", "property",
               "properties", "house", "money meter", "how much money", "secretary", "calls", "company", "startup",
               "start up", "tenant", "rent", "deed", "redeem", "foreclos", "inspect", "listing", "offer", "buy",
-              "sell", "market", "net worth", "next month", "skip ahead", "wait")
+              "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
+              "loan", "borrow", "bank", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
+              "car lot", "cars", "dealership")
 
 
 class GameTools:
@@ -208,6 +229,38 @@ class GameTools:
     @_play
     def _t_game_lesson(self, topic: str = "") -> dict:
         return self._game().lesson(topic)
+
+    @_play
+    def _t_game_goal(self) -> dict:
+        return self._game().goal()
+
+    @_play
+    def _t_game_take_loan(self, property_id: str, amount: float) -> dict:
+        return self._game().take_loan(property_id, amount)
+
+    @_play
+    def _t_game_repay_loan(self, loan_id: str, amount: float = 0) -> dict:
+        return self._game().repay_loan(loan_id, amount)
+
+    @_play
+    def _t_game_transit(self) -> dict:
+        return self._game().transit()
+
+    @_play
+    def _t_game_buy_transit(self, system: str) -> dict:
+        return self._game().buy_transit(system)
+
+    @_play
+    def _t_game_upgrade_transit(self, system: str, upgrade: str = "hyperloop") -> dict:
+        return self._game().upgrade_transit(system, upgrade)
+
+    @_play
+    def _t_game_car_lot(self, property_id: str = "") -> dict:
+        return self._game().car_lot(property_id)
+
+    @_play
+    def _t_game_stock_cars(self, property_id: str, model: str, count: int) -> dict:
+        return self._game().stock_cars(property_id, model, count)
 
     @_play
     def _t_game_dev(self, action: str, key: str = "", value: float = 0) -> dict:
