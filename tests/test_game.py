@@ -68,6 +68,30 @@ def test_a_new_game_starts_with_8000_and_saves_itself(game, tmp_path):
     assert again.status() == s and again.rng.random() == game.rng.random()
 
 
+def test_closing_mid_auction_picks_up_exactly_where_we_left_off(game, tmp_path):
+    game.dev("set_money", value=50_000)
+    parcel = at_sale(game)[1]
+    game.start_auction(parcel["id"])
+    game.state["auction"]["rivals"][0]["max"] = 5000
+    game.save()
+    first = game.bid(parcel["opening_bid"] + 100)
+    reopened = Game(tmp_path / "game" / "atlanta.json")  # Jarvis closed and opened again
+    assert reopened.status() == game.status() and reopened.state["auction"] == game.state["auction"]
+    assert reopened.state["auction"]["high"] == first["high_bid"]
+    assert reopened.bid(20_000) == game.bid(20_000)  # same rivals, same dice: the game carries on identically
+    assert reopened.status()["where_we_left_off"][-1].endswith("for $20,000.")
+
+
+def test_a_damaged_save_picks_up_from_the_backup(game, tmp_path):
+    game.dev("add_money", value=1234)
+    game.advance(3)
+    path = tmp_path / "game" / "atlanta.json"
+    path.write_text("{half written")
+    back = Game(path)
+    assert back.state["today"] == game.state["today"] and back.status()["money"]["cash"] == 9234
+    assert list(path.parent.glob("atlanta.broken-*.json"))
+
+
 def test_a_damaged_save_is_kept_and_a_new_game_starts(tmp_path):
     path = tmp_path / "atlanta.json"
     path.write_text("{not json")

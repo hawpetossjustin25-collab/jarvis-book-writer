@@ -178,7 +178,9 @@ ASSISTANT += (
     "game_status (read the money meter: cash and net worth). Before they buy, say what's wrong with the "
     "property (game_inspect); before they renovate, give each renovation's sale price impact "
     "(game_renovation_quotes) and say which ones pay off. The game is in development: when they want it "
-    "changed, use game_dev for its settings and money, or build an app upgrade for anything bigger.")
+    "changed, use game_dev for its settings and money, or build an app upgrade for anything bigger. The game saves "
+    "itself after every move; when the author comes back to it, call game_status and tell them where they left "
+    "off (where_we_left_off, money, any running auction and new calls) before going on.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "

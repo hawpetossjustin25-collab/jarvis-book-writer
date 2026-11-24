@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import random
+import shutil
 import threading
 import time
 from datetime import date, timedelta
@@ -50,19 +51,25 @@ class Game:
         self._lock = threading.RLock()
         self._listeners: list = []
         self.state: dict[str, Any] = {}
-        if self.path.exists():
+        self.backup = self.path.with_name(self.path.stem + ".backup.json")
+        for source in (self.path, self.backup):
+            if not source.exists():
+                continue
             try:
-                self._load()
+                self._load(source)
+                if source is self.backup:
+                    log.warning("the game save was damaged; picked up from the backup save")
+                    self.save()
                 return
             except (ValueError, KeyError, TypeError, IndexError) as exc:  # a damaged save is kept, not lost
-                broken = self.path.with_name(f"{self.path.stem}.broken-{int(time.time())}.json")
-                self.path.replace(broken)
-                log.warning("the game save was damaged (%s); kept it as %s and started over", exc, broken.name)
+                broken = source.with_name(f"{source.stem}.broken-{int(time.time())}.json")
+                source.replace(broken)
+                log.warning("game save %s was damaged (%s); kept it as %s", source.name, exc, broken.name)
         self.new_game(seed=seed, today=today)
 
     # ---- saving --------------------------------------------------------------------------------------
-    def _load(self) -> None:
-        self.state = json.loads(self.path.read_text(encoding="utf-8"))
+    def _load(self, source: Path) -> None:
+        self.state = json.loads(source.read_text(encoding="utf-8"))
         self.state.setdefault("tunables", {})
         for k, v in TUNABLES.items():
             self.state["tunables"].setdefault(k, v)
@@ -75,6 +82,7 @@ class Game:
         with self._lock:
             st = self.rng.getstate()
             self.state["rng"] = [st[0], list(st[1]), st[2]]
+            self.state["saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.state), encoding="utf-8")
@@ -86,6 +94,12 @@ class Game:
                     if attempt == 7:
                         raise
                     time.sleep(0.25)
+            try:  # a second copy of the same save, in case the first is ever damaged
+                spare = self.backup.with_suffix(".tmp")
+                shutil.copyfile(self.path, spare)
+                os.replace(spare, self.backup)
+            except OSError as exc:
+                log.warning("couldn't write the backup game save: %s", exc)
         for fn in list(self._listeners):
             try:
                 fn()
@@ -777,7 +791,9 @@ class Game:
                                                                      "profit_total")}}
                                   for cid, c in self.state["companies"].items()],
                     "new_calls": len(new_calls), "next_tax_sale": self.state["sale"]["date"],
-                    "auction_running": bool(self.state.get("auction"))}
+                    "auction_running": bool(self.state.get("auction")),
+                    "where_we_left_off": [f"{e['day']}: {e['text']}" for e in self.state["log"][-6:]],
+                    "last_saved": self.state.get("saved_at", "")}
 
     def lesson(self, topic: str) -> dict:
         t = (topic or "").lower()

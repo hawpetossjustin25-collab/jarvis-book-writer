@@ -73,7 +73,8 @@ class GameTab(QWidget):
             m = s["money"]
             self.meter.setText(f"Cash {money(m['cash'])}    Net worth {money(m['net_worth'])}")
             self.when.setText(f"Game date {s['today']}  ·  next sheriff's tax sale {s['next_tax_sale']}  ·  "
-                              f"{s['new_calls']} new call{'s' if s['new_calls'] != 1 else ''}")
+                              f"{s['new_calls']} new call{'s' if s['new_calls'] != 1 else ''}  ·  saved "
+                              f"automatically after every move (last {s['last_saved'] or 'now'})")
             owned = _rows(["ID", "Property", "Worth", "Paid", "Status"],
                           [[p["id"], f"{p['type']}, {p['address']}", money(p["worth"]), money(p["paid"]),
                             (f"renovating until {p['renovating_until']}" if p["renovating_until"] else
