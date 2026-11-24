@@ -87,7 +87,8 @@ const draw = () => {
     $('pl-items').appendChild(row);
   });
 };
-$('search-input').oninput = draw; draw();
+// Like Studio: results come back from the server a moment after the last keystroke.
+let searchTimer; $('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(draw, 1200); }; draw();
 $('close-button').onclick = () => show('plc', false);
 $('create-button').onclick = () => {
   created = {title: document.querySelector('#plc textarea').value, vis: $('plvis').textContent};

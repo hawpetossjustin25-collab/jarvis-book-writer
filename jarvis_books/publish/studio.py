@@ -421,7 +421,7 @@ class StudioUploader:
             row = self._playlist_row(page, name)
             if row is None:
                 self._new_playlist(page, name, privacy, quick)
-                row = self._wait_for(lambda: self._playlist_row(page, name), quick)
+                row = self._playlist_row(page, name, quick)
                 if row is None:
                     raise PublishError("the new playlist didn't appear")
             if not self._tick(row, quick):
@@ -467,15 +467,20 @@ class StudioUploader:
         except Exception:
             raise PublishError("Studio's playlist window wouldn't close") from None
 
-    def _playlist_row(self, page, name: str):
-        """Studio only draws the playlists in view, so search for the name before reading the list."""
+    def _playlist_row(self, page, name: str, wait_ms: int = 8000):
+        """
+        Studio only draws the playlists in view, so search for the name first. The search runs on YouTube's
+        servers a moment after the last keystroke, so type it once and give the results time to come back.
+        """
         try:
             search = page.locator(SEL["playlist_search"] + VISIBLE).first
-            if search.count():
+            if search.count() and search.input_value(timeout=5000) != name[:150]:
                 search.fill(name[:150], timeout=5000)
-                self.sleep(min(self.poll_s, 1.0))
         except Exception as exc:
             log.info("Studio playlist search failed: %s", exc)
+        return self._wait_for(lambda: self._shown_row(page, name), wait_ms)
+
+    def _shown_row(self, page, name: str):
         for row in page.locator(SEL["playlist_row"] + VISIBLE).all():
             try:
                 if " ".join((row.locator(SEL["playlist_row_name"]).first.text_content() or "").split()) == name:
