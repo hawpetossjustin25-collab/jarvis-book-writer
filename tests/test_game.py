@@ -653,3 +653,8 @@ def test_trading_waits_while_a_lesson_is_on(game):
     assert game.trading_session() == {} and game.trading()["trading_days_so_far"] == 0
     game.resume()
     assert game.trading_session()["day"].startswith("day 1")
+
+
+def test_jarvis_is_told_to_play_only_through_the_game_tools():
+    from jarvis_books.writer.prompts import ASSISTANT
+    assert "never say a bid was placed or what a rival did without calling the tool" in ASSISTANT
