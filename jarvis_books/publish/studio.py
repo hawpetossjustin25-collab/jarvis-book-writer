@@ -56,6 +56,7 @@ SEL = {
     "playlist_row": "ytcp-playlist-dialog label.ytcp-checkbox-label",
     "playlist_row_name": ".label-text",
     "playlist_row_box": "[role=checkbox]",
+    "playlist_row_click": "#checkbox-container",
     "playlist_new": "ytcp-playlist-dialog .new-playlist-button, ytcp-playlist-dialog #new-playlist-button",
     "playlist_new_item": "tp-yt-paper-item[test-id=new_playlist]",
     "playlist_title": "ytcp-playlist-creation-dialog #title-textarea #textbox, ytcp-playlist-creation-dialog textarea",
@@ -423,10 +424,7 @@ class StudioUploader:
                 row = self._wait_for(lambda: self._playlist_row(page, name), quick)
                 if row is None:
                     raise PublishError("the new playlist didn't appear")
-            box = row.locator(SEL["playlist_row_box"]).first
-            if (box.get_attribute("aria-checked") or "").lower() != "true":
-                box.click(timeout=quick)
-            if (box.get_attribute("aria-checked") or "").lower() != "true":
+            if not self._tick(row, quick):
                 raise PublishError("Studio wouldn't tick the playlist")
             page.locator(SEL["playlist_done"] + VISIBLE).first.click(timeout=quick)
             return []
@@ -435,6 +433,25 @@ class StudioUploader:
             self._close_playlist_windows(page)
             reason = str(exc) if isinstance(exc, PublishError) else "Studio's playlist window didn't respond"
             return [f"playlist not updated ({reason})"]
+
+    def _tick(self, row, quick: int) -> bool:
+        """Studio lays its checkbox container over the checkbox itself, so click what's on top, then the name."""
+        box = row.locator(SEL["playlist_row_box"]).first
+
+        def ticked() -> bool:
+            return (box.get_attribute("aria-checked") or "").lower() == "true"
+
+        if ticked():
+            return True
+        for target in (SEL["playlist_row_click"], SEL["playlist_row_box"], SEL["playlist_row_name"]):
+            try:
+                row.locator(target).first.click(timeout=min(quick, 5000))
+            except Exception as exc:
+                log.info("ticking the playlist via %s failed: %s", target, str(exc).splitlines()[0][:120])
+                continue
+            if self._wait_for(lambda: ticked() or None, 3000):
+                return True
+        return False
 
     def _close_playlist_windows(self, page) -> None:
         """Studio ignores Escape here; its own close and Done buttons are the only way back to the upload form."""

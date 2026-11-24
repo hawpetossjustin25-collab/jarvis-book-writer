@@ -79,10 +79,11 @@ const draw = () => {
   $('pl-items').innerHTML = '';
   rows.forEach(l => {
     const row = document.createElement('label'); row.className = 'ytcp-checkbox-label';
-    row.innerHTML = '<ytcp-checkbox-lit><div role=checkbox style="display:inline-block;width:16px;height:16px;border:1px solid" aria-checked=' + l.on + '></div></ytcp-checkbox-lit>' +
+    row.innerHTML = '<ytcp-checkbox-lit style="position:relative;display:inline-block"><div role=checkbox style="display:inline-block;width:16px;height:16px;border:1px solid" aria-checked=' + l.on + '></div>' +
+      '<div id=checkbox-container style="position:absolute;inset:0"></div></ytcp-checkbox-lit>' +
       '<span class=checkbox-label><span class="label label-text"></span></span>';
     row.querySelector('.label-text').textContent = l.name;
-    row.querySelector('[role=checkbox]').onclick = () => { l.on = !l.on; draw(); };
+    row.querySelector('#checkbox-container').onclick = () => { l.on = !l.on; draw(); };
     $('pl-items').appendChild(row);
   });
 };
