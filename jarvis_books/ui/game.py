@@ -42,7 +42,7 @@ class GameTab(QWidget):
         buttons = QHBoxLayout()
         for label, slot in (("Next day", lambda: self._advance(1)), ("Next week", lambda: self._advance(7)),
                             ("Next month", lambda: self._advance(30)), ("Go to the tax sale", self._to_sale),
-                            ("New game", self._new_game)):
+                            ("Add $8,000", self._add_cash), ("New game", self._new_game)):
             b = QPushButton(label)
             b.clicked.connect(slot)
             buttons.addWidget(b)
@@ -102,7 +102,9 @@ class GameTab(QWidget):
                                + (f" (next milestone {money(g['next_milestone'])})" if g["next_milestone"] else
                                   "  YOU WON!"))
             self.when.setText(f"Game date {s['today']}  ·  next sheriff's tax sale {s['next_tax_sale']}  ·  "
-                              f"{s['new_calls']} new call{'s' if s['new_calls'] != 1 else ''}  ·  saved "
+                              f"{s['new_calls']} new call{'s' if s['new_calls'] != 1 else ''}  ·  "
+                              f"$8,000 adds left in {s['cash_adds']['year']}: {s['cash_adds']['left_this_year']} of "
+                              f"{s['cash_adds']['allowed_per_year']}  ·  saved "
                               f"automatically after every move (last {s['last_saved'] or 'now'})")
             owned = _rows(["ID", "Property", "Worth", "Paid", "Status"],
                           [[p["id"], f"{p['type']}, {p['address']}", money(p["worth"]), money(p["paid"]),
@@ -208,6 +210,12 @@ class GameTab(QWidget):
         if "error" not in out:
             self.status.setText(f"Moved to {out['today']}; cash changed {money(out['cash_change'])}."
                                 + (f" {len(out['new_calls'])} new call(s)." if out["new_calls"] else ""))
+
+    def _add_cash(self) -> None:
+        out = self._run("game_add_cash", {})
+        if "error" not in out:
+            self.status.setText(f"Added {money(out['added'])}. Cash {money(out['cash'])}; "
+                                f"{out['left_this_year']} add(s) left in {out['year']}.")
 
     def _to_sale(self) -> None:
         self._run("game_go_to_tax_sale", {})

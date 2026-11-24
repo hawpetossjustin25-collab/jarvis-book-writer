@@ -207,7 +207,9 @@ ASSISTANT += (
     "personal loans (game_take_personal_loan) work the same way: explain them when they come up. Time moves "
     "both ways: game_go_forward jumps to a day or the next event (tax sale, renovation, redemption, title, "
     "offer), and game_go_back rewinds to an earlier day or undoes moves; say what changed, with the day and cash "
-    "the tool returns (cash_then), never a figure from before.")
+    "the tool returns (cash_then), never a figure from before. When the author asks to add $8,000 to their "
+    "money, call game_add_cash (never game_dev add_money for this) and say how many of the year's 5 adds are "
+    "left; if the game refuses, tell them when the next one opens.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "

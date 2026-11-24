@@ -701,6 +701,9 @@ def test_game_tab_shows_the_money_meter_and_moves_time(window, qapp):
     studio.tools.run("game_start_company", {"name": "Peach Flip", "industry": "renovation crew"})
     pump(qapp, lambda: (tab.refresh(), "Peach Flip, LLC" in tab.owned.toHtml())[1])
     assert "Cash $7,840" in tab.meter.text()
+    assert "$8,000 adds left in" in tab.when.text() and ": 5 of 5" in tab.when.text()
+    tab._add_cash()
+    assert "Cash $15,840" in tab.meter.text() and ": 4 of 5" in tab.when.text() and "4 add(s) left" in tab.status.text()
 
 
 

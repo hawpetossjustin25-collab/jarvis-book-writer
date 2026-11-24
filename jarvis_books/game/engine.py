@@ -46,6 +46,8 @@ TUNABLES = {
     "agent_skill": 0.55,  # how often an AI trading agent's trade reaches the ceiling
 }
 MAX_DAYS_PER_ADVANCE = 3660
+CASH_ADD = 8000.0
+CASH_ADDS_PER_YEAR = 5
 BIG_DEALS = ("car_lot", "mixed_use", "office_tower", "stadium", "hotel", "college")
 CALL_KINDS_TO_ANSWER = ("offer", "buyer", "counter")
 
@@ -873,6 +875,37 @@ class Game(Empire, Trading, Bidder, Title, Timeline):
                 "net_worth": round(self.state["cash"] + props + deeds + companies + transit + cars + trading - loans,
                                    2)}
 
+    def cash_adds(self) -> dict:
+        """The record of the player's $8,000 adds: 5 are allowed each game year, counted by the game date."""
+        with self._lock:
+            year = self.today.year
+            record = self.state.get("cash_adds", [])
+            this_year = [a for a in record if a["day"][:4] == str(year)]
+            return {"year": year, "amount": CASH_ADD, "allowed_per_year": CASH_ADDS_PER_YEAR,
+                    "used_this_year": len(this_year), "left_this_year": max(0, CASH_ADDS_PER_YEAR - len(this_year)),
+                    "next_reset": f"{year + 1}-01-01", "this_year": this_year, "all_time": len(record)}
+
+    def add_cash(self) -> dict:
+        with self._lock:
+            info = self.cash_adds()
+            if info["left_this_year"] <= 0:
+                raise ValidationError(f"all {CASH_ADDS_PER_YEAR} {money(CASH_ADD)} adds for {info['year']} are used "
+                                      f"(on {', '.join(a['day'] for a in info['this_year'])}); the next one opens "
+                                      f"on {info['next_reset']}")
+            self._earn(CASH_ADD)
+            entry = {"day": self.state["today"], "amount": CASH_ADD, "number": info["used_this_year"] + 1,
+                     "cash_after": self.state["cash"]}
+            self.state.setdefault("cash_adds", []).append(entry)
+            self._note(f"Added {money(CASH_ADD)} to cash ({entry['number']} of {CASH_ADDS_PER_YEAR} for "
+                       f"{info['year']}).")
+            self._did("add_cash", f"added {money(CASH_ADD)} to cash ({entry['number']} of "
+                                  f"{CASH_ADDS_PER_YEAR} for {info['year']})")
+            self.save()
+            after = self.cash_adds()
+            return {"added": CASH_ADD, "cash": self.state["cash"], "used_this_year": after["used_this_year"],
+                    "left_this_year": after["left_this_year"], "year": after["year"],
+                    "next_reset": after["next_reset"], "record_this_year": after["this_year"]}
+
     def company_value(self, c: dict) -> float:
         if c["status"] != "active":
             return 0.0
@@ -898,6 +931,7 @@ class Game(Empire, Trading, Bidder, Title, Timeline):
                     "paused_for_lesson": (self.state.get("learning") or {}).get("topic"),
                     "goal": self.goal(), "loans": [{"id": k, **v} for k, v in self.state.get("loans", {}).items()],
                     "personal_loans": [{"id": k, **v} for k, v in self.state.get("personal_loans", {}).items()],
+                    "cash_adds": {k: v for k, v in self.cash_adds().items() if k != "this_year"},
                     "transit": {k: {"upgrades": v["upgrades"], "building": v.get("building"),
                                     "monthly_income": self._transit_income(k)}
                                 for k, v in self.state.get("transit", {}).items()},

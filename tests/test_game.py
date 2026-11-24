@@ -837,3 +837,41 @@ def test_undo_keeps_what_happened_earlier_the_same_day(game):
     again.advance(2)
     again.go_back(moves=1)
     assert again.state["cash"] == 400_000
+
+
+# ---- $8,000 cash adds ------------------------------------------------------------------------------------
+def test_cash_can_be_added_five_times_a_game_year_with_a_record(game):
+    for n in range(1, 6):
+        out = game.add_cash()
+        assert out["added"] == 8000 and out["cash"] == 8000 + 8000 * n
+        assert out["used_this_year"] == n and out["left_this_year"] == 5 - n
+    with pytest.raises(ValidationError, match="all 5 \\$8,000 adds for 2026 are used.*2027-01-01"):
+        game.add_cash()
+    assert game.state["cash"] == 48_000
+    rec = game.cash_adds()
+    assert [a["number"] for a in rec["this_year"]] == [1, 2, 3, 4, 5]
+    assert all(a["day"] == DAY.isoformat() and a["amount"] == 8000 for a in rec["this_year"])
+    assert game.status()["cash_adds"]["left_this_year"] == 0
+    again = Game(game.path)
+    with pytest.raises(ValidationError):
+        again.add_cash()
+    again.go_forward("2027-01-01")
+    assert again.cash_adds()["left_this_year"] == 5 and again.cash_adds()["all_time"] == 5
+    assert again.add_cash()["used_this_year"] == 1
+
+
+def test_rewinding_time_rewinds_the_cash_add_record(game):
+    game.add_cash()
+    game.add_cash()
+    game.go_back(moves=1)
+    assert game.cash_adds()["used_this_year"] == 1 and game.state["cash"] == 16_000
+
+
+def test_jarvis_adds_cash_through_the_game_and_a_lesson_pauses_it(tools):
+    assert tools.gate.decide("game_add_cash") == "free" and tools.gate.decide("game_cash_adds") == "free"
+    assert "game_add_cash" in {d["name"] for d in tools.select("add 8000 to our money in the game")}
+    assert tools.call("game_add_cash")["cash"] == 16_000
+    assert tools.call("game_cash_adds")["left_this_year"] == 4
+    tools.call("game_learn", {"topic": "tax sale"})
+    assert "paused for a lesson" in tools.call("game_add_cash")["error"]
+    assert tools.call("game_cash_adds")["used_this_year"] == 1

@@ -83,6 +83,10 @@ GAME_DECLARATIONS = [
           "of moves back (moves=1 undoes the last move), or a snapshot number from game_timeline. Later "
           "snapshots are kept, so going back can itself be undone.",
           {"to_day": S, "moves": I, "snapshot": I}),
+    _decl("game_add_cash", "Add $8,000 to the player's cash. Allowed 5 times per game year (counted by the game "
+          "date); the game keeps the record and refuses more. Only when the player asks for it.", {}),
+    _decl("game_cash_adds", "The record of the player's $8,000 cash adds: used and left this game year, the "
+          "dates, and when the next year's adds open.", {}),
     _decl("game_timeline", "The game's saved points in time (snapshot number, day, the move just made), for "
           "going back.", {"limit": I}),
     _decl("game_lesson", "The real Atlanta rule behind something in the game, with its source: tax sale, "
@@ -145,7 +149,7 @@ GAME_DECLARATIONS = [
 GAME_TOOLS = tuple(d["name"] for d in GAME_DECLARATIONS)
 # what a lesson pauses: anything that moves time or money (looking around and learning still work)
 GAME_LOOKS = ("game_status", "game_market", "game_inspect", "game_renovation_quotes", "game_tax_sale",
-              "game_tax_deeds", "game_title", "game_timeline", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
+              "game_tax_deeds", "game_title", "game_timeline", "game_cash_adds", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
               "game_bidder", "game_calls", "game_learn", "game_back_to_game", "game_dev", "game_new")
 GAME_MOVES = tuple(n for n in GAME_TOOLS if n not in GAME_LOOKS)
 GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip", "renovat", "fix up", "property",
@@ -154,7 +158,7 @@ GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
               "loan", "borrow", "bank", "lien", "mortgage", "title", "rewind", "go back", "undo", "time travel",
               "go forward", "fast forward", "back in time", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
-              "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
+              "car lot", "cars", "dealership", "add 8", "add $8", "8,000", "8000", "add money", "trading", "trade", "day trad", "nasdaq",
               "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for", "learn", "teach", "back to the game")
 
 
@@ -308,6 +312,14 @@ class GameTools:
     @_play
     def _t_game_clear_title(self, property_id: str) -> dict:
         return self._game().clear_title(property_id)
+
+    @_play
+    def _t_game_add_cash(self) -> dict:
+        return self._game().add_cash()
+
+    @_play
+    def _t_game_cash_adds(self) -> dict:
+        return self._game().cash_adds()
 
     @_play
     def _t_game_take_personal_loan(self, amount: float, for_bidder: bool = False) -> dict:

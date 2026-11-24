@@ -62,7 +62,7 @@ TOOL_LEVELS = MappingProxyType({
     "game_calls": SAFE, "game_answer_call": SAFE, "game_advance": SAFE, "game_dev": SAFE,
     "game_new": CHANGE, "game_goal": READ, "game_transit": READ, "game_car_lot": READ,
     "game_take_loan": SAFE, "game_title": READ, "game_timeline": READ, "game_go_forward": SAFE, "game_go_back": SAFE, "game_clear_title": SAFE,
-    "game_take_personal_loan": SAFE, "game_fund_bidder": SAFE, "game_repay_loan": SAFE, "game_buy_transit": SAFE, "game_upgrade_transit": SAFE,
+    "game_add_cash": SAFE, "game_cash_adds": READ, "game_take_personal_loan": SAFE, "game_fund_bidder": SAFE, "game_repay_loan": SAFE, "game_buy_transit": SAFE, "game_upgrade_transit": SAFE,
     "game_stock_cars": SAFE, "game_trading": READ, "game_open_trading": SAFE, "game_trading_funds": SAFE,
     "game_trading_agents": SAFE, "game_bidder": READ, "game_hire_bidder": SAFE, "game_fire_bidder": SAFE,
     "game_learn": SAFE, "game_back_to_game": SAFE,
