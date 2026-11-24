@@ -72,7 +72,8 @@ GAME_DECLARATIONS = [
     _decl("game_calls", "Calls the secretary took at the Atlanta office: offers, buyers, redemptions, tenants, "
           "the tax sale. Read them to the player.", {"all": B}),
     _decl("game_answer_call", "Answer a call that needs a decision (an offer or a buyer): accept sells the "
-          "property at that price.", {"call_id": S, "accept": B}, ["call_id", "accept"]),
+          "property at that price; counter (dollars) asks the buyer for more instead, and they take it or walk.",
+          {"call_id": S, "accept": B, "counter": DOLLARS}, ["call_id", "accept"]),
     _decl("game_advance", "Move game time forward some days (1 to 3660): renovations finish, offers and calls "
           "come in, rent and company profits are paid on the 1st, owners redeem.", {"days": I}, ["days"]),
     _decl("game_lesson", "The real Atlanta rule behind something in the game, with its source: tax sale, "
@@ -230,8 +231,8 @@ class GameTools:
         return self._game().calls(only_new=not all)
 
     @_play
-    def _t_game_answer_call(self, call_id: str, accept: bool) -> dict:
-        return self._game().answer_call(call_id, accept)
+    def _t_game_answer_call(self, call_id: str, accept: bool, counter: float = 0) -> dict:
+        return self._game().answer_call(call_id, accept, counter)
 
     @_play
     def _t_game_advance(self, days: int) -> dict:

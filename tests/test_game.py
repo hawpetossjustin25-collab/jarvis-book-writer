@@ -533,3 +533,17 @@ def test_the_desk_reports_every_trading_day_and_the_agents_get_smarter(game):
     assert later["agent_win_rate"] > start and later["agent_win_rate"] <= start + 0.12
     assert "trades of experience" in later["learned_so_far"]
     game.trading_funds("withdraw", 50_000)  # profits go toward bigger properties
+
+
+def test_countering_a_buyer_sells_when_they_can_afford_it_and_they_walk_when_they_cant(game):
+    pid = own_a_listing(game)
+    game.list_for_sale(pid)
+    game.dev("set", "market_heat", 50)
+    game.advance(10)
+    call = next(c for c in game.state["calls"] if c["kind"] == "offer" and c["status"] == "new")
+    too_high = game.answer_call(call["id"], False, counter=call["buyer_max"] + 1000)
+    assert "walked away" in too_high["buyer_said"] and pid in game.state["properties"]
+    game.advance(10)
+    call = next(c for c in game.state["calls"] if c["kind"] == "offer" and c["status"] == "new")
+    out = game.answer_call(call["id"], False, counter=call["buyer_max"])
+    assert out["price"] == call["buyer_max"] >= call["amount"] and pid not in game.state["properties"]

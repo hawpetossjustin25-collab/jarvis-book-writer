@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.planner_tab, "Planner")
         self.research_tab = ResearchTab(self.studio)
         self.tabs.addTab(self.research_tab, "Research")
-        self.game_tab = GameTab(self.studio)
+        self.game_tab = GameTab(self.studio, announce=self._game_news)
         self.tabs.addTab(self.game_tab, "Game")
         self.alarms = AlarmCenter(studio.planner, self, studio.home / "alarm.wav", tell_jarvis=self._alarm_to_jarvis)
         self.job_bar = QProgressBar()
@@ -1060,6 +1060,12 @@ class MainWindow(QMainWindow):
     def selected_book_id(self) -> Optional[str]:
         item = self.book_list.currentItem()
         return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _game_news(self, text: str, call: dict) -> None:
+        """A call came in at the game office: show it, and have Jarvis say it if he's on a voice call."""
+        self.statusBar().showMessage(f"Game: {text}", 15000)
+        ask = " Ask what they want to do." if call.get("kind") in ("offer", "buyer") else ""
+        self._alarm_to_jarvis(f"(Game news for the author, tell them briefly in your own words.{ask}) {text}")
 
     def _alarm_to_jarvis(self, note: str) -> None:
         for bridge in (self.voice, self.war_voice):

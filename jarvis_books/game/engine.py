@@ -627,20 +627,30 @@ class Game(Empire, Trading):
                                                                 if c["kind"] in CALL_KINDS_TO_ANSWER
                                                                 and c["status"] == "new"]}
 
-    def answer_call(self, call_id: str, accept: bool) -> dict:
+    def answer_call(self, call_id: str, accept: bool, counter: float = 0) -> dict:
         with self._lock:
             call = next((c for c in self.state["calls"] if c["id"] == call_id.strip().upper()), None)
             if call is None:
                 raise NotFound(f"no call {call_id}")
             if call["kind"] not in CALL_KINDS_TO_ANSWER or call["status"] != "new":
                 raise ValidationError("that call doesn't need an answer")
+            pid = call["property_id"]
+            if (accept or counter) and pid not in self.state["properties"]:
+                raise ValidationError("you don't own that property any more")
+            if counter and counter > 0:
+                if counter <= call.get("buyer_max", call["amount"]):
+                    call["status"] = "countered and accepted"
+                    out = {"buyer_said": f"{call['from']} took your counter of {money(counter)}.",
+                           **self._sell(pid, round(counter, 2), call["from"])}
+                else:
+                    call["status"] = "countered and refused"
+                    out = {"buyer_said": f"{call['from']} won't go to {money(counter)} and walked away."}
+                self.save()
+                return out
             call["status"] = "accepted" if accept else "declined"
             if not accept:
                 self.save()
                 return {"declined": call["text"]}
-            pid = call["property_id"]
-            if pid not in self.state["properties"]:
-                raise ValidationError("you don't own that property any more")
             out = self._sell(pid, call["amount"], call["from"])
             self.save()
             return out
@@ -697,11 +707,12 @@ class Game(Empire, Trading):
                 if self.rng.random() < chance:
                     amount = round(listed["price"] * self.rng.uniform(0.9, 1.0), -2)
                     self._call("offer", self.rng.choice(_BUYERS), f"Offers {money(amount)} for {p['address']} "
-                               f"(listed at {money(listed['price'])}).", property_id=pid, amount=amount)
+                               f"(listed at {money(listed['price'])}).", property_id=pid, amount=amount,
+                               buyer_max=round(amount * self.rng.uniform(1.0, 1.08), -2))
             elif not listed and not p.get("tenant") and self.rng.random() < 0.004 * heat:
                 amount = round(self.value(p) * self.rng.uniform(0.85, 1.05), -2)
                 self._call("buyer", self.rng.choice(_BUYERS), f"Wants to buy {p['address']} for {money(amount)}.",
-                           property_id=pid, amount=amount)
+                           property_id=pid, amount=amount, buyer_max=round(amount * self.rng.uniform(1.0, 1.1), -2))
             tenant = p.get("tenant")
             if tenant and tenant["status"] == "looking" and self.rng.random() < 0.08:
                 tenant["status"] = "signed"

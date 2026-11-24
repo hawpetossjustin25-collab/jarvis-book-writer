@@ -6,13 +6,14 @@ import html
 import logging
 
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QPushButton, QTabWidget, QTextBrowser, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget,
+                             QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis_books.game import money
 
 log = logging.getLogger(__name__)
 REFRESH_MS = 2000
+ANNOUNCE = ("trading", "offer", "buyer", "milestone", "info", "reminder")
 
 
 def _rows(headers: list[str], rows: list[list]) -> str:
@@ -24,12 +25,14 @@ def _rows(headers: list[str], rows: list[list]) -> str:
 
 
 class GameTab(QWidget):
-    def __init__(self, studio, parent=None):
+    def __init__(self, studio, parent=None, announce=None):
         super().__init__(parent)
         self.studio = studio
         self.game = studio.game
+        self.announce = announce  # tells the author (status bar, and Jarvis out loud when he's on a call)
         self._closed = False
         self._shown = None
+        self._heard = {c["id"] for c in self.game.state["calls"]}  # calls from before this session aren't news
         lay = QVBoxLayout(self)
         self.meter = QLabel()
         self.meter.setStyleSheet("font-size: 22px; font-weight: bold; color: #1b7f3b;")
@@ -44,6 +47,27 @@ class GameTab(QWidget):
             b.clicked.connect(slot)
             buttons.addWidget(b)
         lay.addLayout(buttons)
+        bidding = QHBoxLayout()
+        bidding.addWidget(QLabel("Tax sale parcel:"))
+        self.parcel = QLineEdit()
+        self.parcel.setPlaceholderText("e.g. T12")
+        self.parcel.setMaximumWidth(90)
+        bidding.addWidget(self.parcel)
+        open_btn = QPushButton("Open bidding")
+        open_btn.clicked.connect(self._open_bidding)
+        bidding.addWidget(open_btn)
+        bidding.addWidget(QLabel("My bid $"))
+        self.bid_box = QDoubleSpinBox()
+        self.bid_box.setRange(0, 1e12)
+        self.bid_box.setDecimals(0)
+        self.bid_box.setSingleStep(100)
+        bidding.addWidget(self.bid_box)
+        for label, slot in (("Bid", self._bid), ("Pass", self._pass)):
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            bidding.addWidget(b)
+        bidding.addStretch(1)
+        lay.addLayout(bidding)
         self.views = QTabWidget()
         self.owned, self.sale, self.market, self.calls, self.history = (QTextBrowser() for _ in range(5))
         for w, name in ((self.owned, "What I own"), (self.sale, "Tax sale"), (self.market, "For sale"),
@@ -66,6 +90,7 @@ class GameTab(QWidget):
             st = self.game.state
             mark = (st["today"], st["cash"], st["next_id"], len(st["calls"]), len(st["log"]),
                     sum(c["status"] == "new" for c in st["calls"]), str(st.get("auction")))
+            self._announce_new_calls(st["calls"])
             if mark == self._shown and not force:
                 return
             self._shown = mark
@@ -131,6 +156,43 @@ class GameTab(QWidget):
                                          for e in reversed(st["log"][-100:])))
         except Exception:
             log.exception("game tab refresh failed")
+
+    def _announce_new_calls(self, calls: list) -> None:
+        for c in calls:
+            if c["id"] in self._heard:
+                continue
+            self._heard.add(c["id"])
+            if c["kind"] not in ANNOUNCE:
+                continue
+            self.status.setText(f"{c['from']}: {c['text']}")
+            if self.announce is not None:
+                try:
+                    self.announce(f"{c['from']}: {c['text']}", c)
+                except Exception:
+                    log.exception("game announcement failed")
+
+    def _open_bidding(self) -> None:
+        out = self._run("game_start_auction", {"parcel_id": self.parcel.text().strip()})
+        if "error" not in out:
+            self.status.setText(out["auctioneer"])
+            self.bid_box.setValue(out["high_bid"] + 100)
+            self.views.setCurrentWidget(self.sale)
+
+    def _bid(self) -> None:
+        out = self._run("game_bid", {"amount": float(self.bid_box.value())})
+        if "error" in out:
+            return
+        if "you_won" in out:
+            self.status.setText(f"SOLD to you: {out['you_won']} for {money(out['paid'])}.")
+        else:
+            self.status.setText(out["auctioneer"])
+            self.bid_box.setValue(out["high_bid"] + 100)
+
+    def _pass(self) -> None:
+        out = self._run("game_pass", {})
+        if "error" not in out:
+            self.status.setText(f"Sold to {out['sold_to']} for {money(out['price'])}." if "sold_to" in out else
+                                f"SOLD to you: {out.get('you_won')}")
 
     def _run(self, name: str, args: dict) -> dict:
         out = self.studio.tools.run(name, args)

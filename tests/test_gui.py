@@ -701,3 +701,28 @@ def test_game_tab_shows_the_money_meter_and_moves_time(window, qapp):
     studio.tools.run("game_start_company", {"name": "Peach Flip", "industry": "renovation crew"})
     pump(qapp, lambda: (tab.refresh(), "Peach Flip, LLC" in tab.owned.toHtml())[1])
     assert "Cash $7,840" in tab.meter.text()
+
+
+
+def test_game_news_is_announced_and_the_tab_runs_an_auction(window, qapp):
+    win, studio, _ = window
+    tab = win.game_tab
+    heard = []
+    tab.announce = lambda text, call: heard.append((text, call["kind"]))
+    studio.game._call("offer", "A young couple", "Offers $150,000 for 12 Lee St SW.", property_id="P1", amount=1)
+    studio.game.save()
+    tab.refresh()
+    assert heard == [("A young couple: Offers $150,000 for 12 Lee St SW.", "offer")]
+    tab.refresh()
+    assert len(heard) == 1  # each call is announced once
+    tab._to_sale()
+    parcel = studio.game.tax_sale()["parcels"][1]
+    tab.parcel.setText(parcel["id"])
+    tab._open_bidding()
+    assert studio.game.state["auction"] and "Bidding opens" in tab.status.text()
+    tab.bid_box.setValue(7900)
+    tab._bid()
+    assert "SOLD to you" in tab.status.text() or studio.game.state["auction"]["high"] > 7900
+    if studio.game.state.get("auction"):
+        tab._pass()
+    assert studio.game.state["auction"] is None
