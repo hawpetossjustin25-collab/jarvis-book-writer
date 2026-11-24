@@ -52,14 +52,18 @@ SEL = {
     "thumbnail": "ytcp-thumbnail-uploader input#file-loader",
     "playlist_open": "ytcp-video-metadata-playlists ytcp-dropdown-trigger",
     "playlist_dialog": "ytcp-playlist-dialog",
-    "playlist_option": "ytcp-playlist-dialog tp-yt-paper-checkbox, ytcp-playlist-dialog ytcp-checkbox-lit",
+    "playlist_search": "ytcp-playlist-dialog input#search-input",
+    "playlist_row": "ytcp-playlist-dialog label.ytcp-checkbox-label",
+    "playlist_row_name": ".label-text",
+    "playlist_row_box": "[role=checkbox]",
     "playlist_new": "ytcp-playlist-dialog .new-playlist-button, ytcp-playlist-dialog #new-playlist-button",
     "playlist_new_item": "tp-yt-paper-item[test-id=new_playlist]",
     "playlist_title": "ytcp-playlist-creation-dialog #title-textarea #textbox, ytcp-playlist-creation-dialog textarea",
     "playlist_visibility": "ytcp-playlist-creation-dialog ytcp-dropdown-trigger",
     "playlist_visibility_item": "tp-yt-paper-item[test-id={}]",
     "playlist_create": "ytcp-playlist-creation-dialog #create-button",
-    "playlist_done": "ytcp-playlist-dialog .done-button, ytcp-playlist-dialog #done-button",
+    "playlist_create_close": "ytcp-playlist-creation-dialog #close-button",
+    "playlist_done": "ytcp-playlist-dialog .done-button, ytcp-playlist-dialog ytcp-button:has-text('Done')",
     "schedule_open": "#second-container-expand-button",
     "schedule_date_open": "#datepicker-trigger",
     "schedule_date": "ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input",
@@ -413,31 +417,52 @@ class StudioUploader:
         try:
             page.locator(SEL["playlist_open"] + VISIBLE).first.click(timeout=quick)
             page.locator(SEL["playlist_dialog"] + VISIBLE).first.wait_for(state="visible", timeout=quick)
-            option = self._playlist_option(page, name)
-            if option is None:
+            row = self._playlist_row(page, name)
+            if row is None:
                 self._new_playlist(page, name, privacy, quick)
-                option = self._wait_for(lambda: self._playlist_option(page, name), quick)
-                if option is None:
+                row = self._wait_for(lambda: self._playlist_row(page, name), quick)
+                if row is None:
                     raise PublishError("the new playlist didn't appear")
-            if (option.get_attribute("aria-checked") or "").lower() != "true":
-                option.click(timeout=quick)
+            box = row.locator(SEL["playlist_row_box"]).first
+            if (box.get_attribute("aria-checked") or "").lower() != "true":
+                box.click(timeout=quick)
+            if (box.get_attribute("aria-checked") or "").lower() != "true":
+                raise PublishError("Studio wouldn't tick the playlist")
             page.locator(SEL["playlist_done"] + VISIBLE).first.click(timeout=quick)
             return []
         except Exception as exc:
             log.info("Studio playlist failed: %s", exc)
-            for _ in range(2):  # close whatever playlist dialog is still open so the upload can go on
-                try:
-                    page.keyboard.press("Escape")
-                except Exception:
-                    pass
+            self._close_playlist_windows(page)
             reason = str(exc) if isinstance(exc, PublishError) else "Studio's playlist window didn't respond"
             return [f"playlist not updated ({reason})"]
 
-    def _playlist_option(self, page, name: str):
-        for opt in page.locator(SEL["playlist_option"]).all():
+    def _close_playlist_windows(self, page) -> None:
+        """Studio ignores Escape here; its own close and Done buttons are the only way back to the upload form."""
+        for sel in (SEL["playlist_create_close"], SEL["playlist_done"]):
             try:
-                if " ".join((opt.text_content() or "").split()) == name:
-                    return opt
+                button = page.locator(sel + VISIBLE).first
+                if button.count():
+                    button.click(timeout=5000)
+            except Exception as exc:
+                log.info("closing Studio's playlist window failed: %s", exc)
+        try:
+            page.locator(SEL["playlist_dialog"] + VISIBLE).first.wait_for(state="hidden", timeout=5000)
+        except Exception:
+            raise PublishError("Studio's playlist window wouldn't close") from None
+
+    def _playlist_row(self, page, name: str):
+        """Studio only draws the playlists in view, so search for the name before reading the list."""
+        try:
+            search = page.locator(SEL["playlist_search"] + VISIBLE).first
+            if search.count():
+                search.fill(name[:150], timeout=5000)
+                self.sleep(min(self.poll_s, 1.0))
+        except Exception as exc:
+            log.info("Studio playlist search failed: %s", exc)
+        for row in page.locator(SEL["playlist_row"] + VISIBLE).all():
+            try:
+                if " ".join((row.locator(SEL["playlist_row_name"]).first.text_content() or "").split()) == name:
+                    return row
             except Exception:
                 continue
         return None
@@ -454,7 +479,7 @@ class StudioUploader:
         trigger.click(timeout=quick)
         page.locator(SEL["playlist_visibility_item"].format(VISIBILITY[privacy]) + VISIBLE).first.click(timeout=quick)
         shown = " ".join((trigger.text_content() or "").split()).lower()
-        if privacy not in shown:  # never make a public playlist that names a private book
+        if privacy not in shown.replace("visibility", ""):  # never make a public playlist naming a private book
             raise PublishError(f"couldn't make the new playlist {privacy}")
         page.locator(SEL["playlist_create"] + VISIBLE).first.click(timeout=quick)
 

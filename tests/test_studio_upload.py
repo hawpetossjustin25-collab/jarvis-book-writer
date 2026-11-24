@@ -48,15 +48,16 @@ DIALOG = """<!doctype html><html><body><ytcp-uploads-dialog>
 <button id=next-button>Next</button> <button id=done-button>Save</button>
 </ytcp-uploads-dialog>
 <ytcp-playlist-dialog id=pld style="display:none">
- <div id=pl-items><tp-yt-paper-checkbox aria-checked=false>Old Stories</tp-yt-paper-checkbox></div>
- <button class=new-playlist-button>New playlist</button> <button class=done-button>Done</button>
+ <ytcp-search-bar><input id=search-input placeholder="Search for a playlist"></ytcp-search-bar>
+ <div id=pl-items></div>
+ <button class=new-playlist-button>New playlist</button> <ytcp-button class=done-button>Done</ytcp-button>
 </ytcp-playlist-dialog>
 <ytcp-playlist-creation-dialog id=plc style="display:none">
  <div id=title-textarea><textarea id=textbox></textarea></div>
  <ytcp-dropdown-trigger id=plvis>Public</ytcp-dropdown-trigger>
  <div id=plvis-menu style="display:none"><tp-yt-paper-item test-id=PRIVATE>Private</tp-yt-paper-item>
   <tp-yt-paper-item test-id=UNLISTED>Unlisted</tp-yt-paper-item><tp-yt-paper-item test-id=PUBLIC>Public</tp-yt-paper-item></div>
- <button id=create-button>Create</button>
+ <button id=close-button aria-label=Close>x</button> <button id=create-button>Create</button>
 </ytcp-playlist-creation-dialog><script>
 const SCENARIO = "%SCENARIO%";
 let nexts = 0, file = "", thumb = "", created = null, picked = [];
@@ -66,19 +67,33 @@ $('pl-open').onclick = () => show('pld', true);
 document.querySelector('.new-playlist-button').onclick = () => show('plc', true);
 $('plvis').onclick = () => show('plvis-menu', true);
 document.querySelectorAll('#plvis-menu tp-yt-paper-item').forEach(i => i.onclick = () => {
-  if (SCENARIO !== 'stuck_playlist_vis') $('plvis').textContent = i.textContent;
+  if (SCENARIO !== 'stuck_playlist_vis') $('plvis').textContent = 'Visibility ' + i.textContent;
   show('plvis-menu', false);
 });
-const tick = c => c.onclick = () => c.setAttribute('aria-checked', c.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
-document.querySelectorAll('#pl-items tp-yt-paper-checkbox').forEach(tick);
+// Like Studio: the checkbox has no text (the name is a sibling span), only the first rows are drawn until
+// you search, and Escape does nothing.
+const lists = ['Instrumentals', 'Health', 'Mix', 'Old Stories'].map(n => ({name: n, on: false}));
+const draw = () => {
+  const q = $('search-input').value.toLowerCase();
+  const rows = lists.filter(l => !q || l.name.toLowerCase().includes(q)).slice(0, 3);
+  $('pl-items').innerHTML = '';
+  rows.forEach(l => {
+    const row = document.createElement('label'); row.className = 'ytcp-checkbox-label';
+    row.innerHTML = '<ytcp-checkbox-lit><div role=checkbox style="display:inline-block;width:16px;height:16px;border:1px solid" aria-checked=' + l.on + '></div></ytcp-checkbox-lit>' +
+      '<span class=checkbox-label><span class="label label-text"></span></span>';
+    row.querySelector('.label-text').textContent = l.name;
+    row.querySelector('[role=checkbox]').onclick = () => { l.on = !l.on; draw(); };
+    $('pl-items').appendChild(row);
+  });
+};
+$('search-input').oninput = draw; draw();
+$('close-button').onclick = () => show('plc', false);
 $('create-button').onclick = () => {
   created = {title: document.querySelector('#plc textarea').value, vis: $('plvis').textContent};
-  const c = document.createElement('tp-yt-paper-checkbox');
-  c.textContent = created.title; c.setAttribute('aria-checked', 'true'); tick(c);
-  $('pl-items').appendChild(c); show('plc', false);
+  lists.push({name: created.title, on: SCENARIO !== 'new_playlist_unticked'}); show('plc', false); draw();
 };
 document.querySelector('#pld .done-button').onclick = () => {
-  picked = [...document.querySelectorAll('#pl-items [aria-checked=true]')].map(c => c.textContent);
+  picked = lists.filter(l => l.on).map(l => l.name);
   show('pld', false);
 };
 $('second-container-expand-button').onclick = () => {
@@ -416,7 +431,7 @@ def test_thumbnail_and_a_new_playlist_with_the_video_visibility_are_set(fake_stu
     assert result["notes"] == []
     form = submitted(fake_studio)
     assert form["thumb"] == "cover.png" and form["visibility"] == "UNLISTED"
-    assert form["created"] == {"title": "The Iron Gale (Audiobook)", "vis": "Unlisted"}
+    assert form["created"] == {"title": "The Iron Gale (Audiobook)", "vis": "Visibility Unlisted"}
     assert form["picked"] == ["The Iron Gale (Audiobook)"]
 
 
@@ -432,7 +447,7 @@ def test_an_existing_playlist_is_ticked_not_made_again(fake_studio, tmp_path):
 def test_a_playlist_that_would_be_public_is_not_made_and_the_video_still_posts(fake_studio, tmp_path):
     profile = tmp_path / "p"
     sign_in_by_hand(fake_studio, profile)
-    fake_studio.scenario = "stuck_playlist_vis"
+    fake_studio.scenario = "stuck_playlist_vis"  # also: the creation window must be closed by its X
     result = make(fake_studio, profile).upload(video(tmp_path), "T", "D", [], "private", playlist="Secret Book",
                                                thumbnail=tmp_path / "gone.png")
     assert result["id"] == VIDEO
@@ -484,3 +499,12 @@ def test_a_killed_browser_profile_is_marked_clean_so_old_tabs_dont_abort_studio(
     prefs.write_text("{not json", encoding="utf-8")
     mark_clean_exit(tmp_path / "p")  # a damaged file is left for the browser to repair
     assert prefs.read_text(encoding="utf-8") == "{not json"
+
+
+def test_a_new_playlist_studio_leaves_unticked_is_ticked(fake_studio, tmp_path):
+    profile = tmp_path / "p"
+    sign_in_by_hand(fake_studio, profile)
+    fake_studio.scenario = "new_playlist_unticked"
+    assert make(fake_studio, profile).upload(video(tmp_path), "T", "D", [], "private",
+                                             playlist="Book Two (Audiobook)")["notes"] == []
+    assert submitted(fake_studio)["picked"] == ["Book Two (Audiobook)"]
