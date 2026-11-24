@@ -646,7 +646,9 @@ class Game(Empire, Trading, Bidder):
                 if c["kind"] not in CALL_KINDS_TO_ANSWER and c["status"] == "new":
                     c["status"] = "heard"
             self.save()
-            return {"calls": rows[-30:], "waiting_for_answer": [c["id"] for c in rows
+            hidden = ("buyer_max",)  # what a buyer would really pay is their secret
+            return {"calls": [{k: v for k, v in c.items() if k not in hidden} for c in rows[-30:]],
+                    "waiting_for_answer": [c["id"] for c in rows
                                                                 if c["kind"] in CALL_KINDS_TO_ANSWER
                                                                 and c["status"] == "new"]}
 

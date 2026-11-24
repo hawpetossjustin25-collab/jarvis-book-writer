@@ -602,3 +602,12 @@ def test_the_bidding_assistant_stops_at_its_limit_and_draws_a_salary(game):
     assert game.bidder()["won"] == []
     assert game.state["cash"] <= cash - 2500  # paid on the 1st
     assert game.fire_bidder()["let_go"] and not game.bidder()["hired"]
+
+
+def test_a_buyers_top_price_stays_secret(game):
+    pid = own_a_listing(game)
+    game.list_for_sale(pid)
+    game.dev("set", "market_heat", 50)
+    game.advance(10)
+    assert all("buyer_max" not in c for c in game.calls(only_new=False)["calls"])
+    assert "buyer_max" not in str(game.status())
