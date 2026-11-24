@@ -54,7 +54,7 @@ def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
         ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish",
-         "Workshop", "Planner", "Research"]
+         "Workshop", "Planner", "Research", "Game"]
     assert win.book_list.count() == 1 and win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
@@ -686,3 +686,18 @@ def test_closing_hides_the_window_at_once_and_stops_the_freeze_watchdog(qapp, tm
     qapp.processEvents()
     assert seen == {"visible": False}
     assert dog.check() is None and not fired
+
+
+def test_game_tab_shows_the_money_meter_and_moves_time(window, qapp):
+    win, studio, _ = window
+    tab = win.game_tab
+    assert "game" in [win.tabs.tabText(i).lower() for i in range(win.tabs.count())]
+    assert "Cash $8,000" in tab.meter.text() and "Net worth $8,000" in tab.meter.text()
+    before = studio.game.state["today"]
+    tab._advance(7)
+    assert studio.game.state["today"] > before and "Moved to" in tab.status.text()
+    tab._to_sale()
+    assert "(TODAY)" in tab.sale.toHtml() and "136 Pryor Street SW" in tab.sale.toHtml()
+    studio.tools.run("game_start_company", {"name": "Peach Flip", "industry": "renovation crew"})
+    pump(qapp, lambda: (tab.refresh(), "Peach Flip, LLC" in tab.owned.toHtml())[1])
+    assert "Cash $7,840" in tab.meter.text()

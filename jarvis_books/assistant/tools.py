@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
+from jarvis_books.assistant.game_tools import GAME_DECLARATIONS, GAME_WORDS, GameTools
 from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_WORDS, DesktopTools
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
@@ -59,7 +60,7 @@ def _decl(name: str, description: str, props: Optional[dict] = None, required: O
 
 
 BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). Omit for the open book."}
-TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research")
+TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research", "game")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
                 "research_brain")
@@ -318,7 +319,7 @@ DECLARATIONS = [
           {"book": BOOK, "character": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -330,7 +331,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools, DesktopTools, ResearchTools):
+class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -391,7 +392,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
             "publish_audiobook": ("youtube", "post", "upload", "publish", "unlisted"),
             "list_posts": ("youtube", "post", "upload", "publish", "link", "views"),
             "app_status": ("status", "what's playing", "doing", "app", "storage", "space", "running"),
-            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor", "planner", "research"),
+            "open_tab": ("open", "go to", "show", "tab", "switch", "take me", "workshop", "editor", "planner", "research", "game"),
             "get_settings": ("setting", "voice", "speed", "wake", "mute", "author name"),
             "change_setting": ("setting", "voice", "speed", "faster", "slower", "wake", "auto-mute", "auto mute",
                                "author name", "my name", "turn on", "turn off"),
@@ -442,6 +443,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
             **{d["name"]: PLANNER_WORDS for d in PLANNER_DECLARATIONS},
             **{d["name"]: DESKTOP_WORDS for d in DESKTOP_DECLARATIONS},
             **{d["name"]: RESEARCH_WORDS for d in RESEARCH_DECLARATIONS},
+            **{d["name"]: GAME_WORDS for d in GAME_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -532,6 +534,9 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools):
         desk = self._describe_desktop(name, args)
         if desk:
             return desk
+        game = self.describe_game(name, args)
+        if game:
+            return game
         planned = self.describe_planner(name, args)
         if planned:
             return planned

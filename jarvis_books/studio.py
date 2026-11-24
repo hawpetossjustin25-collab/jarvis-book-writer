@@ -30,6 +30,7 @@ from jarvis_books.llm.store import EngineStore
 from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
+from jarvis_books.game import Game
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.research import RESEARCH_MODEL, RESEARCH_TIME_S, ResearchClock, Researcher
@@ -144,6 +145,8 @@ class Studio:
             box.researcher, box.research_clock = self.researcher, self.research_clock
         self.assistant.researcher = self.war_assistant.researcher = self.researcher
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
+        self.game = Game(self.home / "game" / "atlanta.json")
+        self.tools.game = self.war_tools.game = self.game
         self.ready = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)

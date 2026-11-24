@@ -53,6 +53,14 @@ TOOL_LEVELS = MappingProxyType({
     "open_item": SAFE, "copy_to_clipboard": SAFE, "media_control": SAFE,
     "research_status": READ, "research_notes": READ, "research_topic": SAFE, "change_research": SAFE,
     "research_now": SAFE, "researcher_switch": SAFE, "drop_research": CHANGE,
+    # the Atlanta game only changes the game, so moves need no yes; starting over does
+    "game_status": READ, "game_market": READ, "game_inspect": READ, "game_renovation_quotes": READ,
+    "game_tax_sale": READ, "game_tax_deeds": READ, "game_lesson": READ,
+    "game_offer": SAFE, "game_renovate": SAFE, "game_list_property": SAFE, "game_rent_out": SAFE,
+    "game_go_to_tax_sale": SAFE, "game_start_auction": SAFE, "game_bid": SAFE, "game_pass": SAFE,
+    "game_foreclose": SAFE, "game_start_company": SAFE, "game_staff": SAFE, "game_close_company": SAFE,
+    "game_calls": SAFE, "game_answer_call": SAFE, "game_advance": SAFE, "game_dev": SAFE,
+    "game_new": CHANGE,
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 })
 # Replacing the app's own code always waits for a yes, even in Full control.
