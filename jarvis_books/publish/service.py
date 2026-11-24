@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -27,6 +28,15 @@ log = logging.getLogger(__name__)
 PRIVACY = ("private", "unlisted", "public")
 AI_DISCLOSURE = "Narrated with an AI voice (Google Gemini)."
 CATEGORY_ENTERTAINMENT = "24"
+
+
+def _when(stamp: str) -> datetime:
+    """An ISO time like 2026-12-01T18:00:00Z; one without a zone is taken as this computer's local time."""
+    try:
+        when = datetime.fromisoformat(stamp.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise PublishError(f"'{stamp}' isn't a date and time Jarvis can read (use e.g. 2026-12-01T18:00)") from None
+    return when if when.tzinfo else when.astimezone()
 
 
 def _clean(text: str, limit: int) -> str:
@@ -113,8 +123,10 @@ class Publisher:
                         cover: str = "") -> list[Post]:
         if privacy not in PRIVACY:
             raise PublishError(f"privacy must be one of {', '.join(PRIVACY)}")
-        if publish_at and self.studio_mode():
-            raise PublishError("scheduling needs the Google API sign-in; post it now, or leave the schedule empty")
+        if publish_at:
+            when = _when(publish_at)
+            if when <= datetime.now(timezone.utc):
+                raise PublishError("the schedule time has already passed")
         if publish_at:
             privacy = "private"  # YouTube only schedules private videos; it goes public at publish_at
         if not self.accounts.get("youtube"):
@@ -220,15 +232,15 @@ class Publisher:
             raise
 
     def _studio_upload(self, post: Post, path: Path, description: str, progress, cancel) -> str:
-        video = self.studio.upload(path, post.title, description, post.settings.get("tags", []), post.privacy,
+        s = post.settings
+        playlist = f"{self.library.get_book(post.book_id).title} (Audiobook)" if s.get("playlist") else ""
+        video = self.studio.upload(path, post.title, description, s.get("tags", []), post.privacy,
                                    progress=lambda f: (progress(0.5 + 0.45 * f, "Uploading to YouTube Studio"),
                                                        self.library.update_post(post.id, progress=f)),
-                                   cancel=cancel)
+                                   cancel=cancel, playlist=playlist,
+                                   thumbnail=Path(s["cover"]) if s.get("cover") else None,
+                                   publish_at=_when(s["publish_at"]) if s.get("publish_at") else None)
         notes = list(video["notes"])
-        if post.settings.get("playlist"):
-            notes.append("playlist not updated (needs the Google API sign-in)")
-        if post.settings.get("cover"):
-            notes.append("thumbnail not set (needs the Google API sign-in)")
         self.library.update_post(post.id, status="published", remote_id=video["id"], url=video["url"],
                                  upload_uri="", progress=1.0, error="; ".join(notes))
         progress(1.0, "Posted to YouTube")

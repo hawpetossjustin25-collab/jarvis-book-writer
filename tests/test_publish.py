@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from datetime import datetime, timezone
 
 from fakes import FakeGemini
 from jarvis_books.publish.errors import PublishError
@@ -266,6 +267,17 @@ def test_jarvis_asks_before_posting_and_then_posts(studio, tmp_path):
     assert post["status"] == "published" and post["url"] == "https://youtu.be/vid123"
 
 
+def tiny_png() -> bytes:
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\x00" + b"\x80\x20\x20" * 16 for _ in range(16))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
 class FakeStudioSite:
     """Stands in for the YouTube Studio website route (its browser driving is tested in test_studio_upload)."""
 
@@ -275,9 +287,11 @@ class FakeStudioSite:
     def sign_in(self, cancel=None):
         return {"id": "UCjustin", "title": "Justin Reads"}
 
-    def upload(self, path, title, description, tags, privacy, progress=None, cancel=None):
+    def upload(self, path, title, description, tags, privacy, progress=None, cancel=None, playlist="",
+               thumbnail=None, publish_at=None):
         self.uploads.append({"path": Path(path), "title": title, "description": description, "tags": tags,
-                             "privacy": privacy})
+                             "privacy": privacy, "playlist": playlist, "thumbnail": thumbnail,
+                             "publish_at": publish_at})
         progress(0.5)
         progress(1.0)
         return {"id": "vidStudio01", "url": "https://youtu.be/vidStudio01", "notes": []}
@@ -296,18 +310,29 @@ def test_without_a_google_client_youtube_goes_through_studio_privately(studio):
     b = lib.create_book("The Iron Gale", "fantasy", "A storm-witch hunts a ship.")
     lib.set_outline(b.id, [{"number": 1, "title": "Landfall", "outline": "x"}])
     lib.save_chapter_text(lib.get_chapter(b.id, 1).id, "Rain fell on the docks. Mara watched the ship.")
-    with pytest.raises(PublishError, match="scheduling"):
-        pub.publish_youtube(b.id, publish_at="2026-12-01T18:00:00Z")
+    with pytest.raises(PublishError, match="already passed"):
+        pub.publish_youtube(b.id, publish_at="2020-12-01T18:00:00Z")
+    with pytest.raises(PublishError, match="can read"):
+        pub.publish_youtube(b.id, publish_at="next tuesday")
     [post] = pub.publish_youtube(b.id, tags=("fantasy",), description="A tale")
     job = studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60)
     assert job.status == "done", job.error
     post = lib.get_post(post.id)
     assert post.status == "published" and post.url == "https://youtu.be/vidStudio01"
     assert post.remote_id == "vidStudio01" and post.privacy == "private"
-    assert "playlist not updated" in post.error  # the extras are explained, the video is still posted
     [up] = site.uploads
     assert up["privacy"] == "private" and up["path"].exists() and up["tags"] == ["fantasy"]
     assert "AI voice" in up["description"] and up["title"] == "The Iron Gale"
+    assert up["playlist"] == "The Iron Gale (Audiobook)" and up["thumbnail"] is None and up["publish_at"] is None
+    cover = studio.home / "cover.png"
+    cover.write_bytes(tiny_png())
+    [later] = pub.publish_youtube(b.id, privacy="public", publish_at="2099-01-02T15:30:00Z", playlist=False,
+                                  cover=str(cover))
+    assert studio.jobs.wait(studio.jobs.recent(1)[0].id, timeout=60).status == "done"
+    assert lib.get_post(later.id).privacy == "private"  # scheduled videos stay private until their time
+    sched = site.uploads[-1]
+    assert sched["publish_at"] == datetime(2099, 1, 2, 15, 30, tzinfo=timezone.utc)
+    assert sched["playlist"] == "" and sched["thumbnail"] == cover
     pub.disconnect("youtube")
     assert site.forgotten and pub.connected() == {}
 

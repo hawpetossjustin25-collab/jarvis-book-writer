@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -48,7 +49,23 @@ SEL = {
     "video_url": "ytcp-video-info a[href*='youtu'], .video-url-fadeable a[href*='youtu']",
     "progress": "ytcp-video-upload-progress .progress-label, .progress-label",
     "error": "ytcp-uploads-dialog .error-short, ytcp-uploads-dialog .error-area, #error-message",
+    "thumbnail": "ytcp-thumbnail-uploader input#file-loader",
+    "playlist_open": "ytcp-video-metadata-playlists ytcp-dropdown-trigger",
+    "playlist_dialog": "ytcp-playlist-dialog",
+    "playlist_option": "ytcp-playlist-dialog tp-yt-paper-checkbox, ytcp-playlist-dialog ytcp-checkbox-lit",
+    "playlist_new": "ytcp-playlist-dialog .new-playlist-button, ytcp-playlist-dialog #new-playlist-button",
+    "playlist_new_item": "tp-yt-paper-item[test-id=new_playlist]",
+    "playlist_title": "ytcp-playlist-creation-dialog #title-textarea #textbox, ytcp-playlist-creation-dialog textarea",
+    "playlist_visibility": "ytcp-playlist-creation-dialog ytcp-dropdown-trigger",
+    "playlist_visibility_item": "tp-yt-paper-item[test-id={}]",
+    "playlist_create": "ytcp-playlist-creation-dialog #create-button",
+    "playlist_done": "ytcp-playlist-dialog .done-button, ytcp-playlist-dialog #done-button",
+    "schedule_open": "#second-container-expand-button",
+    "schedule_date_open": "#datepicker-trigger",
+    "schedule_date": "ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input",
+    "schedule_time": "#time-of-day-container input, #time-of-day-trigger input",
 }
+VISIBLE = " >> visible=true"
 UPLOADED = re.compile(r"upload complete|uploaded|processing|checks|finished|100\s*%", re.I)
 VIDEO_ID = re.compile(r"(?:youtu\.be/|[?&]v=|/video/)([\w-]{11})")
 CHANNEL_ID = re.compile(r"/channel/(UC[\w-]+)")
@@ -106,6 +123,26 @@ def close_windows(pid: int) -> None:
         return True
 
     user32.EnumWindows(proto(visit), 0)
+
+
+def mark_clean_exit(profile: Path) -> None:
+    """
+    After the browser was killed it restores its old tabs on the next start, and those loads abort Jarvis's
+    own (net::ERR_ABORTED). Recording the last exit as clean stops the restore; the sign-in is untouched.
+    """
+    prefs = profile / "Default" / "Preferences"
+    try:
+        data = json.loads(prefs.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    prof = data.setdefault("profile", {})
+    if prof.get("exit_type") == "Normal" and prof.get("exited_cleanly", True):
+        return
+    prof["exit_type"], prof["exited_cleanly"] = "Normal", True
+    try:
+        prefs.write_text(json.dumps(data), encoding="utf-8")
+    except OSError as exc:
+        log.info("couldn't clear the YouTube browser's crash state: %s", exc)
 
 
 def video_id_from(url: str) -> str:
@@ -187,10 +224,22 @@ class StudioUploader:
     # ---- uploading ------------------------------------------------------------------
     def upload(self, path: Path, title: str, description: str, tags: list[str], privacy: str,
                progress: Optional[Callable[[float], None]] = None,
-               cancel: Optional[threading.Event] = None) -> dict:
-        """Upload `path`, returning {"id", "url", "notes"} once YouTube has the whole file."""
+               cancel: Optional[threading.Event] = None, playlist: str = "",
+               thumbnail: Optional[Path] = None, publish_at: Optional[datetime] = None) -> dict:
+        """Upload `path`, returning {"id", "url", "notes"} once YouTube has the whole file.
+
+        `playlist` is added to (made first if the channel lacks it, with the video's visibility), `thumbnail` is
+        set as the custom cover, and `publish_at` (an aware datetime) schedules a private video to go public
+        then. Playlist and thumbnail are extras: when Studio won't take them the video still posts, with a note.
+        """
         if privacy not in VISIBILITY:
             raise PublishError(f"privacy must be one of {', '.join(VISIBILITY)}")
+        if publish_at is not None:
+            if publish_at.tzinfo is None:
+                raise PublishError("the schedule time needs a time zone")
+            if publish_at <= datetime.now(timezone.utc):
+                raise PublishError("the schedule time has already passed")
+            privacy = "private"  # a scheduled video stays private until its time
         path = Path(path)
         if not path.exists():
             raise PublishError(f"the video file is missing: {path.name}", retryable=True)
@@ -200,7 +249,7 @@ class StudioUploader:
             try:
                 self._open_studio(page)
                 step = "opening the upload window"
-                page.goto(self.upload_url, wait_until="domcontentloaded")
+                self._goto(page, self.upload_url)
                 self._signed_in_or_raise(page)
                 step = "choosing the video file"
                 page.locator(SEL["file"]).first.set_input_files(str(path), timeout=self.step_timeout_ms)
@@ -208,6 +257,12 @@ class StudioUploader:
                 self._fill(page, SEL["title"], title[:100])
                 step = "entering the description"
                 self._fill(page, SEL["description"], description[:5000])
+                if thumbnail:
+                    step = "setting the thumbnail"
+                    notes += self._thumbnail(page, Path(thumbnail))
+                if playlist:
+                    step = "adding it to the playlist"
+                    notes += self._playlist(page, playlist, privacy)
                 step = "marking it not made for kids"
                 self._choose(page, SEL["not_for_kids"])
                 notes += self._extras(page, tags)
@@ -215,15 +270,24 @@ class StudioUploader:
                 for _ in range(3):
                     self._raise_studio_error(page)
                     page.locator(SEL["next"]).first.click(timeout=self.step_timeout_ms)
-                step = f"choosing '{privacy}'"
-                self._choose(page, SEL["visibility"].format(VISIBILITY[privacy]))
+                if publish_at is not None:
+                    local = publish_at.astimezone()
+                    step = f"scheduling it for {local:%b} {local.day} at {_clock(local)}"
+                    self._schedule(page, local)
+                else:
+                    step = f"choosing '{privacy}'"
+                    self._choose(page, SEL["visibility"].format(VISIBILITY[privacy]))
                 step = "reading the video link"
                 video_url = self._video_url(page)
                 step = "waiting for the upload"
                 self._wait_uploaded(page, progress, cancel)
-                step = f"checking '{privacy}' is still chosen"
-                if not self._checked(page, SEL["visibility"].format(VISIBILITY[privacy])):
-                    raise PublishError("the visibility changed before saving")
+                if publish_at is not None:
+                    step = "checking the schedule is still set"
+                    self._schedule_set(page, publish_at.astimezone(), or_raise=True)
+                else:
+                    step = f"checking '{privacy}' is still chosen"
+                    if not self._checked(page, SEL["visibility"].format(VISIBILITY[privacy])):
+                        raise PublishError("the visibility changed before saving")
                 step = "saving"
                 page.locator(SEL["done"]).first.click(timeout=self.step_timeout_ms)
                 self.sleep(self.poll_s)
@@ -258,8 +322,20 @@ class StudioUploader:
     def _session(self):
         return _Session(self)
 
+    def _goto(self, page, url: str, tries: int = 3) -> None:
+        """Studio sometimes aborts a load mid-redirect (net::ERR_ABORTED) on slow connections; load it again."""
+        for attempt in range(tries):
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+                return
+            except Exception as exc:
+                if "net::ERR_" not in str(exc) or attempt == tries - 1:
+                    raise
+                log.info("loading %s failed (%s); trying again", url, str(exc).splitlines()[0][:120])
+                self.sleep(5.0)
+
     def _open_studio(self, page) -> None:
-        page.goto(self.studio_url, wait_until="domcontentloaded")
+        self._goto(page, self.studio_url)
         self._signed_in_or_raise(page)
 
     def _signed_in_or_raise(self, page) -> None:
@@ -321,6 +397,100 @@ class StudioUploader:
                 notes.append("tags weren't added")
         return notes
 
+    def _thumbnail(self, page, path: Path) -> list[str]:
+        if not path.exists():
+            return [f"thumbnail not set (the cover file {path.name} is missing)"]
+        try:
+            page.locator(SEL["thumbnail"]).first.set_input_files(str(path), timeout=min(self.step_timeout_ms, 15_000))
+            return []
+        except Exception as exc:
+            log.info("Studio thumbnail failed: %s", exc)
+            return ["thumbnail not set (Studio only allows custom thumbnails on phone-verified channels)"]
+
+    def _playlist(self, page, name: str, privacy: str) -> list[str]:
+        """Tick the playlist called `name`, making it first with the video's visibility if it doesn't exist."""
+        quick = min(self.step_timeout_ms, 15_000)
+        try:
+            page.locator(SEL["playlist_open"] + VISIBLE).first.click(timeout=quick)
+            page.locator(SEL["playlist_dialog"] + VISIBLE).first.wait_for(state="visible", timeout=quick)
+            option = self._playlist_option(page, name)
+            if option is None:
+                self._new_playlist(page, name, privacy, quick)
+                option = self._wait_for(lambda: self._playlist_option(page, name), quick)
+                if option is None:
+                    raise PublishError("the new playlist didn't appear")
+            if (option.get_attribute("aria-checked") or "").lower() != "true":
+                option.click(timeout=quick)
+            page.locator(SEL["playlist_done"] + VISIBLE).first.click(timeout=quick)
+            return []
+        except Exception as exc:
+            log.info("Studio playlist failed: %s", exc)
+            for _ in range(2):  # close whatever playlist dialog is still open so the upload can go on
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+            reason = str(exc) if isinstance(exc, PublishError) else "Studio's playlist window didn't respond"
+            return [f"playlist not updated ({reason})"]
+
+    def _playlist_option(self, page, name: str):
+        for opt in page.locator(SEL["playlist_option"]).all():
+            try:
+                if " ".join((opt.text_content() or "").split()) == name:
+                    return opt
+            except Exception:
+                continue
+        return None
+
+    def _new_playlist(self, page, name: str, privacy: str, quick: int) -> None:
+        page.locator(SEL["playlist_new"] + VISIBLE).first.click(timeout=quick)
+        try:
+            page.locator(SEL["playlist_new_item"] + VISIBLE).first.click(timeout=3000)  # newer Studio: a menu first
+        except Exception:
+            pass
+        box = page.locator(SEL["playlist_title"] + VISIBLE).first
+        box.fill(name[:150], timeout=quick)
+        trigger = page.locator(SEL["playlist_visibility"] + VISIBLE).first
+        trigger.click(timeout=quick)
+        page.locator(SEL["playlist_visibility_item"].format(VISIBILITY[privacy]) + VISIBLE).first.click(timeout=quick)
+        shown = " ".join((trigger.text_content() or "").split()).lower()
+        if privacy not in shown:  # never make a public playlist that names a private book
+            raise PublishError(f"couldn't make the new playlist {privacy}")
+        page.locator(SEL["playlist_create"] + VISIBLE).first.click(timeout=quick)
+
+    def _wait_for(self, find, timeout_ms: int):
+        deadline = self.clock() + timeout_ms / 1000
+        while True:
+            found = find()
+            if found is not None or self.clock() > deadline:
+                return found
+            self.sleep(min(self.poll_s, 0.5))
+
+    def _schedule(self, page, when: datetime) -> None:
+        page.locator(SEL["schedule_open"] + VISIBLE).first.click(timeout=self.step_timeout_ms)
+        page.locator(SEL["schedule_date_open"] + VISIBLE).first.click(timeout=self.step_timeout_ms)
+        date_box = page.locator(SEL["schedule_date"] + VISIBLE).first
+        date_box.fill(_date(when), timeout=self.step_timeout_ms)
+        date_box.press("Enter")
+        time_box = page.locator(SEL["schedule_time"] + VISIBLE).first
+        time_box.fill(_clock(when), timeout=self.step_timeout_ms)
+        time_box.press("Enter")
+        self._schedule_set(page, when, or_raise=True)
+
+    def _schedule_set(self, page, when: datetime, or_raise: bool = False) -> bool:
+        """Studio silently rounds or rejects some dates; only a schedule that reads back exactly counts."""
+        def value(sel: str) -> str:
+            try:
+                return " ".join((page.locator(sel).first.input_value(timeout=5000) or "").split())
+            except Exception:
+                return ""
+        got_date, got_time = value(SEL["schedule_date"]), value(SEL["schedule_time"])
+        ok = got_date == _date(when) and got_time.upper() == _clock(when).upper()
+        if not ok and or_raise:
+            raise PublishError(f"Studio shows {got_date or '?'} {got_time or '?'} instead of "
+                               f"{_date(when)} {_clock(when)}; the video stays a private draft")
+        return ok
+
     def _video_url(self, page) -> str:
         link = page.locator(SEL["video_url"]).first
         deadline = self.clock() + self.step_timeout_ms / 1000
@@ -377,6 +547,14 @@ class StudioUploader:
             pass
 
 
+def _date(when: datetime) -> str:
+    return f"{when:%b} {when.day}, {when.year}"  # how Studio writes dates, e.g. "Dec 1, 2026"
+
+
+def _clock(when: datetime) -> str:
+    return f"{when.hour % 12 or 12}:{when:%M} {'AM' if when.hour < 12 else 'PM'}"
+
+
 class _Session:
     """Opens the profile hidden first; if YouTube treats the hidden browser as signed out, tries once more with a
     real window parked off-screen. Always closes the browser so the profile is free for the next job."""
@@ -397,7 +575,7 @@ class _Session:
             self._ctx = self._launch(headless=True)
             page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
             page.set_default_timeout(self.o.step_timeout_ms)
-            page.goto(self.o.studio_url, wait_until="domcontentloaded")
+            self.o._goto(page, self.o.studio_url)
             if any(m in (page.url or "").lower() for m in SIGN_IN_MARKERS):
                 self._ctx.close()
                 self._ctx = self._launch(headless=False)
@@ -417,7 +595,9 @@ class _Session:
                                retryable=True) from None
 
     def _launch(self, headless: bool):
-        args = ["--no-first-run", "--no-default-browser-check"]
+        mark_clean_exit(self.o.profile)
+        args = ["--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble",
+                "--disable-session-crashed-bubble"]
         if not headless:
             args += ["--window-position=-32000,-32000", "--window-size=1280,900"]
         return self._pw.chromium.launch_persistent_context(
