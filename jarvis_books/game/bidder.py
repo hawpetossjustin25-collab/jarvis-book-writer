@@ -30,6 +30,7 @@ class Bidder:
             self.state["bidder"] = {"budget_left": round(budget, 2), "max_per_property": round(max_per_property, 2),
                                     "kinds": keys, "hired": self.state["today"], "won": [], "lost": 0}
             self._note(f"Hired a bidding assistant with a ${budget:,.0f} budget.")
+            self._did("bidder", "hired a bidding assistant")
             self.save()
             return {**self.bidder(), "note": f"the assistant bids at every tax sale, starting "
                                              f"{self.state['sale']['date']}, for ${BIDDER_SALARY:,.0f} a month"}

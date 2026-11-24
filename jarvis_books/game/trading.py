@@ -73,6 +73,7 @@ class Trading:
                                      "on": True, "risk": 0.01, "level": START_LEVEL, "history": [], "wins": 0,
                                      "losses": 0, "month_pnl": 0.0}
             self._note(f"Opened an AI day-trading account with ${deposit:,.0f}.")
+            self._did("trading", f"opened the trading account with ${deposit:,.0f}")
             self.save()
             return {**self.trading(), "note": "3 AI agents trade one trading day every 8 minutes while Jarvis is open; each risks 1% of the account"}
 
@@ -123,7 +124,7 @@ class Trading:
 
     def _session(self):
         a = self._acct()
-        if not a:
+        if not a or self.state.get("learning"):  # the game is paused for a lesson
             return None
         rng = self.rng
         a["sessions"] = a.get("sessions", 0) + 1

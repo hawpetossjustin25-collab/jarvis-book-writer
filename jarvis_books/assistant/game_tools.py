@@ -114,19 +114,28 @@ GAME_DECLARATIONS = [
           "kinds: property types, comma separated (default house).",
           {"budget": DOLLARS, "max_per_property": DOLLARS, "kinds": S}, ["budget", "max_per_property"]),
     _decl("game_fire_bidder", "Let the bidding assistant go."),
+    _decl("game_learn", "'Let's learn': pause the game and get the real Atlanta lesson for what the player just "
+          "did (or a topic): the steps in order, where to go, the paperwork and fees, and the law behind it.",
+          {"topic": S}),
+    _decl("game_back_to_game", "End the lesson and un-pause the game ('back to the game')."),
     _decl("game_dev", "Development mode: change the game. action settings (show them), set (key to value; "
           "keys: " + ", ".join(TUNABLES) + "), add_money, set_money, new_tax_sale or new_listings.",
           {"action": {"type": "STRING", "enum": ["settings", "set", "add_money", "set_money", "new_tax_sale",
                                                  "new_listings"]}, "key": S, "value": N}, ["action"]),
 ]
 GAME_TOOLS = tuple(d["name"] for d in GAME_DECLARATIONS)
+# what a lesson pauses: anything that moves time or money (looking around and learning still work)
+GAME_LOOKS = ("game_status", "game_market", "game_inspect", "game_renovation_quotes", "game_tax_sale",
+              "game_tax_deeds", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
+              "game_bidder", "game_calls", "game_learn", "game_back_to_game", "game_dev", "game_new")
+GAME_MOVES = tuple(n for n in GAME_TOOLS if n not in GAME_LOOKS)
 GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip", "renovat", "fix up", "property",
               "properties", "house", "money meter", "how much money", "secretary", "calls", "company", "startup",
               "start up", "tenant", "rent", "deed", "redeem", "foreclos", "inspect", "listing", "offer", "buy",
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
               "loan", "borrow", "bank", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
               "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
-              "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for")
+              "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for", "learn", "teach", "back to the game")
 
 
 class GameTools:
@@ -142,6 +151,9 @@ class GameTools:
     def _play(fn):  # noqa: N805 - a decorator for the tool methods below
         def wrapped(self, *a, **kw):
             try:
+                name = fn.__name__[3:]
+                if name in GAME_MOVES and self.game is not None and self.game.paused:
+                    return {"error": "the game is paused for a lesson; say 'back to the game' to play on"}
                 return fn(self, *a, **kw)
             except (ValidationError, ValueError) as exc:
                 return {"error": str(exc)}
@@ -309,6 +321,14 @@ class GameTools:
     @_play
     def _t_game_fire_bidder(self) -> dict:
         return self._game().fire_bidder()
+
+    @_play
+    def _t_game_learn(self, topic: str = "") -> dict:
+        return self._game().learn(topic)
+
+    @_play
+    def _t_game_back_to_game(self) -> dict:
+        return self._game().resume()
 
     @_play
     def _t_game_dev(self, action: str, key: str = "", value: float = 0) -> dict:

@@ -611,3 +611,45 @@ def test_a_buyers_top_price_stays_secret(game):
     game.advance(10)
     assert all("buyer_max" not in c for c in game.calls(only_new=False)["calls"])
     assert "buyer_max" not in str(game.status())
+
+
+# ---- let's learn ------------------------------------------------------------------------------------
+def test_lets_learn_pauses_the_game_and_teaches_the_last_move_the_atlanta_way(game):
+    parcel = at_sale(game)[1]
+    game.start_auction(parcel["id"])
+    lesson = game.learn()
+    assert lesson["paused"] and lesson["lesson"] == "Buying at an Atlanta sheriff's tax sale"
+    assert parcel["address"].split(",")[0] in lesson["what_you_just_did"]
+    assert any("136 Pryor Street SW" in w for w in lesson["where_to_go"])
+    assert any("48-4-5" in law for law in lesson["law_and_rules"]) and lesson["steps"][0].startswith("Get the list")
+    assert game.status()["paused_for_lesson"] == "tax_sale"
+    assert game.resume()["was_learning"] == "tax_sale" and not game.paused
+
+
+def test_every_move_has_a_real_lesson_with_steps_places_paperwork_and_law():
+    from jarvis_books.game.lessons import PLAYBOOKS, playbook_for
+    for key, book in PLAYBOOKS.items():
+        assert book["steps"] and book["where"] and book["paperwork"] and book["law"] and book["game_note"], key
+    assert playbook_for("how do I start an LLC") == "company"
+    assert playbook_for("foreclosing the deed") == "foreclose"
+    assert playbook_for("pulling permits for the roof") == "renovate"
+
+
+def test_a_lesson_on_a_topic_and_what_it_pauses(tools):
+    from jarvis_books.assistant.game_tools import GAME_MOVES
+    assert {"game_advance", "game_bid", "game_offer", "game_renovate"} <= set(GAME_MOVES)
+    out = tools.call("game_learn", {"topic": "starting a company"})
+    assert out["lesson"] == "Starting a company in Atlanta" and any("eCorp" in s for s in out["steps"])
+    assert "paused for a lesson" in tools.call("game_advance", {"days": 3})["error"]
+    assert tools.call("game_status")["paused_for_lesson"] == "company"  # looking around still works
+    tools.call("game_back_to_game")
+    assert "today" in tools.call("game_advance", {"days": 3})
+
+
+def test_trading_waits_while_a_lesson_is_on(game):
+    flip_a_house(game)
+    game.open_trading(150_000)
+    game.learn("trading")
+    assert game.trading_session() == {} and game.trading()["trading_days_so_far"] == 0
+    game.resume()
+    assert game.trading_session()["day"].startswith("day 1")

@@ -21,6 +21,7 @@ from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.game import rules
 from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
 from jarvis_books.game.bidder import BIDDER_SALARY, Bidder
+from jarvis_books.game.lessons import PLAYBOOKS, playbook_for
 from jarvis_books.game.trading import Trading
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
                                        kind_for, renovations_for, size_factor)
@@ -157,6 +158,9 @@ class Game(Empire, Trading, Bidder):
         del self.state["calls"][:-200]
         return call
 
+    def _did(self, kind: str, what: str) -> None:
+        self.state["last_action"] = {"kind": kind, "what": what, "day": self.state["today"]}
+
     def _spend(self, amount: float, what: str) -> None:
         if amount > self.state["cash"] + 1e-6:
             raise ValidationError(f"not enough money for {what}: it costs {money(amount)} and you have "
@@ -290,6 +294,7 @@ class Game(Empire, Trading, Bidder):
                 pid = self._id("P")
                 self.state["properties"][pid] = prop
                 self._note(f"Bought {prop['address']} for {money(amount)} plus {money(closing)} closing.")
+                self._did("buy", f"bought {prop['address']} for {money(amount)}")
                 self.save()
                 return {"accepted": True, "property_id": pid, "paid": amount, "closing_costs": closing,
                         "cash": self.state["cash"], "inspection": self.inspection(prop)}
@@ -349,6 +354,7 @@ class Game(Empire, Trading, Bidder):
             days = max(round(RENOVATIONS_BY_KEY[k].days * (0.8 if self._perk("renovation crew") else 1))
                        for k in keys)
             p["renovating"] = {"items": keys, "until": (self.today + timedelta(days=days)).isoformat()}
+            self._did("renovate", f"started {', '.join(keys)} at {p['address']}")
             p["paid"] = p.get("paid", 0) + cost
             self._note(f"Started {', '.join(RENOVATIONS_BY_KEY[k].label for k in keys)} at {p['address']} "
                        f"for {money(cost)}.")
@@ -365,6 +371,7 @@ class Game(Empire, Trading, Bidder):
                 raise ValidationError(f"the renovation finishes on {p['renovating']['until']}; list it after")
             worth = self.value(p)
             p["listed"] = {"price": round(price or worth, -2), "agent": bool(agent), "since": self.state["today"]}
+            self._did("sell", f"listed {p['address']} for sale")
             self.save()
             return {"listed_at": p["listed"]["price"], "market_value": worth,
                     "note": "your secretary will call when offers come in; advance time to wait for them"}
@@ -385,6 +392,7 @@ class Game(Empire, Trading, Bidder):
                 self._call("info", "Secretary", "Your first flip is done! AI day trading of Micro Nasdaq futures "
                            "is unlocked; you can open the account with $120,000 to $180,000.")
         self._note(f"Sold {p['address']} to {buyer} for {money(price)}; profit {money(profit)}.")
+        self._did("sell", f"sold {p['address']} for {money(price)}")
         return {"sold": p["address"], "price": price, "agent_commission": commission, "transfer_tax": transfer,
                 "loan_paid_off": loan,
                 "you_got": net, "profit": profit, "cash": self.state["cash"]}
@@ -401,6 +409,7 @@ class Game(Empire, Trading, Bidder):
             rent = round(self.value(p) * kind.rent_yield / 12 * (1.1 if self._perk("property management") else 1),
                          -1)
             p["tenant"] = {"rent": rent, "status": "looking"}
+            self._did("rent", f"put {p['address']} up for rent")
             p.pop("listed", None)
             self.save()
             return {"monthly_rent": rent, "note": "your secretary will tell you when a tenant signs"}
@@ -470,6 +479,7 @@ class Game(Empire, Trading, Bidder):
                 raise ValidationError(f"{parcel['id']} is already {parcel['status']}")
             rivals = self._rivals(parcel["opening_bid"])
             lead = max(rivals, key=lambda r: r["max"])
+            self._did("tax_sale", f"bid at the tax sale on {parcel['property']['address']}")
             self.state["auction"] = {"parcel": parcel["id"], "high": parcel["opening_bid"], "leader": lead["name"],
                                      "rivals": rivals, "history": [f"{lead['name']} opens at "
                                                                    f"{money(parcel['opening_bid'])}"]}
@@ -576,6 +586,7 @@ class Game(Empire, Trading, Bidder):
             self._spend(rules.NOTICE_COST, "the sheriff's service and newspaper notice")
             d["paid"] += rules.NOTICE_COST
             d["notice"] = (self.today + timedelta(days=rules.NOTICE_LEAD_DAYS)).isoformat()
+            self._did("foreclose", f"sent the foreclosure notice on {d['address']}")
             self.save()
             return {"notice_sent": True, "redemption_deadline": d["notice"], "cost": rules.NOTICE_COST,
                     "explain": rules.LESSONS["foreclosure"][0]}
@@ -605,6 +616,7 @@ class Game(Empire, Trading, Bidder):
                                             "employees": employees, "status": "active", "founded": self.state["today"],
                                             "gross_this_year": 0.0, "profit_total": 0.0, "registration_paid": [self.today.year]}
             self._note(f"Started {name + suffix} ({match[0]}).")
+            self._did("company", f"started {name + suffix}")
             self.save()
             perk = INDUSTRIES[match[0]][3]
             return {"company_id": cid, "name": name + suffix, "paid": cost, "cash": self.state["cash"],
@@ -860,12 +872,39 @@ class Game(Empire, Trading, Bidder):
                                   for cid, c in self.state["companies"].items()],
                     "new_calls": len(new_calls), "next_tax_sale": self.state["sale"]["date"],
                     "auction_running": bool(self.state.get("auction")),
+                    "paused_for_lesson": (self.state.get("learning") or {}).get("topic"),
                     "goal": self.goal(), "loans": [{"id": k, **v} for k, v in self.state.get("loans", {}).items()],
                     "transit": {k: {"upgrades": v["upgrades"], "building": v.get("building"),
                                     "monthly_income": self._transit_income(k)}
                                 for k, v in self.state.get("transit", {}).items()},
                     "where_we_left_off": [f"{e['day']}: {e['text']}" for e in self.state["log"][-6:]],
                     "last_saved": self.state.get("saved_at", "")}
+
+    # ---- "let's learn": pause and teach the real Atlanta way ---------------------------------------
+    @property
+    def paused(self) -> bool:
+        return bool(self.state.get("learning"))
+
+    def learn(self, topic: str = "") -> dict:
+        with self._lock:
+            last = self.state.get("last_action") or {}
+            key = playbook_for(topic) or last.get("kind", "")
+            if key not in PLAYBOOKS:
+                return {"paused": False, "choose_a_topic": {k: v["title"] for k, v in PLAYBOOKS.items()}}
+            self.state["learning"] = {"topic": key, "since": time.strftime("%Y-%m-%d %H:%M")}
+            self.save()
+            book = PLAYBOOKS[key]
+            return {"paused": True, "lesson": book["title"],
+                    "what_you_just_did": last.get("what") if not topic or key == last.get("kind") else None,
+                    "steps": book["steps"], "where_to_go": book["where"], "paperwork": book["paperwork"],
+                    "law_and_rules": book["law"], "how_the_game_differs": book["game_note"],
+                    "next": "the game stays paused (time, bidding and trading) until the player says back to the game"}
+
+    def resume(self) -> dict:
+        with self._lock:
+            was = self.state.pop("learning", None)
+            self.save()
+            return {"resumed": True, "was_learning": (was or {}).get("topic"), "today": self.state["today"]}
 
     def lesson(self, topic: str) -> dict:
         t = (topic or "").lower()

@@ -85,6 +85,7 @@ class Empire:
                                   "since": self.state["today"], "address": p["address"]}
             self._earn(amount)
             self._note(f"Borrowed ${amount:,.0f} against {p['address']}.")
+            self._did("loan", f"borrowed ${amount:,.0f} against {p['address']}")
             self.save()
             return {"loan_id": lid, "borrowed": amount, "yearly_rate": LOAN_RATE,
                     "monthly_interest": round(amount * LOAN_RATE / 12, 2), "cash": self.state["cash"]}
@@ -144,6 +145,7 @@ class Empire:
             self._spend(t["price"], t["name"])
             owned[key] = {"bought": self.state["today"], "paid": t["price"], "upgrades": [], "building": None}
             self._note(f"Bought {t['name']} for ${t['price']:,.0f}.")
+            self._did("transit", f"bought {t['name']}")
             self.save()
             return {"bought": t["name"], "paid": t["price"], "monthly_income": t["monthly"], "cash": self.state["cash"]}
 
@@ -214,6 +216,7 @@ class Empire:
             cost = CARS[match[0]][0] * count
             self._spend(cost, f"{count} {match[0]}s")
             cars[match[0]] = cars.get(match[0], 0) + count
+            self._did("car_lot", f"stocked {count} {match[0]}s")
             self.save()
             return {"stocked": count, "model": match[0], "paid": cost, "each_sells_for": CARS[match[0]][1],
                     "cash": self.state["cash"]}

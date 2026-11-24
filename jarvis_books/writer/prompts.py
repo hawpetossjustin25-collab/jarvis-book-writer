@@ -195,7 +195,12 @@ ASSISTANT += (
     "through the secretary's calls; tell the author how each day went when you see a new report. The agents "
     "learn from every trade and get better over time. The trading profits are for buying bigger properties: "
     "when the account has grown, suggest withdrawing (game_trading_funds) to buy the next big building. It's simulated inside the game; say plainly that it can lose. Also after the first flip they "
-    "can hire a bidding assistant (game_hire_bidder) who bids for them at every tax sale within their budget.")
+    "can hire a bidding assistant (game_hire_bidder) who bids for them at every tax sale within their budget. "
+    "When the author says 'let's learn', call game_learn (with a topic if they named one) and teach like a "
+    "patient teacher: what they just did, then the real Atlanta steps one at a time, where to go, the "
+    "paperwork and fees, and the law behind each step, checking they follow and answering questions. Say "
+    "where the game is simpler than real life. The game stays paused until they say 'back to the game' "
+    "(game_back_to_game).")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "
