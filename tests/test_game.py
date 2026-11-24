@@ -658,3 +658,100 @@ def test_trading_waits_while_a_lesson_is_on(game):
 def test_jarvis_is_told_to_play_only_through_the_game_tools():
     from jarvis_books.writer.prompts import ASSISTANT
     assert "never say a bid was placed or what a rival did without calling the tool" in ASSISTANT
+
+
+# ---- liens, clearing the title and personal loans --------------------------------------------------------
+def own_a_foreclosed_house(game, liens):
+    deed = win_a_house(game)["deed_id"]
+    d = game.state["deeds"][deed]
+    d["liens"] = liens
+    d["sale_day"] = (DAY - timedelta(days=400)).isoformat()
+    game.dev("set", key="redemption_rate", value=0)
+    game.foreclose(deed)
+    game.advance(46)
+    return next(pid for pid, p in game.state["properties"].items() if p.get("was") == d["was"])
+
+
+def test_tax_sale_parcels_show_the_liens_found_in_the_title_search(game):
+    for parcel in game.state["sale"]["parcels"]:
+        assert isinstance(parcel["property"].get("liens"), list)
+    assert any(p["property"]["liens"] for p in game.state["sale"]["parcels"])
+    shown = next(r for r in at_sale(game) if r.get("liens_on_title"))
+    assert any(k in shown["liens_on_title"][0] for k in ("security deed", "judgment lien", "city lien"))
+
+
+def test_foreclosed_house_title_must_be_cleared_before_loans_or_a_sale_then_a_personal_loan_funds_more_bids(game):
+    liens = [{"kind": "security deed", "holder": "Truist Bank", "amount": 90_000.0},
+             {"kind": "city lien", "holder": "City of Atlanta (code enforcement and water)", "amount": 1_200.0}]
+    pid = own_a_foreclosed_house(game, liens)
+    p = game.state["properties"][pid]
+    assert p["title"]["status"] == "clouded"
+    assert p["liens"][0]["status"].startswith("wiped out") and p["liens"][1]["status"] == "still owed"
+    view = game.title(pid)
+    assert view["to_clear_it"]["liens_to_pay_off"] == 1_200.0
+    with pytest.raises(ValidationError, match="clear"):
+        game.take_loan(pid, 1_000)
+    with pytest.raises(ValidationError, match="title insurance"):
+        game.list_for_sale(pid)
+    game.state["properties"] = {pid: p}
+    with pytest.raises(ValidationError, match="clear title"):
+        game.take_personal_loan(10_000)
+
+    cash = game.state["cash"]
+    filed = game.clear_title(pid)
+    assert game.state["cash"] == pytest.approx(cash - 4_500 - 1_200 - 75)
+    assert game.title(pid)["title"] == "in court"
+    game.advance(91)
+    assert game.title(pid)["title"] == "clear"
+    assert any("quiet title decree" in c["text"] for c in game.state["calls"])
+    assert filed["decree_expected"] <= game.state["today"]
+
+    game.state["flips"] = 1
+    game.hire_bidder(budget=5_000, max_per_property=4_000)
+    room = game.personal_limit()
+    assert room == pytest.approx(min(100_000, 0.30 * game.value(p)), abs=100)
+    with pytest.raises(ValidationError, match="approve up to"):
+        game.take_personal_loan(room + 1_000)
+    cash = game.state["cash"]
+    loan = game.take_personal_loan(room, for_bidder=True)
+    assert game.state["cash"] == pytest.approx(cash + room)
+    assert game.state["bidder"]["budget_left"] == pytest.approx(5_000 + room)
+    assert loan["monthly_payment"] == pytest.approx(room * 0.01 / (1 - 1.01 ** -60), abs=0.01)
+    assert game.net_worth()["loans"] == -room
+    before = game.state["cash"]
+    first = date.fromisoformat(game.state["today"]).replace(day=1)
+    first = date(first.year + (first.month == 12), first.month % 12 + 1, 1)
+    game.advance((first - game.today).days)
+    owed = game.state["personal_loans"][loan["loan_id"]]["balance"]
+    assert owed < room
+    assert game.state["cash"] < before
+    game.dev("add_money", value=room * 2)
+    game.repay_loan(loan["loan_id"])
+    assert not game.state["personal_loans"]
+    assert game.take_loan(pid, 10_000)["borrowed"] == 10_000
+
+
+def test_lets_learn_teaches_clearing_liens_and_personal_loans():
+    from jarvis_books.game.lessons import PLAYBOOKS, playbook_for
+    assert playbook_for("clearing the mortgages off the house") == "title"
+    assert playbook_for("taking out a personal loan") == "personal_loan"
+    assert playbook_for("buying a tax lien") == "tax_sale"
+    assert any("23-3-60" in law for law in PLAYBOOKS["title"]["law"])
+    assert any("GSCCCA" in w for w in PLAYBOOKS["title"]["where"])
+    assert any("certified funds" in s for s in PLAYBOOKS["personal_loan"]["steps"])
+
+
+def test_arriving_at_the_tax_sale_reports_what_the_bidding_assistant_already_won(game):
+    game.dev("set_money", value=500_000)
+    game.state["flips"] = 1
+    game.hire_bidder(budget=200_000, max_per_property=50_000, kinds="house,duplex,store,lot")
+    out = game.go_to_tax_sale()
+    assert "I won" in out["your_bidding_assistant_this_morning"]
+    won = {w["address"] for w in game.state["bidder"]["won"]}
+    assert won and not won & {p["address"].split(",")[0] for p in out["parcels"]}
+
+
+def test_jarvis_waits_for_the_player_to_say_back_to_the_game():
+    from jarvis_books.writer.prompts import ASSISTANT
+    assert "Never call game_back_to_game on your own" in ASSISTANT
+    assert "exactly as the lesson returns them" in ASSISTANT

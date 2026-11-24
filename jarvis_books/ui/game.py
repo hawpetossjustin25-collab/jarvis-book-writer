@@ -117,7 +117,9 @@ class GameTab(QWidget):
                               [[c["id"], c["name"], c["industry"], c["employees"], money(c["profit_total"])]
                                for c in s["companies"]])
             loans = _rows(["ID", "Against", "Owed"], [[ln["id"], ln["address"], money(ln["balance"])]
-                                                       for ln in s["loans"]])
+                                                       for ln in s["loans"]]
+                          + [[ln["id"], f"personal loan, {money(ln['payment'])}/mo", money(ln["balance"])]
+                             for ln in s["personal_loans"]])
             tr = self.game.transit()["systems"]
             transit = _rows(["System", "Owned", "Monthly income", "Upgrades"],
                             [[t["name"], "yes" if t["owned"] else f"for sale {money(t['price'])}",

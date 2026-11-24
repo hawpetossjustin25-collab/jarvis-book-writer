@@ -226,6 +226,67 @@ PLAYBOOKS = {
         "law": ["Each county's conditions of sale"],
         "game_note": "In the game your assistant always shows up and follows your limits.",
     },
+    "title": {
+        "title": "Clearing old loans and liens off a tax deed property's title",
+        "steps": [
+            "Before the sale, order a title search: look up the parcel in the county deed records and on GSCCCA.org "
+            "for every security deed (Georgia's mortgage), judgment, City lien and federal tax lien.",
+            "When you send the notice to foreclose the right of redemption, serve it on everyone with a recorded "
+            "interest: the owner, every lender holding a security deed and every judgment creditor. Any of them "
+            "can redeem; those properly served who don't redeem by the deadline lose their claim.",
+            "If the IRS has a federal tax lien, it has 120 days after the sale to redeem.",
+            "Liens that survive (often City of Atlanta code-enforcement or water liens): get a written payoff "
+            "letter, pay it, and have the release or cancellation recorded with the Clerk of Superior Court. A "
+            "lender must cancel a paid-off security deed within 60 days.",
+            "File a quiet title petition in the county's Superior Court. The judge appoints a special master, "
+            "everyone with a possible claim gets notice, and the court issues a decree that the title is yours.",
+            "Record the decree with the Clerk of Superior Court and buy an owner's title insurance policy. Now a "
+            "bank will lend on it and a buyer can get insured title.",
+        ],
+        "where": ["Fulton County Clerk of Superior Court (real estate records), Fulton County Courthouse, "
+                  "136 Pryor Street SW, Atlanta",
+                  "DeKalb County Clerk of Superior Court, DeKalb County Courthouse, 556 N. McDonough Street, "
+                  "Decatur",
+                  "GSCCCA.org: Georgia's statewide online deed and lien index",
+                  "A Georgia real estate attorney (files the quiet title case) and a title insurance company"],
+        "paperwork": ["Title search report", "Barment notice with proof of service and publication",
+                      "Payoff letters and recorded lien releases", "Quiet title petition, special master's report "
+                      "and final decree", "Owner's title insurance policy",
+                      "Georgia's recording fee: $25 for each release or decree recorded"],
+        "law": ["O.C.G.A. 48-4-45 and 48-4-46 (who must get the barment notice)",
+                "O.C.G.A. 23-3-60 to 23-3-72 (Quiet Title Act, quiet title in rem)",
+                "O.C.G.A. 44-14-3 (cancelling a paid security deed)",
+                "26 U.S.C. 7425(d) (the IRS's 120 days to redeem)",
+                "O.C.G.A. 15-6-77 (recording fees)"],
+        "game_note": "The game does the title search for you, treats a served notice as wiping out the old "
+                     "security deeds and judgments, makes you pay off City liens, and finishes quiet title in "
+                     "90 days for $4,500 plus the liens. Real cases take longer and cost more, so use an attorney.",
+    },
+    "personal_loan": {
+        "title": "Taking a loan to buy more tax deeds",
+        "steps": [
+            "Check your credit report (annualcreditreport.com) and score; lenders look at the score and your "
+            "debt-to-income ratio.",
+            "Compare lenders (banks, Atlanta credit unions, online lenders); prequalify with a soft credit check.",
+            "Apply with ID, proof of income (tax returns if self-employed) and bank statements; the lender then "
+            "does a hard credit check.",
+            "Read the Truth in Lending disclosure before you sign: the APR, monthly payment, origination fee and "
+            "any rule against using the money for business or investing.",
+            "To borrow against the property instead (cash-out refinance, home equity line or investor loan): the "
+            "title must be clear and insurable, the lender orders an appraisal, and a security deed is recorded "
+            "with Georgia's intangible recording tax of $1.50 per $500.",
+            "For the tax sale: turn the loan money into certified funds or cashier's checks before sale day, "
+            "because the winning bid is paid on the spot.",
+        ],
+        "where": ["Your bank or credit union", "A closing attorney (for a loan secured by the property)",
+                  "The sheriff's tax sale with certified funds"],
+        "paperwork": ["Loan application, ID, income proof and bank statements", "Truth in Lending disclosure "
+                      "and promissory note", "Security deed (only if the loan is secured by the property)"],
+        "law": ["Truth in Lending Act, 15 U.S.C. 1601 and Regulation Z (loan disclosures)",
+                "Equal Credit Opportunity Act, 15 U.S.C. 1691", "O.C.G.A. 48-6-61 (intangible recording tax)"],
+        "game_note": "In the game a personal loan is approved up to 30% of your clear-title equity ($100,000 at "
+                     "most) at 12% over 60 months, with no credit check; payments come out on the 1st.",
+    },
 }
 ALIASES = {"bid": "tax_sale", "auction": "tax_sale", "tax": "tax_sale", "deed": "tax_sale", "redeem": "redemption",
            "foreclos": "foreclose", "barment": "foreclose", "buy": "buy", "purchase": "buy", "offer": "buy",
@@ -234,7 +295,8 @@ ALIASES = {"bid": "tax_sale", "auction": "tax_sale", "tax": "tax_sale", "deed": 
            "llc": "company", "business": "company", "license": "company", "start": "company", "loan": "loan",
            "borrow": "loan", "car": "car_lot", "dealer": "car_lot", "marta": "transit", "bus": "transit",
            "rail": "transit", "streetcar": "transit", "hyperloop": "transit", "trad": "trading",
-           "nasdaq": "trading", "futures": "trading", "assistant": "bidder", "bidder": "bidder"}
+           "nasdaq": "trading", "futures": "trading", "assistant": "bidder", "bidder": "bidder", "mortgage": "title", "security deed": "title",
+           "quiet title": "title", "title": "title", "personal loan": "personal_loan"}
 
 
 def playbook_for(topic: str) -> str:

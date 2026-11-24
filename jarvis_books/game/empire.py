@@ -76,6 +76,9 @@ class Empire:
             p = self.state["properties"].get(pid)
             if p is None:
                 raise ValidationError("the bank only lends against a property you own outright")
+            if not self.title_clear(p):
+                raise ValidationError(f"the title on {p['address']} is {p['title']['status']}; the bank needs a "
+                                      "clear, insurable title (the quiet title decree) before it lends")
             room = round(self.value(p) * LOAN_TO_VALUE - self.loan_total(pid), -2)
             if amount <= 0 or amount > room:
                 raise ValidationError(f"the bank will lend up to {room:,.0f} more on {p['address']} "
@@ -92,14 +95,15 @@ class Empire:
 
     def repay_loan(self, loan_id: str, amount: float = 0) -> dict:
         with self._lock:
-            ln = self._loans().get(loan_id.strip().upper())
+            book = self._loans() if loan_id.strip().upper() in self._loans() else self.state.get("personal_loans", {})
+            ln = book.get(loan_id.strip().upper())
             if ln is None:
                 raise NotFound(f"no loan {loan_id}")
             pay = round(min(amount or ln["balance"], ln["balance"]), 2)
             self._spend(pay, "the loan payment")
             ln["balance"] = round(ln["balance"] - pay, 2)
             if ln["balance"] <= 0.005:
-                del self._loans()[loan_id.strip().upper()]
+                del book[loan_id.strip().upper()]
             self.save()
             return {"paid": pay, "still_owed": max(0.0, ln["balance"]), "cash": self.state["cash"]}
 

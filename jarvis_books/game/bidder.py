@@ -43,6 +43,18 @@ class Bidder:
             self.save()
             return {"let_go": True, "won_for_you": len(b["won"])}
 
+    def fund_bidder(self, amount: float) -> dict:
+        with self._lock:
+            b = self.state.get("bidder")
+            if not b:
+                raise ValidationError("you don't have a bidding assistant")
+            if amount <= 0:
+                raise ValidationError("give an amount to add to the budget")
+            b["budget_left"] = round(b["budget_left"] + amount, 2)
+            self.save()
+            return {"budget_left": b["budget_left"], "cash": self.state["cash"],
+                    "next_tax_sale": self.state["sale"]["date"]}
+
     def _bidder_at_sale(self) -> None:
         b = self.state.get("bidder")
         if not b:

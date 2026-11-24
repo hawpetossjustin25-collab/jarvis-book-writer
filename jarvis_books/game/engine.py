@@ -22,6 +22,7 @@ from jarvis_books.game import rules
 from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
 from jarvis_books.game.bidder import BIDDER_SALARY, Bidder
 from jarvis_books.game.lessons import PLAYBOOKS, playbook_for
+from jarvis_books.game.title import Title
 from jarvis_books.game.trading import Trading
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
                                        kind_for, renovations_for, size_factor)
@@ -52,7 +53,7 @@ def money(x: float) -> str:
     return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-class Game(Empire, Trading, Bidder):
+class Game(Empire, Trading, Bidder, Title):
     def __init__(self, path: Path, seed: Optional[int] = None, today: Optional[date] = None):
         self.path = Path(path)
         self._lock = threading.RLock()
@@ -218,6 +219,11 @@ class Game(Empire, Trading, Bidder):
         out = {"id": pid, "type": kind.label, "address": f"{p['address']}, {p['area']}", "county": p["county"],
                "worth": self.value(p), "condition": self.condition(p),
                "problems": [_PROBLEMS.get(i, i) for i in p["issues"]]}
+        if p.get("liens"):
+            out["liens_on_title"] = [f"{ln['kind']}: {ln['holder']}, {money(ln['amount'])}"
+                                     + (f" ({ln['status']})" if ln.get("status") else "") for ln in p["liens"]]
+        if p.get("title"):
+            out["title"] = p["title"]["status"]
         return out
 
     # ---- the market ----------------------------------------------------------------------------------
@@ -369,6 +375,9 @@ class Game(Empire, Trading, Bidder):
                 raise ValidationError("you can only list a property you own outright" + self._own_hint())
             if p.get("renovating"):
                 raise ValidationError(f"the renovation finishes on {p['renovating']['until']}; list it after")
+            if not self.title_clear(p):
+                raise ValidationError(f"the title on {p['address']} is {p['title']['status']}: a buyer can't get "
+                                      "title insurance until the quiet title decree, so clear the title first")
             worth = self.value(p)
             p["listed"] = {"price": round(price or worth, -2), "agent": bool(agent), "since": self.state["today"]}
             self._did("sell", f"listed {p['address']} for sale")
@@ -425,6 +434,7 @@ class Game(Empire, Trading, Bidder):
                 prop = self._make_property("house", area.name, 0.15, target_value=target)
             else:
                 prop = self._make_property(self.rng.choice(("lot", "duplex", "store")), area.name, 0.2)
+            prop["liens"] = self._make_liens(self.value(prop))
             taxes = round(rules.yearly_property_tax(self.value(prop)) * self.rng.uniform(0.4, 1.0), 2)
             opening = round(taxes + rules.TAX_SALE_COSTS, -1)
             parcels.append({"id": self._id("T"), "property": prop, "taxes_due": taxes, "opening_bid": opening,
@@ -447,10 +457,15 @@ class Game(Empire, Trading, Bidder):
                     "how_it_works": rules.LESSONS["tax sale"][0]}
 
     def go_to_tax_sale(self) -> dict:
+        calls0 = len(self.state["calls"])
         days = (date.fromisoformat(self.state["sale"]["date"]) - self.today).days
         if days > 0:
             self.advance(days)
-        return self.tax_sale()
+        out = self.tax_sale()
+        report = [c["text"] for c in self.state["calls"][calls0:] if c["from"] == "Your bidding assistant"]
+        if report:
+            out["your_bidding_assistant_this_morning"] = report[-1]
+        return out
 
     def _parcel(self, parcel_id: str) -> dict:
         for parcel in self.state["sale"]["parcels"]:
@@ -757,6 +772,7 @@ class Game(Empire, Trading, Bidder):
                 self._call("info", "Secretary", f"A tenant signed a lease at {p['address']} for "
                            f"{money(tenant['rent'])} a month.", property_id=pid)
         self._redemptions(day)
+        self._title_day(day)
         self._empire_day(day)
 
     def _redemptions(self, day: date) -> None:
@@ -781,12 +797,15 @@ class Game(Empire, Trading, Bidder):
                 prop = {k: v for k, v in d.items() if k not in ("sale_day", "owner", "excess_funds", "notice",
                                                                 "taxes_paid")}
                 prop.update(paid=d["paid"] + d["taxes_paid"], bought=day.isoformat(), how="tax deed foreclosure")
+                self._cloud_title(prop)
                 pid = self._id("P")
                 self.state["properties"][pid] = prop
                 self._call("info", "Your attorney", f"Nobody redeemed {d['address']} by the deadline. It's yours "
-                           f"outright now, property {pid}, worth about {money(self.value(prop))}.", property_id=pid)
+                           f"outright now, property {pid}, worth about {money(self.value(prop))}. The title is still clouded "
+                           f"until a quiet title decree; no lender loans on it before that.", property_id=pid)
 
     def _month_start(self, day: date) -> None:
+        self._personal_month()
         rent = sum(p["tenant"]["rent"] for p in self.state["properties"].values()
                    if (p.get("tenant") or {}).get("status") == "signed")
         if rent:
@@ -842,7 +861,7 @@ class Game(Empire, Trading, Bidder):
         props = sum(self.value(p) for p in self.state["properties"].values())
         deeds = sum(d["paid"] + d["taxes_paid"] for d in self.state["deeds"].values())
         companies = sum(self.company_value(c) for c in self.state["companies"].values())
-        transit, cars, loans = self._transit_value(), self._cars_value(), self.loan_total()
+        transit, cars, loans = self._transit_value(), self._cars_value(), self.loan_total() + self.personal_owed()
         trading = self._trading_value()
         return {"cash": self.state["cash"], "properties": round(props, 2), "tax_deeds": round(deeds, 2),
                 "companies": round(companies, 2), "transit": round(transit, 2), "cars": round(cars, 2),
@@ -874,6 +893,7 @@ class Game(Empire, Trading, Bidder):
                     "auction_running": bool(self.state.get("auction")),
                     "paused_for_lesson": (self.state.get("learning") or {}).get("topic"),
                     "goal": self.goal(), "loans": [{"id": k, **v} for k, v in self.state.get("loans", {}).items()],
+                    "personal_loans": [{"id": k, **v} for k, v in self.state.get("personal_loans", {}).items()],
                     "transit": {k: {"upgrades": v["upgrades"], "building": v.get("building"),
                                     "monthly_income": self._transit_income(k)}
                                 for k, v in self.state.get("transit", {}).items()},

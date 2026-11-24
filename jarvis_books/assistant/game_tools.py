@@ -85,6 +85,16 @@ GAME_DECLARATIONS = [
           {"property_id": PROP, "amount": DOLLARS}, ["property_id", "amount"]),
     _decl("game_repay_loan", "Pay back a bank loan (amount 0 = all of it).", {"loan_id": S, "amount": DOLLARS},
           ["loan_id"]),
+    _decl("game_title", "The liens on a property's or tax deed's title (old security deeds, judgments, City "
+          "liens), whether the title is clear, clouded or in court, and what clearing it costs.", {"property_id": PROP},
+          ["property_id"]),
+    _decl("game_clear_title", "Clear a foreclosed tax deed property's title: pay off the liens that survive and "
+          "file the quiet title case (about 90 days). Needed before a bank loan or a sale.", {"property_id": PROP},
+          ["property_id"]),
+    _decl("game_take_personal_loan", "Take a personal loan (12% a year over 60 months, up to 30% of the equity in "
+          "clear-title properties, $100,000 at most) to fund more tax sale buys. for_bidder puts it in the "
+          "bidding assistant's budget.", {"amount": DOLLARS, "for_bidder": {"type": "BOOLEAN"}}, ["amount"]),
+    _decl("game_fund_bidder", "Add money to the bidding assistant's budget.", {"amount": DOLLARS}, ["amount"]),
     _decl("game_transit", "Atlanta's transit systems the player can buy: the Atlanta Streetcar (light rail), "
           "MARTA rail and the MARTA bus system, with price, monthly income and upgrades (hyperloop, electric "
           "buses)."),
@@ -126,14 +136,14 @@ GAME_DECLARATIONS = [
 GAME_TOOLS = tuple(d["name"] for d in GAME_DECLARATIONS)
 # what a lesson pauses: anything that moves time or money (looking around and learning still work)
 GAME_LOOKS = ("game_status", "game_market", "game_inspect", "game_renovation_quotes", "game_tax_sale",
-              "game_tax_deeds", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
+              "game_tax_deeds", "game_title", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
               "game_bidder", "game_calls", "game_learn", "game_back_to_game", "game_dev", "game_new")
 GAME_MOVES = tuple(n for n in GAME_TOOLS if n not in GAME_LOOKS)
 GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip", "renovat", "fix up", "property",
               "properties", "house", "money meter", "how much money", "secretary", "calls", "company", "startup",
               "start up", "tenant", "rent", "deed", "redeem", "foreclos", "inspect", "listing", "offer", "buy",
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
-              "loan", "borrow", "bank", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
+              "loan", "borrow", "bank", "lien", "mortgage", "title", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
               "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
               "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for", "learn", "teach", "back to the game")
 
@@ -268,6 +278,22 @@ class GameTools:
     @_play
     def _t_game_take_loan(self, property_id: str, amount: float) -> dict:
         return self._game().take_loan(property_id, amount)
+
+    @_play
+    def _t_game_title(self, property_id: str) -> dict:
+        return self._game().title(property_id)
+
+    @_play
+    def _t_game_clear_title(self, property_id: str) -> dict:
+        return self._game().clear_title(property_id)
+
+    @_play
+    def _t_game_take_personal_loan(self, amount: float, for_bidder: bool = False) -> dict:
+        return self._game().take_personal_loan(amount, for_bidder)
+
+    @_play
+    def _t_game_fund_bidder(self, amount: float) -> dict:
+        return self._game().fund_bidder(amount)
 
     @_play
     def _t_game_repay_loan(self, loan_id: str, amount: float = 0) -> dict:
