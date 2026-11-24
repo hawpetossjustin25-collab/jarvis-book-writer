@@ -51,7 +51,7 @@ SEL = {
     "error": "ytcp-uploads-dialog .error-short, ytcp-uploads-dialog .error-area, #error-message",
     "thumbnail": "ytcp-thumbnail-uploader input#file-loader",
     "playlist_open": "ytcp-video-metadata-playlists ytcp-dropdown-trigger",
-    "playlist_dialog": "ytcp-playlist-dialog",
+    "playlist_dialog": "ytcp-playlist-dialog tp-yt-paper-dialog",
     "playlist_search": "ytcp-playlist-dialog input#search-input",
     "playlist_row": "ytcp-playlist-dialog label.ytcp-checkbox-label",
     "playlist_row_name": ".label-text",

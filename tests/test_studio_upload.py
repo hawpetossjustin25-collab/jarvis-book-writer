@@ -47,11 +47,11 @@ DIALOG = """<!doctype html><html><body><ytcp-uploads-dialog>
 <div class=error-short></div>
 <button id=next-button>Next</button> <button id=done-button>Save</button>
 </ytcp-uploads-dialog>
-<ytcp-playlist-dialog id=pld style="display:none">
+<ytcp-playlist-dialog id=pld style="display:none"><tp-yt-paper-dialog style="display:block">
  <ytcp-search-bar><input id=search-input placeholder="Search for a playlist"></ytcp-search-bar>
  <div id=pl-items></div>
  <button class=new-playlist-button>New playlist</button> <ytcp-button class=done-button>Done</ytcp-button>
-</ytcp-playlist-dialog>
+</tp-yt-paper-dialog></ytcp-playlist-dialog>
 <ytcp-playlist-creation-dialog id=plc style="display:none">
  <div id=title-textarea><textarea id=textbox></textarea></div>
  <ytcp-dropdown-trigger id=plvis>Public</ytcp-dropdown-trigger>
@@ -61,7 +61,7 @@ DIALOG = """<!doctype html><html><body><ytcp-uploads-dialog>
 </ytcp-playlist-creation-dialog><script>
 const SCENARIO = "%SCENARIO%";
 let nexts = 0, file = "", thumb = "", created = null, picked = [];
-const $ = id => document.getElementById(id), show = (id, on) => $(id).style.display = on ? 'block' : 'none';
+const $ = id => document.getElementById(id), show = (id, on) => $(id).style.display = on ? (id === 'pld' ? 'contents' : 'block') : 'none';
 $('file-loader').onchange = e => thumb = e.target.files[0].name;
 $('pl-open').onclick = () => show('pld', true);
 document.querySelector('.new-playlist-button').onclick = () => show('plc', true);
