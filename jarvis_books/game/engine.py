@@ -244,7 +244,7 @@ class Game(Empire, Trading):
                     "note": "every listing shows what's wrong with it; inspect for the repair costs"}
 
     def _find(self, pid: str) -> tuple[str, dict]:
-        pid = (pid or "").strip().upper()
+        pid = self._owned_id(pid)
         for where in ("properties", "listings", "deeds"):
             if pid in self.state[where]:
                 return where, self.state[where][pid]
@@ -254,10 +254,25 @@ class Game(Empire, Trading):
                 return "sale", parcel["property"]
         raise NotFound(f"nothing with id {pid}")
 
+    def _owned_id(self, pid: str) -> str:
+        """The id the player owns it under, also when they use the id it was listed or sold under (L9, T12)."""
+        pid = (pid or "").strip().upper()
+        if pid in self.state["properties"] or pid in self.state["deeds"]:
+            return pid
+        for where in ("properties", "deeds"):
+            for oid, p in self.state[where].items():
+                if p.get("was") == pid:
+                    return oid
+        return pid
+
+    def _own_hint(self) -> str:
+        owned = [f"{pid} ({p['address']})" for pid, p in self.state["properties"].items()]
+        return "; you own " + ", ".join(owned) if owned else "; you don't own any property outright yet"
+
     def inspect(self, pid: str) -> dict:
         with self._lock:
             where, p = self._find(pid)
-            return {**self._describe(p, pid.upper()), **self.inspection(p)}
+            return {**self._describe(p, self._owned_id(pid)), **self.inspection(p)}
 
     def make_offer(self, listing_id: str, amount: float) -> dict:
         with self._lock:
@@ -270,7 +285,7 @@ class Game(Empire, Trading):
                 self._spend(amount + closing, f"buying {p['address']} (price plus {money(closing)} closing)")
                 del self.state["listings"][lid]
                 prop = {k: v for k, v in p.items() if k not in ("asking", "lowest")}
-                prop.update(paid=amount + closing, bought=self.state["today"], how="bought on the market")
+                prop.update(paid=amount + closing, bought=self.state["today"], how="bought on the market", was=lid)
                 pid = self._id("P")
                 self.state["properties"][pid] = prop
                 self._note(f"Bought {prop['address']} for {money(amount)} plus {money(closing)} closing.")
@@ -311,14 +326,14 @@ class Game(Empire, Trading):
                              "verdict": "worth it" if gain > cost * 1.1 else "about even" if gain >= cost * 0.9
                              else "loses money"})
             rows.sort(key=lambda r: -r["profit"])
-            return {"property": self._describe(p, pid.upper()), "sale_price_now": now, "renovations": rows,
+            return {"property": self._describe(p, self._owned_id(pid)), "sale_price_now": now, "renovations": rows,
                     "best": [r["renovation"] for r in rows if r["verdict"] == "worth it"]}
 
     def renovate(self, pid: str, items: list[str]) -> dict:
         with self._lock:
             where, p = self._find(pid)
             if where != "properties":
-                raise ValidationError("you can only renovate a property you own outright")
+                raise ValidationError("you can only renovate a property you own outright" + self._own_hint())
             if p.get("tenant"):
                 raise ValidationError("it has a tenant; end the lease before renovating")
             allowed = {r.key for r in renovations_for(KINDS_BY_KEY[p["kind"]])}
@@ -344,7 +359,7 @@ class Game(Empire, Trading):
         with self._lock:
             where, p = self._find(pid)
             if where != "properties":
-                raise ValidationError("you can only list a property you own outright")
+                raise ValidationError("you can only list a property you own outright" + self._own_hint())
             if p.get("renovating"):
                 raise ValidationError(f"the renovation finishes on {p['renovating']['until']}; list it after")
             worth = self.value(p)
@@ -378,7 +393,7 @@ class Game(Empire, Trading):
         with self._lock:
             where, p = self._find(pid)
             if where != "properties":
-                raise ValidationError("you can only rent a property you own outright")
+                raise ValidationError("you can only rent a property you own outright" + self._own_hint())
             kind = KINDS_BY_KEY[p["kind"]]
             if not kind.rent_yield:
                 raise ValidationError("vacant land doesn't rent; build or sell it")
@@ -512,7 +527,7 @@ class Game(Empire, Trading):
         excess = round(max(0.0, price - parcel["opening_bid"]), 2)
         parcel["status"] = "sold to you"
         did = self._id("D")
-        self.state["deeds"][did] = {**parcel["property"], "paid": price, "taxes_paid": 0.0,
+        self.state["deeds"][did] = {**parcel["property"], "was": parcel["id"], "paid": price, "taxes_paid": 0.0,
                                     "sale_day": self.state["today"], "owner": parcel["owner"],
                                     "excess_funds": excess, "notice": None}
         self.state["auction"] = None
@@ -540,7 +555,7 @@ class Game(Empire, Trading):
     def foreclose(self, deed_id: str) -> dict:
         """Send the notice that bars the right to redeem (allowed 12 months after the sale)."""
         with self._lock:
-            did = deed_id.strip().upper()
+            did = self._owned_id(deed_id)
             d = self.state["deeds"].get(did)
             if d is None:
                 raise NotFound(f"no tax deed {deed_id}")
@@ -703,7 +718,7 @@ class Game(Empire, Trading):
             listed = p.get("listed")
             if listed and not p.get("renovating"):
                 ratio = listed["price"] / max(1.0, self.value(p))
-                chance = 0.07 * heat * (1 if listed["agent"] else 0.5) * max(0.03, min(2.0, 3.4 - 2.6 * ratio))
+                chance = 0.09 * heat * (1 if listed["agent"] else 0.5) * max(0.03, min(2.0, 3.4 - 2.6 * ratio))
                 if self.rng.random() < chance:
                     amount = round(listed["price"] * self.rng.uniform(0.9, 1.0), -2)
                     self._call("offer", self.rng.choice(_BUYERS), f"Offers {money(amount)} for {p['address']} "

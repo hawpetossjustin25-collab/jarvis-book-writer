@@ -547,3 +547,24 @@ def test_countering_a_buyer_sells_when_they_can_afford_it_and_they_walk_when_the
     call = next(c for c in game.state["calls"] if c["kind"] == "offer" and c["status"] == "new")
     out = game.answer_call(call["id"], False, counter=call["buyer_max"])
     assert out["price"] == call["buyer_max"] >= call["amount"] and pid not in game.state["properties"]
+
+
+def test_a_bought_listing_still_answers_to_its_listing_id(game):
+    game.dev("set_money", value=10_000_000)
+    lst = next(r for r in game.market()["for_sale"] if r["type"] != "vacant land lot")
+    pid = game.make_offer(lst["id"], lst["asking"])["property_id"]
+    assert game.renovation_quotes(lst["id"])["property"]["id"] == pid
+    assert game.inspect(lst["id"])["id"] == pid
+    game.list_for_sale(lst["id"])
+    assert game.state["properties"][pid]["listed"]
+    other = next(r for r in game.market()["for_sale"])
+    with pytest.raises(ValidationError, match=f"you own {pid}"):
+        game.renovate(other["id"], ["paint"])
+
+
+def test_a_won_tax_deed_answers_to_its_parcel_id(game):
+    won = win_a_house(game)
+    parcel = game.state["deeds"][won["deed_id"]]["was"]
+    game.dev("set", "redemption_rate", 0.0)
+    game.advance(365)
+    assert game.foreclose(parcel)["notice_sent"]
