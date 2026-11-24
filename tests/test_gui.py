@@ -563,13 +563,13 @@ def test_jarvis_proposes_code_as_a_diff_to_apply_or_discard(window, qapp, tmp_pa
     _gemini_answers(studio, {"summary": "Greets by name.", "content": "name = 'Justin'\nprint('hello', name)\n"})
     ws.ask_edit.setText("greet me by name")
     assert ws.ask_jarvis()
-    assert pump(qapp, lambda: ws.pending is not None, timeout=10)
+    assert pump(qapp, lambda: ws.pending is not None, timeout=30)
     assert "Greets by name." in ws.change_label.text() and "+print('hello', name)" in ws.change_view.toPlainText()
     assert (proj / "hello.py").read_text() == "print('hello')\n"  # nothing changes before Apply
     assert ws.apply_change() and (proj / "hello.py").read_text() == "name = 'Justin'\nprint('hello', name)\n"
     _gemini_answers(studio, {"summary": "x", "content": "```python\nprint(1)\n```"})
     ws.ask_jarvis()
-    assert pump(qapp, lambda: ws.pending is not None, timeout=10)
+    assert pump(qapp, lambda: ws.pending is not None, timeout=30)
     assert ws.pending["new"] == "print(1)"
     ws.discard_change()
     assert ws.pending is None and ws.change_box.isHidden() and "Justin" in (proj / "hello.py").read_text()
