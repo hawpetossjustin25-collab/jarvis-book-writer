@@ -74,7 +74,7 @@ class Trading:
                                      "losses": 0, "month_pnl": 0.0}
             self._note(f"Opened an AI day-trading account with ${deposit:,.0f}.")
             self.save()
-            return {**self.trading(), "note": "3 AI agents trade every weekday; each risks 1% of the account"}
+            return {**self.trading(), "note": "3 AI agents trade one trading day every 8 minutes while Jarvis is open; each risks 1% of the account"}
 
     def trading_funds(self, action: str, amount: float) -> dict:
         with self._lock:
