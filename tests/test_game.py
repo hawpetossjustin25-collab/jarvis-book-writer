@@ -822,6 +822,18 @@ def test_timeline_is_trimmed_and_a_new_game_starts_a_fresh_one(game, monkeypatch
     monkeypatch.setattr(timeline, "TIMELINE_KEEP", 5)
     for _ in range(14):
         game.advance(1)
-    assert len(game.timeline_path.read_text(encoding="utf-8").splitlines()) <= 10
+    assert len(game.timeline_path.read_text(encoding="utf-8").splitlines()) <= 5
     game.new_game(seed=3, today=DAY)
     assert game.timeline()["snapshots"] == 1
+
+
+def test_undo_keeps_what_happened_earlier_the_same_day(game):
+    game.dev("set_money", value=400_000)
+    listing = min(game.market()["for_sale"], key=lambda r: r["asking"])
+    game.make_offer(listing["id"], listing["asking"])
+    game.go_back(moves=1)
+    assert game.state["cash"] == 400_000 and listing["id"] in game.state["listings"]
+    again = Game(game.path)
+    again.advance(2)
+    again.go_back(moves=1)
+    assert again.state["cash"] == 400_000

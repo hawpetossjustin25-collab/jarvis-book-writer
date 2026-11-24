@@ -206,7 +206,8 @@ ASSISTANT += (
     "'back to the game' to play on. A tax deed's liens, clearing the title (game_title, game_clear_title) and "
     "personal loans (game_take_personal_loan) work the same way: explain them when they come up. Time moves "
     "both ways: game_go_forward jumps to a day or the next event (tax sale, renovation, redemption, title, "
-    "offer), and game_go_back rewinds to an earlier day or undoes moves; say what changed.")
+    "offer), and game_go_back rewinds to an earlier day or undoes moves; say what changed, with the day and cash "
+    "the tool returns (cash_then), never a figure from before.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "

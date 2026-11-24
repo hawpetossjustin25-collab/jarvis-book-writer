@@ -28,38 +28,42 @@ class Timeline:
         return self.path.with_name(self.path.stem + ".timeline.jsonl")
 
     def _timeline_marks(self) -> list[dict]:
+        """One entry per snapshot number (a snapshot can have several lines; the newest line wins)."""
         if getattr(self, "_marks", None) is None:
             self._marks = []
-            try:
-                with self.timeline_path.open(encoding="utf-8") as fh:
-                    for line in fh:
-                        head = line.split("\t", 1)[0]
-                        try:
-                            self._marks.append(json.loads(head))
-                        except ValueError:
-                            continue
-            except FileNotFoundError:
-                pass
+            for line in self._lines():
+                try:
+                    head = json.loads(line.split("\t", 1)[0])
+                except ValueError:
+                    continue
+                if self._marks and self._marks[-1]["n"] == head["n"]:
+                    self._marks[-1] = head
+                else:
+                    self._marks.append(head)
         return self._marks
 
     def _remember(self, text: str) -> None:
-        """Keep a snapshot when the day or the last move changed since the previous one."""
+        """Every save is appended; saves with the same day and last move update that snapshot."""
         marks = self._timeline_marks()
         head = {"day": self.state["today"], "move": (self.state.get("last_action") or {}).get("what", "")}
-        if marks and (marks[-1]["day"], marks[-1]["move"]) == (head["day"], head["move"]):
-            self._replace_last(text)
-            return
-        head["n"] = (marks[-1]["n"] + 1) if marks else 1
-        head["parent"] = getattr(self, "_restored_from", None) or (marks[-1]["n"] if marks else 0)
+        restored = getattr(self, "_restored_from", None)
+        if marks and restored is None and (marks[-1]["day"], marks[-1]["move"]) == (head["day"], head["move"]):
+            head.update(n=marks[-1]["n"], parent=marks[-1].get("parent", 0))
+        else:
+            head.update(n=(marks[-1]["n"] + 1) if marks else 1,
+                        parent=restored if restored is not None else (marks[-1]["n"] if marks else 0))
         self._restored_from = None
         head["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         try:
             with self.timeline_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(head) + "\t" + text + "\n")
-            marks.append(head)
-            self._dirty_last = None
-            if len(marks) > TIMELINE_KEEP * 2:
-                self._trim()
+            self._lines_written = getattr(self, "_lines_written", 0) + 1
+            if marks and marks[-1]["n"] == head["n"]:
+                marks[-1] = head
+            else:
+                marks.append(head)
+            if self._lines_written >= TIMELINE_KEEP:
+                self._compact()
         except OSError as exc:
             log.warning("couldn't write the game timeline: %s", exc)
 
@@ -69,32 +73,26 @@ class Timeline:
         except FileNotFoundError:
             return []
 
-    def _write_lines(self, lines: list[str]) -> None:
+    def _latest_lines(self) -> list[str]:
+        """The newest line of each snapshot, oldest snapshot first."""
+        out: dict[int, str] = {}
+        for line in self._lines():
+            try:
+                out[json.loads(line.split("\t", 1)[0])["n"]] = line
+            except (ValueError, KeyError):
+                continue
+        return [out[n] for n in sorted(out)]
+
+    def _compact(self) -> None:
+        lines = self._latest_lines()[-TIMELINE_KEEP:]
         tmp = self.timeline_path.with_suffix(".tmp")
         tmp.write_text("".join(ln + "\n" for ln in lines), encoding="utf-8")
         tmp.replace(self.timeline_path)
-        self._marks = None
-
-    def _replace_last(self, text: str) -> None:
-        """Same day and move as the last snapshot: keep only the newest state for it (one write per day)."""
-        self._dirty_last = text
-
-    def _flush_last(self) -> None:
-        text = getattr(self, "_dirty_last", None)
-        if text is None:
-            return
-        self._dirty_last = None
-        lines = self._lines()
-        if lines:
-            lines[-1] = lines[-1].split("\t", 1)[0] + "\t" + text
-            self._write_lines(lines)
-
-    def _trim(self) -> None:
-        self._write_lines(self._lines()[-TIMELINE_KEEP:])
+        self._marks, self._lines_written = None, 0
 
     def _clear_timeline(self) -> None:
         self.timeline_path.unlink(missing_ok=True)
-        self._marks, self._dirty_last = [], None
+        self._marks, self._lines_written, self._restored_from = [], 0, None
 
     def timeline(self, limit: int = 20) -> dict:
         with self._lock:
@@ -107,8 +105,7 @@ class Timeline:
     # ---- going back --------------------------------------------------------------------------------
     def go_back(self, to_day: str = "", moves: int = 0, snapshot: int = 0) -> dict:
         with self._lock:
-            self._flush_last()
-            lines = self._lines()
+            lines = self._latest_lines()
             heads = [json.loads(ln.split("\t", 1)[0]) for ln in lines]
             if not heads:
                 raise ValidationError("there's nothing saved to go back to yet")
@@ -146,7 +143,7 @@ class Timeline:
             self.rng.setstate((r[0], tuple(r[1]), r[2]))
             self.state.pop("learning", None)
             self._note(f"Went back in time from {was_day} to {self.state['today']}.")
-            self._restored_from = heads[pick].get("parent")  # the new snapshot is a copy of this one
+            self._restored_from = heads[pick].get("parent", 0)  # the new snapshot is a copy of this one
             self.save()
             if to_day and not snapshot and not moves and day > self.today:
                 self.advance((day - self.today).days)
