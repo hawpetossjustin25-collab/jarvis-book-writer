@@ -76,6 +76,15 @@ GAME_DECLARATIONS = [
           {"call_id": S, "accept": B, "counter": DOLLARS}, ["call_id", "accept"]),
     _decl("game_advance", "Move game time forward some days (1 to 3660): renovations finish, offers and calls "
           "come in, rent and company profits are paid on the 1st, owners redeem.", {"days": I}, ["days"]),
+    _decl("game_go_forward", "Move game time forward to a day (YYYY-MM-DD) or to the next event: tax sale, "
+          "renovation (done), redemption (12 months up), notice (deadline), title (decree), month, year, or offer "
+          "(skip until a buyer calls).", {"to": S}, ["to"]),
+    _decl("game_go_back", "Rewind the whole game (money, properties, bids, trading) to an earlier day, a number "
+          "of moves back (moves=1 undoes the last move), or a snapshot number from game_timeline. Later "
+          "snapshots are kept, so going back can itself be undone.",
+          {"to_day": S, "moves": I, "snapshot": I}),
+    _decl("game_timeline", "The game's saved points in time (snapshot number, day, the move just made), for "
+          "going back.", {"limit": I}),
     _decl("game_lesson", "The real Atlanta rule behind something in the game, with its source: tax sale, "
           "redemption, foreclosure, excess funds, company, business license, buying.", {"topic": S}),
     _decl("game_goal", "Progress toward the goal of a trillion dollars: net worth, percent of the way, the "
@@ -136,14 +145,15 @@ GAME_DECLARATIONS = [
 GAME_TOOLS = tuple(d["name"] for d in GAME_DECLARATIONS)
 # what a lesson pauses: anything that moves time or money (looking around and learning still work)
 GAME_LOOKS = ("game_status", "game_market", "game_inspect", "game_renovation_quotes", "game_tax_sale",
-              "game_tax_deeds", "game_title", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
+              "game_tax_deeds", "game_title", "game_timeline", "game_lesson", "game_goal", "game_transit", "game_car_lot", "game_trading",
               "game_bidder", "game_calls", "game_learn", "game_back_to_game", "game_dev", "game_new")
 GAME_MOVES = tuple(n for n in GAME_TOOLS if n not in GAME_LOOKS)
 GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip", "renovat", "fix up", "property",
               "properties", "house", "money meter", "how much money", "secretary", "calls", "company", "startup",
               "start up", "tenant", "rent", "deed", "redeem", "foreclos", "inspect", "listing", "offer", "buy",
               "sell", "market", "net worth", "next month", "skip ahead", "wait", "trillion", "goal", "milestone",
-              "loan", "borrow", "bank", "lien", "mortgage", "title", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
+              "loan", "borrow", "bank", "lien", "mortgage", "title", "rewind", "go back", "undo", "time travel",
+              "go forward", "fast forward", "back in time", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
               "car lot", "cars", "dealership", "trading", "trade", "day trad", "nasdaq",
               "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for", "learn", "teach", "back to the game")
 
@@ -278,6 +288,18 @@ class GameTools:
     @_play
     def _t_game_take_loan(self, property_id: str, amount: float) -> dict:
         return self._game().take_loan(property_id, amount)
+
+    @_play
+    def _t_game_go_forward(self, to: str) -> dict:
+        return self._game().go_forward(to)
+
+    @_play
+    def _t_game_go_back(self, to_day: str = "", moves: int = 0, snapshot: int = 0) -> dict:
+        return self._game().go_back(to_day, moves, snapshot)
+
+    @_play
+    def _t_game_timeline(self, limit: int = 20) -> dict:
+        return self._game().timeline(limit)
 
     @_play
     def _t_game_title(self, property_id: str) -> dict:

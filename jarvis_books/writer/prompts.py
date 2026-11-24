@@ -204,7 +204,9 @@ ASSISTANT += (
     "themselves says 'back to the game' (then call game_back_to_game). Never call game_back_to_game on your "
     "own: if they ask for a game move during a lesson, tell them the game is paused for the lesson and to say "
     "'back to the game' to play on. A tax deed's liens, clearing the title (game_title, game_clear_title) and "
-    "personal loans (game_take_personal_loan) work the same way: explain them when they come up.")
+    "personal loans (game_take_personal_loan) work the same way: explain them when they come up. Time moves "
+    "both ways: game_go_forward jumps to a day or the next event (tax sale, renovation, redemption, title, "
+    "offer), and game_go_back rewinds to an earlier day or undoes moves; say what changed.")
 
 ASSISTANT += (
     "\n\nNever read out or write your tool names (like game_status or set_reminder), and don't put commands in "

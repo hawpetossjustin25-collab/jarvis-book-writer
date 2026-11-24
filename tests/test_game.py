@@ -755,3 +755,73 @@ def test_jarvis_waits_for_the_player_to_say_back_to_the_game():
     from jarvis_books.writer.prompts import ASSISTANT
     assert "Never call game_back_to_game on your own" in ASSISTANT
     assert "exactly as the lesson returns them" in ASSISTANT
+
+
+# ---- time travel ---------------------------------------------------------------------------------------
+def test_go_back_one_move_undoes_a_purchase_and_can_be_redone(game):
+    pid = own_a_listing(game)
+    was = game.state["properties"][pid]["was"]
+    paid_cash = game.state["cash"]
+    back = game.go_back(moves=1)
+    assert pid not in game.state["properties"] and was in game.state["listings"]
+    assert back["cash_then"] == game.state["cash"] != paid_cash
+    assert any("bought" in u for u in back["undone"])
+    later = max(s["snapshot"] for s in game.timeline()["recent"] if "bought" in s["after"])
+    game.go_back(snapshot=later)
+    assert pid in game.state["properties"] and game.state["cash"] == paid_cash
+
+
+def test_go_back_twice_keeps_walking_back_instead_of_bouncing_forward(game):
+    game.dev("set_money", value=1_000_000)
+    game.advance(3)
+    game.advance(3)
+    game.advance(3)
+    d9 = game.state["today"]
+    game.go_back(moves=1)
+    assert game.state["today"] < d9
+    d6 = game.state["today"]
+    game.go_back(moves=1)
+    assert game.state["today"] < d6
+
+
+def test_go_back_to_a_day_replays_to_exactly_that_day_and_survives_a_restart(game, tmp_path):
+    game.advance(40)
+    target = (DAY + timedelta(days=10)).isoformat()
+    out = game.go_back(to_day=target)
+    assert game.state["today"] == target and out["from"] == (DAY + timedelta(days=40)).isoformat()
+    with pytest.raises(ValidationError, match="future"):
+        game.go_back(to_day="2030-01-01")
+    again = Game(game.path)
+    assert again.state["today"] == target
+    assert again.go_back(to_day=DAY.isoformat())["went_back_to"] == DAY.isoformat()
+
+
+def test_go_forward_to_a_day_or_to_the_next_event(game):
+    sale = game.state["sale"]["date"]
+    assert game.go_forward("the tax sale")["jumped_to"] == sale
+    assert game.state["today"] == sale
+    pid = own_a_listing(game)
+    quotes = game.renovation_quotes(pid)
+    item = quotes["renovations"][0]["renovation"] if "renovations" in quotes else None
+    if item:
+        game.dev("add_money", value=500_000)
+        until = game.renovate(pid, [item])["ready_on"]
+        game.go_forward("renovation")
+        assert game.state["today"] == until and not game.state["properties"][pid].get("renovating")
+    game.go_forward("2028-03-01")
+    assert game.state["today"] == "2028-03-01"
+    assert game.go_forward("next month")["jumped_to"] == "2028-04-01"
+    with pytest.raises(ValidationError, match="go back"):
+        game.go_forward("2027-01-01")
+    with pytest.raises(ValidationError, match="no quiet title"):
+        game.go_forward("title decree")
+
+
+def test_timeline_is_trimmed_and_a_new_game_starts_a_fresh_one(game, monkeypatch):
+    from jarvis_books.game import timeline
+    monkeypatch.setattr(timeline, "TIMELINE_KEEP", 5)
+    for _ in range(14):
+        game.advance(1)
+    assert len(game.timeline_path.read_text(encoding="utf-8").splitlines()) <= 10
+    game.new_game(seed=3, today=DAY)
+    assert game.timeline()["snapshots"] == 1

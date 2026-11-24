@@ -22,6 +22,7 @@ from jarvis_books.game import rules
 from jarvis_books.game.empire import COMPANY_PROFIT_MULTIPLE, Empire
 from jarvis_books.game.bidder import BIDDER_SALARY, Bidder
 from jarvis_books.game.lessons import PLAYBOOKS, playbook_for
+from jarvis_books.game.timeline import Timeline
 from jarvis_books.game.title import Title
 from jarvis_books.game.trading import Trading
 from jarvis_books.game.catalog import (AREAS, INDUSTRIES, KINDS, KINDS_BY_KEY, RENOVATIONS_BY_KEY, area_for,
@@ -53,7 +54,7 @@ def money(x: float) -> str:
     return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-class Game(Empire, Trading, Bidder, Title):
+class Game(Empire, Trading, Bidder, Title, Timeline):
     def __init__(self, path: Path, seed: Optional[int] = None, today: Optional[date] = None):
         self.path = Path(path)
         self._lock = threading.RLock()
@@ -94,7 +95,8 @@ class Game(Empire, Trading, Bidder, Title):
             self._check_goal()
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.state), encoding="utf-8")
+            text = json.dumps(self.state)
+            tmp.write_text(text, encoding="utf-8")
             for attempt in range(8):
                 try:
                     os.replace(tmp, self.path)
@@ -109,6 +111,7 @@ class Game(Empire, Trading, Bidder, Title):
                 os.replace(spare, self.backup)
             except OSError as exc:
                 log.warning("couldn't write the backup game save: %s", exc)
+            self._remember(text)
         for fn in list(self._listeners):
             try:
                 fn()
@@ -131,6 +134,7 @@ class Game(Empire, Trading, Bidder, Title):
                           "calls": [], "log": [], "dev_changes": []}
             self._refresh_market()
             self._post_sale()
+            self._clear_timeline()
             self._note(f"New game in Atlanta with {money(t['starting_cash'])}.")
             self.save()
             return self.status()
