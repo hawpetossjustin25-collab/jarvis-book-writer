@@ -176,9 +176,27 @@ class Computer:
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".jarvis-tmp")
         tmp.write_text(plan["new"], encoding="utf-8", newline="")
-        os.replace(tmp, p)
+        self._replace(tmp, p, plan["new"])
         self.log("write", path=str(p), backup=backup, bytes=len(plan["new"]))
         return {"written": str(p), "created": plan["old"] is None, "backup": backup, "diff": plan["diff"]}
+
+    def _replace(self, tmp: Path, p: Path, text: str, tries: int = 8) -> None:
+        """
+        Windows refuses to swap a file another program briefly holds open (antivirus, search indexing, an
+        editor's file watcher). Retry for a moment, then write the file in place; the backup is already taken.
+        """
+        for attempt in range(tries):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError:
+                if attempt < tries - 1:
+                    time.sleep(0.25)
+        try:
+            with open(p, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def plan_edit(self, path: str, find: str, replace: str, all_matches: bool = False) -> dict:
         p = self._changeable(path)

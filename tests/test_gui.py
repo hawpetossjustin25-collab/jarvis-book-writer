@@ -566,7 +566,8 @@ def test_jarvis_proposes_code_as_a_diff_to_apply_or_discard(window, qapp, tmp_pa
     assert pump(qapp, lambda: ws.pending is not None, timeout=30)
     assert "Greets by name." in ws.change_label.text() and "+print('hello', name)" in ws.change_view.toPlainText()
     assert (proj / "hello.py").read_text() == "print('hello')\n"  # nothing changes before Apply
-    assert ws.apply_change() and (proj / "hello.py").read_text() == "name = 'Justin'\nprint('hello', name)\n"
+    assert ws.apply_change(), ws.status.text()
+    assert (proj / "hello.py").read_text() == "name = 'Justin'\nprint('hello', name)\n"
     _gemini_answers(studio, {"summary": "x", "content": "```python\nprint(1)\n```"})
     ws.ask_jarvis()
     assert pump(qapp, lambda: ws.pending is not None, timeout=30)

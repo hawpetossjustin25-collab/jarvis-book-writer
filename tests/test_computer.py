@@ -37,6 +37,32 @@ def test_write_backs_up_and_restores(pc):
     assert [e["action"] for e in pc.recent()] == ["write", "undo", "write", "undo"]
 
 
+def test_write_retries_while_windows_holds_the_file_then_writes_in_place(pc, monkeypatch):
+    import os
+    f = pc.home / "held.py"
+    f.write_text("old\n")
+    real, calls = os.replace, []
+
+    def busy_once(src, dst):
+        calls.append(dst)
+        if len(calls) == 1:
+            raise PermissionError(5, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr("jarvis_books.computer.files.time.sleep", lambda s: None)
+    monkeypatch.setattr("jarvis_books.computer.files.os.replace", busy_once)
+    assert pc.write_file("held.py", "new\n")["backup"] and f.read_text() == "new\n" and len(calls) == 2
+
+    def always_busy(src, dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr("jarvis_books.computer.files.os.replace", always_busy)
+    out = pc.write_file("held.py", "newer\n")
+    assert f.read_text() == "newer\n" and not list(pc.home.glob("*.jarvis-tmp"))
+    pc.restore(out["backup"], out["written"])
+    assert f.read_text() == "new\n"
+
+
 def test_edit_needs_an_exact_single_match(pc):
     f = pc.home / "app.py"
     f.write_text("x = 1\ny = 1\n")
