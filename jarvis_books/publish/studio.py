@@ -74,6 +74,7 @@ VISIBLE = " >> visible=true"
 UPLOADED = re.compile(r"upload complete|uploaded|processing|checks|finished|100\s*%", re.I)
 VIDEO_ID = re.compile(r"(?:youtu\.be/|[?&]v=|/video/)([\w-]{11})")
 CHANNEL_ID = re.compile(r"/channel/(UC[\w-]+)")
+THUMBS_OFF = re.compile(r'"customThumbnails"\s*:\s*\{\s*"status"\s*:\s*"CREATOR_FEATURE_STATUS_DISABLED"')
 LIMIT_WORDS = ("limit", "try again later", "too many")
 
 
@@ -405,6 +406,13 @@ class StudioUploader:
     def _thumbnail(self, page, path: Path) -> list[str]:
         if not path.exists():
             return [f"thumbnail not set (the cover file {path.name} is missing)"]
+        try:
+            locked = bool(THUMBS_OFF.search(page.content()))
+        except Exception:
+            locked = False
+        if locked:  # Studio takes the file anyway and then quietly keeps a frame from the video
+            return ["thumbnail not set (YouTube allows custom thumbnails only after the channel's one-time "
+                    "phone check at youtube.com/verify)"]
         try:
             page.locator(SEL["thumbnail"]).first.set_input_files(str(path), timeout=min(self.step_timeout_ms, 15_000))
             return []

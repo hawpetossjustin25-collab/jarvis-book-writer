@@ -60,6 +60,9 @@ DIALOG = """<!doctype html><html><body><ytcp-uploads-dialog>
  <button id=close-button aria-label=Close>x</button> <button id=create-button>Create</button>
 </ytcp-playlist-creation-dialog><script>
 const SCENARIO = "%SCENARIO%";
+// Like Studio: the channel's features ride along in the page; unverified channels can't set thumbnails.
+if (SCENARIO === 'no_custom_thumbs') document.body.insertAdjacentHTML('beforeend',
+  '<script>var f = {"features":{"customThumbnails":{"status":"CREATOR_FEATURE_STATUS_' + 'DISABLED"}}};</' + 'script>');
 let nexts = 0, file = "", thumb = "", created = null, picked = [];
 const $ = id => document.getElementById(id), show = (id, on) => $(id).style.display = on ? (id === 'pld' ? 'contents' : 'block') : 'none';
 $('file-loader').onchange = e => thumb = e.target.files[0].name;
@@ -435,6 +438,17 @@ def test_thumbnail_and_a_new_playlist_with_the_video_visibility_are_set(fake_stu
     assert form["thumb"] == "cover.png" and form["visibility"] == "UNLISTED"
     assert form["created"] == {"title": "The Iron Gale (Audiobook)", "vis": "Visibility Unlisted"}
     assert form["picked"] == ["The Iron Gale (Audiobook)"]
+
+
+def test_a_channel_without_custom_thumbnails_says_so_instead_of_claiming_the_cover(fake_studio, tmp_path):
+    profile = tmp_path / "p"
+    sign_in_by_hand(fake_studio, profile)
+    fake_studio.scenario = "no_custom_thumbs"
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(b"png")
+    result = make(fake_studio, profile).upload(video(tmp_path), "T", "D", [], "private", thumbnail=cover)
+    assert result["id"] == VIDEO and any("youtube.com/verify" in n for n in result["notes"])
+    assert submitted(fake_studio)["thumb"] == ""
 
 
 def test_an_existing_playlist_is_ticked_not_made_again(fake_studio, tmp_path):
