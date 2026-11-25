@@ -73,6 +73,15 @@ reminders and alarm, self-upgrades that keep fixing until the tests pass, tax sa
 Phoenix/Maricopa, Minneapolis/Hennepin, any state, online auctions), the nationwide best-deals scan, clickable
 links, the researcher's interest detection, and Groq chat with Gemini taking over.
 
+## Phone app
+
+`jarvis_books/phone.py` + `jarvis_books/phone_app/` (PWA). `PhoneServer` listens on 127.0.0.1:8765 and runs phone
+messages through `Studio.phone_assistant` (same tools, memory and yes/no gate; channel "phone"). `Tunnel` runs
+Cloudflare's free quick tunnel (cloudflared, downloaded to `JarvisBooks\bin`), so no router ports are opened. The
+link is `https://<random>.trycloudflare.com/#c=<8-digit one-time code>`; it changes when the tunnel restarts, and
+Jarvis then sends the new link on Telegram. Ask Jarvis "phone link" (tool `phone_link`) or see Settings. Only
+token hashes are stored (meta `phone.devices`). Tests: tests/test_phone.py (PHONE_AUTOSTART is off in tests).
+
 ## Unfinished
 
 - NEXUS: OS1 (web observation, graph, search) is built and tested. Still to do: OS1 RSI (measured

@@ -20,6 +20,7 @@ from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
+from jarvis_books.phone import PhoneServer, Tunnel, URL_META, phone_line, phone_link
 from jarvis_books.telegram import TelegramBridge, forget_bot_key, load_bot_key, save_bot_key
 from jarvis_books.voice.notes import VoiceNotes
 from jarvis_books.llm.brain import GEMINI, Brain
@@ -54,6 +55,7 @@ from jarvis_books.writer import BookWriter
 log = logging.getLogger(__name__)
 TOOL_BRAIN_AUTOBUILD = True  # tests turn this off so they don't spend minutes training
 LAB_AUTOSTART = True  # likewise for the Brain Lab's background rounds
+PHONE_AUTOSTART = True  # the phone app's server and secure link start with Jarvis
 IDLE_S = 180  # the Brain Lab waits this long after the author's last message
 
 
@@ -92,13 +94,15 @@ class Studio:
         self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
-        # Chat, voice and Telegram are one conversation with the same Jarvis.
-        self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=("chat", "voice", "telegram"))
+        # Chat, voice, Telegram and the phone app are one conversation with the same Jarvis.
+        talk = ("chat", "voice", "telegram", "phone")
+        self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=talk)
         self.telegram_assistant = Assistant(self.brain, self.library, self.tools, channel="telegram",
-                                            history_channels=("chat", "voice", "telegram"))
+                                            history_channels=talk)
+        self.phone_assistant = Assistant(self.brain, self.library, self.tools, channel="phone", history_channels=talk)
         self.fast = FastRouter(self.home / "tool_brain")
         self.fast.enabled = self.settings()["tool_brain"] != "0"
-        self.assistant.fast = self.telegram_assistant.fast = self.tools.fast = self.fast
+        self.assistant.fast = self.telegram_assistant.fast = self.phone_assistant.fast = self.tools.fast = self.fast
         self.warroom = WarRoom(self.library, self.brain, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
@@ -119,6 +123,7 @@ class Studio:
         self.memory = JarvisMemory(self.library, self.brain, self.settings)
         self.tools.memory = self.war_tools.memory = self.memory
         self.assistant.memory = self.war_assistant.memory = self.telegram_assistant.memory = self.memory
+        self.phone_assistant.memory = self.memory
         self.writer.guidance = self.memory.writing_guidance
         self.warroom.memory = self.memory
         self.gate.subscribe(self.memory.on_permission)
@@ -157,6 +162,9 @@ class Studio:
                                        voice=VoiceNotes(self._look if self.engine is not None else None,
                                                         self._groq_key, lambda: self.settings()["edge_voice"]))
         self.tools.planner = self.war_tools.planner = self.planner
+        self.phone = PhoneServer(self.library, self.phone_assistant, self.gate)
+        self.tunnel = Tunnel(self.home / "bin", lambda: self.phone.port, on_url=self._on_phone_url)
+        self.tools.phone_info = self.war_tools.phone_info = self.phone_info
         self.api_keys = ApiKeys(self.home)
         # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.
         # Nobody waits on a research round, so Qwen gets room to read whole pages and write full notes.
@@ -182,6 +190,7 @@ class Studio:
             box.researcher, box.research_clock = self.researcher, self.research_clock
             box.lab, box.lab_clock = self.lab, self.lab_clock
         self.assistant.researcher = self.war_assistant.researcher = self.telegram_assistant.researcher = self.researcher
+        self.phone_assistant.researcher = self.researcher
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.game = Game(self.home / "game" / "atlanta.json")
         self.tools.game = self.war_tools.game = self.game
@@ -195,7 +204,7 @@ class Studio:
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
                 "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1",
-                "rsi": "1", "telegram": "1"}
+                "rsi": "1", "telegram": "1", "phone": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -218,6 +227,8 @@ class Studio:
             self.fast.enabled = str(value) != "0"
         elif key == "telegram":
             self.telegram.start() if str(value) != "0" else self.telegram.stop()
+        elif key == "phone":
+            self._start_phone() if str(value) != "0" else self._stop_phone()
 
     # ---- lifecycle -------------------------------------------------------------------
     def start(self, probe: bool = True) -> None:
@@ -246,6 +257,8 @@ class Studio:
         self.trading_clock.start()
         if self.settings()["telegram"] != "0":
             self.telegram.start()
+        if PHONE_AUTOSTART and self.settings()["phone"] != "0":
+            self._start_phone()
         try:
             self._start_local()
         except Exception:
@@ -333,6 +346,30 @@ class Studio:
         self.telegram.restart()
         return self.telegram.status()
 
+    # ---- phone app -------------------------------------------------------------------
+    def _start_phone(self) -> None:
+        if self.phone.start():
+            self.tunnel.start()
+
+    def _stop_phone(self) -> None:
+        self.tunnel.stop()
+        self.phone.stop()
+
+    def phone_info(self, new_code: bool = True) -> dict:
+        """The phone app's link (with a pairing code), or why there isn't one yet."""
+        host = self.tunnel.host
+        code = self.phone.pair_code() if host and new_code else ""
+        problem = None if host else (self.phone.error or self.tunnel.error or "the secure link is still starting")
+        return {"link": phone_link(host, code), "code": code, "host": host, "problem": problem,
+                "line": phone_line(self.phone.status(), self.tunnel.status(), phone_link(host, code))}
+
+    def _on_phone_url(self, host) -> None:
+        self.library.set_meta(URL_META, host or "")
+        if host:
+            log.info("phone: secure link is up")
+            self.telegram.notify("Jarvis phone app link (open it on your phone, then Add to Home Screen): "
+                                 f"{phone_link(host, self.phone.pair_code())}")
+
     def remove_telegram(self) -> None:
         self.telegram.stop()
         forget_bot_key(self.home)
@@ -404,6 +441,7 @@ class Studio:
 
     def close(self) -> None:
         self.telegram.stop()
+        self._stop_phone()
         self.research_clock.stop()
         self.lab_clock.stop()
         self.trading_clock.stop()

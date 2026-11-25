@@ -17,6 +17,7 @@ from jarvis_books.assistant.game_tools import GAME_DECLARATIONS, GAME_WORDS, Gam
 from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_WORDS, DesktopTools
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.nexus_tools import NEXUS_DECLARATIONS, NEXUS_WORDS, NexusTools
+from jarvis_books.assistant.phone_tools import PHONE_DECLARATIONS, PHONE_WORDS, PhoneTools
 from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_edge, \
@@ -65,7 +66,7 @@ BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). 
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research", "game")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
-                "research_brain", "tool_brain", "rsi", "telegram")
+                "research_brain", "tool_brain", "rsi", "telegram", "phone")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
                    "brain": ("gemini", "groq", "local"), "research_brain": ("local", "groq", "gemini"),
                    "researcher": ("0", "1")}
@@ -329,7 +330,7 @@ DECLARATIONS = [
           {"book": BOOK, "character": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + NEXUS_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + NEXUS_DECLARATIONS + PHONE_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -341,7 +342,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools):
+class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, PhoneTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -458,6 +459,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools):
             **{d["name"]: DESKTOP_WORDS for d in DESKTOP_DECLARATIONS},
             **{d["name"]: RESEARCH_WORDS for d in RESEARCH_DECLARATIONS},
             **{d["name"]: NEXUS_WORDS + WEB_WORDS for d in NEXUS_DECLARATIONS},
+            **{d["name"]: PHONE_WORDS for d in PHONE_DECLARATIONS},
             **{d["name"]: GAME_WORDS for d in GAME_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
@@ -976,7 +978,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools):
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain", "rsi", "telegram"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain", "rsi", "telegram", "phone"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:

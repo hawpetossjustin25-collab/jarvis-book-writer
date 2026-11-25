@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://*.trycloudflare.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jarvis">
+<title>Jarvis</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <img src="icon-192.png" alt="" class="logo">
+  <h1>Jarvis</h1>
+  <span id="state" class="state">connecting</span>
+  <button id="speak" class="icon" type="button" aria-pressed="false" title="Read replies aloud">Voice off</button>
+</header>
+
+<section id="setup" class="panel" hidden>
+  <h2>Connect to Jarvis</h2>
+  <p>Ask Jarvis on your laptop or in Telegram: <b>"phone link"</b>. Open the link he gives you, or paste it here.</p>
+  <input id="linkInput" type="url" placeholder="Paste the phone link" autocomplete="off">
+  <button id="linkSave" type="button">Connect</button>
+  <p id="setupError" class="error" hidden></p>
+</section>
+
+<section id="pair" class="panel" hidden>
+  <h2>Pair this phone</h2>
+  <p>Enter the 8-digit code from the phone link or from Jarvis's Settings.</p>
+  <input id="codeInput" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="8-digit code" autocomplete="one-time-code">
+  <button id="codeSave" type="button">Pair</button>
+  <p id="pairError" class="error" hidden></p>
+</section>
+
+<main id="chat" hidden>
+  <div id="banner" class="banner" hidden></div>
+  <div id="install" class="banner tip" hidden></div>
+  <ol id="log" aria-live="polite"></ol>
+</main>
+
+<footer id="composer" hidden>
+  <button id="mic" class="icon" type="button" title="Talk" hidden>Talk</button>
+  <textarea id="text" rows="1" maxlength="4000" placeholder="Message Jarvis"></textarea>
+  <button id="send" type="button">Send</button>
+</footer>
+</body>
+</html>

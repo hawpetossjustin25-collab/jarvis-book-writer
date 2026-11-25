@@ -344,3 +344,10 @@ web_index_refresh | check the indexed pages for changes
 web_index_refresh | [recheck|refresh] {pages:big} indexed pages
 web_index_continue | [continue|resume] the [crawl|web exploration|indexing]
 web_index_continue | pick the crawl back up where it stopped
+# ---- phone app
+phone_link | [give|send] me the phone [link|app]
+phone_link | phone link
+phone_link | how do i put you on my phone
+phone_link | [i want|let me] use you on my phone
+phone_link | [what's|whats] the link for the [jarvis|] phone app
+phone_link | make you an app on my [phone|iphone|android]

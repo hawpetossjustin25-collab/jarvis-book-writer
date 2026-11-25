@@ -1619,6 +1619,11 @@ class MainWindow(QMainWindow):
         self.telegram_state.setWordWrap(True)
         self.telegram_state.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("", self.telegram_state)
+        self.phone_state = QLabel()
+        self.phone_state.setWordWrap(True)
+        self.phone_state.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.phone_state.setOpenExternalLinks(True)
+        form.addRow("Phone app", self.phone_state)
         self.api_name_edit = QLineEdit()
         self.api_name_edit.setPlaceholderText("name, e.g. openweather")
         self.api_value_edit = QLineEdit()
@@ -1868,6 +1873,10 @@ class MainWindow(QMainWindow):
         if self._closed or not hasattr(self, "telegram_state"):
             return
         self.telegram_state.setText(telegram_line(self.studio.telegram.status()))
+        info = self.studio.phone_info(new_code=False)
+        self.phone_state.setText(html.escape(info["line"]) if not info["link"] else
+                                 f'<a href="{html.escape(info["link"])}">Phone app link</a>: open it on your phone '
+                                 "(ask Jarvis \"phone link\" for one with a pairing code), then Add to Home Screen.")
 
     def _refresh_brain(self) -> None:
         st = self.studio.brain.status()

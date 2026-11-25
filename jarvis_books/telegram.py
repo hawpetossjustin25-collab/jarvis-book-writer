@@ -454,15 +454,20 @@ class TelegramBridge:
             self._asked = info.get("request")
 
     def _on_planner(self, event: str, payload) -> None:
-        if event != "ringing" or payload is None or not self.running:
-            return
+        if event == "ringing" and payload is not None:
+            self.notify(f"Reminder: {payload.text}")
+
+    def notify(self, text: str) -> bool:
+        """Send the paired owner a message from Jarvis. False when Telegram is off, unpaired or unreachable."""
         owner, key = self.owner(), self.load_key()
-        if owner is None or not key:
-            return
+        if not self.running or owner is None or not key:
+            return False
         try:
-            self.api_factory(key).send_message(owner, f"Reminder: {payload.text}")
+            self.api_factory(key).send_message(owner, text)
+            return True
         except TelegramError as exc:
-            log.warning("telegram: reminder not sent (%s)", exc.status)
+            log.warning("telegram: message not sent (%s)", exc.status)
+            return False
 
 
 def telegram_line(status: dict) -> str:
