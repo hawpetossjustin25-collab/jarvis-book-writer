@@ -200,6 +200,17 @@ def test_upgrades_ask_only_gemini_so_groq_and_lfm3_never_answer_them():
         Brain(None, l, lambda: {}, groq=q).only(GEMINI).generate(LLMRequest(role="planner", instruction="x"))
 
 
+def test_one_brain_alone_still_gets_the_short_tool_list_it_can_read():
+    g, q, l = Stub("gemini"), Stub("groq"), Stub("local")
+    b = brain({"brain": "gemini"}, g, q, l)
+    req = LLMRequest(role="chat", tools=[{"name": "a"}, {"name": "b"}], local_tools=[{"name": "a"}])
+    b.only(GROQ).generate(req)
+    b.only(LOCAL).generate(req)
+    b.only(GEMINI).generate(req)
+    assert q.calls[0].tools == [{"name": "a"}] and l.calls[0].tools == [{"name": "a"}]
+    assert len(g.calls[0].tools) == 2
+
+
 def test_studio_switches_to_groq_by_asking_jarvis(tmp_path, monkeypatch):
     for var in ("JARVIS_GROQ_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(var, raising=False)

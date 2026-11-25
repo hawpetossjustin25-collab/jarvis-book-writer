@@ -154,4 +154,4 @@ class OneBrain:
         self.brain, self.which = brain, which
 
     def generate(self, request: LLMRequest) -> LLMResponse:
-        return self.brain._engine(self.which).generate(request)
+        return self.brain._engine(self.which).generate(self.brain._for(self.which, request))
