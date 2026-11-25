@@ -512,6 +512,8 @@ class ResearchClock:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.working = False  # a round is running right now
+        self.hold: Callable[[], bool] = lambda: False  # rounds wait while this is true (the Brain Lab measuring)
         self.failures = 0
 
     def start(self) -> None:
@@ -533,8 +535,11 @@ class ResearchClock:
         self._wait(self.start_delay)
         while not self._stop.is_set():
             delay = self.researcher.pace_s()
-            if self.researcher.enabled():
+            if self.researcher.enabled() and self.hold():
+                delay = 60.0
+            elif self.researcher.enabled():
                 try:
+                    self.working = True
                     self.researcher.tick()
                     self.failures = 0
                 except LLMError as exc:
@@ -544,6 +549,8 @@ class ResearchClock:
                     log.info("researcher waiting %ss: %s", delay, exc)
                 except Exception:
                     log.exception("research round failed")
+                finally:
+                    self.working = False
             if self._stop.is_set():
                 break
             self._wait(delay)

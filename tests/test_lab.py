@@ -229,3 +229,53 @@ def test_the_quick_tool_brain_knows_the_lab_and_paper_tools():
     from jarvis_books.assistant.permissions import TOOL_LEVELS as LEVELS
     assert LEVELS["search_papers"] == LEVELS["brain_lab_status"] == "read"
     assert LEVELS["brain_lab_switch"] == "safe"
+
+
+def test_other_background_work_delays_a_round_without_stopping_one(tmp_path):
+    lab = BrainLab(tmp_path, Client(), None, lambda: DECLARATIONS, lambda: {"rsi": "1"}, specs_probe=lambda: SPECS)
+    rounds = []
+    lab.round = lambda cancel: rounds.append(cancel()) or {}
+    lab.pace_s = lambda: 0.05
+    researching = threading.Event()
+    researching.set()
+    clock = LabClock(lab, start_delay=0, defer=researching.is_set)
+    clock.start()
+    time.sleep(0.3)
+    assert rounds == []
+    researching.clear()
+    clock.poke()
+    deadline = time.time() + 3
+    while not rounds and time.time() < deadline:
+        time.sleep(0.05)
+    researching.set()
+    clock.stop()
+    assert rounds and rounds[0] is False  # the researcher starting again doesn't cancel a running round
+
+
+def test_the_researcher_waits_while_the_lab_measures(tmp_path):
+    from jarvis_books.research import ResearchClock
+
+    class Res:
+        ticks = 0
+        problem = ""
+
+        def enabled(self):
+            return True
+
+        def pace_s(self):
+            return 0.05
+
+        def tick(self):
+            Res.ticks += 1
+    clock = ResearchClock(Res(), start_delay=0)
+    clock.hold = lambda: True
+    clock.start()
+    time.sleep(0.3)
+    assert Res.ticks == 0 and not clock.working
+    clock.hold = lambda: False
+    clock.poke()
+    deadline = time.time() + 3
+    while not Res.ticks and time.time() < deadline:
+        time.sleep(0.05)
+    clock.stop()
+    assert Res.ticks >= 1 and not clock.working

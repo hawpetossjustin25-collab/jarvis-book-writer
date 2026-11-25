@@ -158,7 +158,8 @@ class Studio:
         self.lab = BrainLab(self.home / "brain_lab", self.local.client, self.fast, self.tools.declarations,
                             self.settings, web=self.web, measure_model_tools=self._lab_tool_score,
                             apply=self._apply_lab)
-        self.lab_clock = LabClock(self.lab, busy=self._lab_busy)
+        self.lab_clock = LabClock(self.lab, busy=self._lab_busy, defer=lambda: self.research_clock.working)
+        self.research_clock.hold = lambda: self.lab.running
         for box in (self.tools, self.war_tools):
             box.researcher, box.research_clock = self.researcher, self.research_clock
             box.lab, box.lab_clock = self.lab, self.lab_clock

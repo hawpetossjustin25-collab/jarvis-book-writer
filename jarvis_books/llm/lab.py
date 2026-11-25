@@ -138,9 +138,19 @@ class BrainLab:
         self.rng = random.Random(seed)
         self.lock = threading.Lock()
         self.running = False
-        self.step = ""
+        self._step = ""
         self.problem = ""
         self.state = self._load()
+
+    @property
+    def step(self) -> str:
+        return self._step
+
+    @step.setter
+    def step(self, what: str) -> None:
+        self._step = what
+        if what:
+            log.info("brain lab round %s: %s", self.state["rounds"] + 1, what)
 
     # ---- state ---------------------------------------------------------------------------------------
     def _load(self) -> dict:
@@ -443,8 +453,11 @@ class LabClock:
     """Runs lab rounds on their own thread while RSI mode is on, only while Jarvis is otherwise idle, and
     stops a round in the middle when the author needs him or the app closes."""
 
-    def __init__(self, lab: BrainLab, busy: Callable[[], bool] = lambda: False, start_delay: float = 300.0):
-        self.lab, self.busy, self.start_delay = lab, busy, start_delay
+    def __init__(self, lab: BrainLab, busy: Callable[[], bool] = lambda: False, start_delay: float = 300.0,
+                 defer: Callable[[], bool] = lambda: False):
+        # busy: the author needs Jarvis (a running round stops); defer: other background work, so a round
+        # waits to start but isn't stopped by it
+        self.lab, self.busy, self.start_delay, self.defer = lab, busy, start_delay, defer
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -471,7 +484,7 @@ class LabClock:
         self._wait(self.start_delay)
         while not self._stop.is_set():
             delay = self.lab.pace_s()
-            if self.lab.enabled() and not self.busy():
+            if self.lab.enabled() and not self.busy() and not self.defer():
                 try:
                     self.lab.round(self._cancel)
                     self.failures = 0
