@@ -210,6 +210,14 @@ def test_studio_wires_rsi_mode_its_tools_and_the_idle_check(tmp_path):
         assert studio._lab_busy()
         studio.assistant.last_used = 0.0
         assert not studio._lab_busy()
+        go, done = threading.Event(), threading.Event()
+        studio.jobs.submit("upgrade", "Building app upgrade #1", lambda progress, cancel: go.wait(5) and done.set())
+        assert studio._lab_busy()
+        studio.upgrader.resting = 1
+        assert not studio._lab_busy()
+        studio.upgrader.resting = 0
+        go.set()
+        assert done.wait(5)
         studio._apply_lab(dict(BASELINE, model="hf.co/unsloth/Qwen3.5-2B-GGUF:Q4_K_M"))
         assert studio.local.label == "Qwen3.5 2B"
         assert studio.library.get_meta("lab_model", "").endswith("2B-GGUF:Q4_K_M")

@@ -254,7 +254,10 @@ class Studio:
     def _lab_busy(self) -> bool:
         """The Brain Lab works only while Jarvis has nothing else to do: no running jobs and no recent chat."""
         last = max(getattr(a, "last_used", 0.0) for a in (self.assistant, self.war_assistant))
-        jobs = ", ".join(j.title for j in self.jobs.active())
+        active = self.jobs.active()
+        if 0 < sum(j.kind == "upgrade" for j in active) <= self.upgrader.resting:
+            active = [j for j in active if j.kind != "upgrade"]  # an upgrade waiting for a brain leaves room
+        jobs = ", ".join(j.title for j in active)
         if jobs != getattr(self, "_lab_jobs", ""):
             self._lab_jobs = jobs
             if jobs:

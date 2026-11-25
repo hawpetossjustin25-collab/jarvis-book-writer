@@ -275,11 +275,13 @@ def test_after_repeated_failures_it_starts_over_from_a_clean_copy(library, app, 
 
 
 def test_when_gemini_is_unreachable_it_waits_and_tries_again(library, app, tmp_path):
-    waits = []
+    waits, resting = [], []
     engine = ScriptedEngine(ConnectionError("no internet"), RuntimeError("429 quota"), GOOD)
-    up = make(library, app, tmp_path, engine, wait=lambda seconds, cancel: waits.append(seconds))
+    up = make(library, app, tmp_path, engine,
+              wait=lambda seconds, cancel: (waits.append(seconds), resting.append(up.resting)))
     u = up.build(up.start("hello")["id"])
     assert u["status"] == "ready" and waits == [30, 60]
+    assert resting == [1, 1] and up.resting == 0  # the Brain Lab may use the computer while a build waits
     assert u["test_output"].startswith("passed on try 1")
 
 

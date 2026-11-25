@@ -314,6 +314,7 @@ class Upgrader:
         self.wait = wait or (lambda seconds, cancel: cancel.wait(seconds) if cancel is not None
                              else time.sleep(seconds))
         self.closing: Callable[[], bool] = lambda: False  # set by the Studio: True while the app shuts down
+        self.resting = 0  # builds now waiting for a brain to come back; they use no computer power meanwhile
 
     # ---- building (touches only the copy) ------------------------------------------------
     def start(self, request: str) -> dict:
@@ -397,7 +398,11 @@ class Upgrader:
                     log.warning("upgrade %s: no brain reachable (%s); waiting %ss", upgrade_id, exc, delay)
                     why = f"{self.fallback_name} couldn't either: {problem[:160]}" if problem else str(exc)[:80]
                     progress(busy, f"No brain is answering ({why}); trying again in {delay} s")
-                    self.wait(delay, cancel)
+                    self.resting += 1
+                    try:
+                        self.wait(delay, cancel)
+                    finally:
+                        self.resting -= 1
                     continue
             unreachable = 0
             tries += 1
