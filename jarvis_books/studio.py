@@ -40,6 +40,8 @@ from jarvis_books.game import Game
 from jarvis_books.game.trading import TradingClock
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
+from jarvis_books.nexus.os1 import OS1
+from jarvis_books.nexus.search import EngineEmbedder
 from jarvis_books.research import RESEARCH_MODEL, RESEARCH_TIME_S, ResearchClock, Researcher
 from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
@@ -145,6 +147,9 @@ class Studio:
             box.computer, box.terminal, box.desktop, box.vision = self.computer, self.terminal, self.desktop, \
                 self._look if self.engine is not None else None
         self.tools.web = self.war_tools.web = self.web
+        self.nexus = OS1(self.home, embedder=EngineEmbedder(self.engine) if self.engine is not None else None,
+                         seed_search=self._nexus_seeds)
+        self.tools.nexus = self.war_tools.nexus = self.nexus
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
         self.telegram = TelegramBridge(self.library, self.telegram_assistant, self.gate,
@@ -393,6 +398,10 @@ class Studio:
         path = fn(self.library, book_id, out, author=author) if fn is not export_markdown else fn(self.library, book_id, out)
         return {"saved": str(path)}
 
+    def _nexus_seeds(self, topic: str, count: int) -> list[str]:
+        """Starting pages for a topic-only web exploration: the live web search's top results."""
+        return [r["url"] for r in self.web.search(topic, count)["results"]][:count]
+
     def close(self) -> None:
         self.telegram.stop()
         self.research_clock.stop()
@@ -411,4 +420,5 @@ class Studio:
         if self.engine is not None and started:
             self.engine.shutdown()
         if started:
+            self.nexus.close()
             self.db.close()

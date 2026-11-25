@@ -365,7 +365,8 @@ SCHEMA_VERSION = max(MIGRATIONS)
 class Database:
     """One shared connection guarded by a re-entrant lock (safe across UI and worker threads)."""
 
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, migrations: dict[int, str] | None = None):
+        self.migrations = MIGRATIONS if migrations is None else migrations
         self.path = Path(path) if str(path) != ":memory:" else path
         if isinstance(self.path, Path):
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -382,10 +383,10 @@ class Database:
     def _migrate(self) -> None:
         with self._lock:
             current = self._conn.execute("PRAGMA user_version").fetchone()[0]
-            for version in sorted(v for v in MIGRATIONS if v > current):
+            for version in sorted(v for v in self.migrations if v > current):
                 self._conn.execute("BEGIN IMMEDIATE")
                 try:
-                    for statement in _split_sql(MIGRATIONS[version]):
+                    for statement in _split_sql(self.migrations[version]):
                         self._conn.execute(statement)
                     self._conn.execute(f"PRAGMA user_version={version}")
                     self._conn.execute("COMMIT")

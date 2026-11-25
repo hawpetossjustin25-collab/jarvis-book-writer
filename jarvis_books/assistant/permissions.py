@@ -41,6 +41,8 @@ TOOL_LEVELS = MappingProxyType({
     "list_folder": READ, "read_file": READ, "computer_log": READ, "command_output": READ,
     "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "search_papers": READ, "hf_model_info": READ,
     "github_search": READ, "github_read": READ,
+    "web_index_search": READ, "web_index_page": READ, "web_index_status": READ,
+    "web_index_explore": SAFE, "web_index_refresh": SAFE, "web_index_continue": SAFE,
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,
     "voice_cast": READ, "cast_voices": CHANGE, "set_voice": CHANGE, "swap_voices": CHANGE, "hear_voice": SAFE,

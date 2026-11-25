@@ -320,3 +320,27 @@ make_folder | make a folder [called|named] {path:name}
 web_search | search the web for {query:query}
 web_search | look up {query:query}
 (none) | {x:chat}
+# ---- NEXUS web index (OS1)
+web_index_explore | [crawl|index|spider] {url:url}
+web_index_explore | add {url:url} to [your|the] web index
+web_index_explore | map [out|] the [site|website] {url:url}
+web_index_explore | crawl {url:url} [for|looking for] {topic:query}
+web_index_explore | build a web index [about|on] {topic:query}
+web_index_explore | [crawl|index] the web [for|about] {topic:query}
+web_index_explore | index {url:url} [and follow links|with] {pages:big} pages
+web_index_search | search [your|the] web index for {query:query}
+web_index_search | [look in|check] [your|the] [web|] index for {query:query}
+web_index_search | what does [your|the] web index have on {query:query}
+web_index_search | find {query:query} in [your|the] [web|nexus|] index
+web_index_page | what does [your|the] [web|] index know about {url:url}
+web_index_page | [show|give] me [the|your] index entry for {url:url}
+web_index_page | has {url:url} changed since you indexed it
+web_index_status | [how big is|what's in] [your|the] web index
+web_index_status | web index status
+web_index_status | [is the|how is the] crawl [going|running|done]
+web_index_status | nexus status
+web_index_refresh | [recheck|refresh] [the|your] web index
+web_index_refresh | check the indexed pages for changes
+web_index_refresh | [recheck|refresh] {pages:big} indexed pages
+web_index_continue | [continue|resume] the [crawl|web exploration|indexing]
+web_index_continue | pick the crawl back up where it stopped
