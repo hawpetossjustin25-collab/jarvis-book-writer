@@ -26,6 +26,7 @@ from jarvis_books.errors import JarvisError
 from jarvis_books.lifecycle import relaunch
 from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
+from jarvis_books.telegram import telegram_line
 from jarvis_books.text import word_count, linkify
 from jarvis_books.writer.pipeline import MAX_CHAPTERS
 from jarvis_books.ui.approval import ApprovalBar
@@ -154,6 +155,7 @@ class MainWindow(QMainWindow):
         self._expire_timer = QTimer(self)
         self._expire_timer.setInterval(5000)
         self._expire_timer.timeout.connect(studio.gate.expire_stale)
+        self._expire_timer.timeout.connect(self._refresh_telegram)
         self._expire_timer.start()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -1604,6 +1606,19 @@ class MainWindow(QMainWindow):
         grow.addWidget(self.groq_edit, 1)
         grow.addWidget(save_groq)
         form.addRow("Groq key (free backup)", grow)
+        self.telegram_edit = QLineEdit()
+        self.telegram_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.telegram_edit.setPlaceholderText("Bot key from @BotFather in Telegram (saved encrypted on this laptop)")
+        save_telegram = QPushButton("Save key")
+        save_telegram.clicked.connect(self._save_telegram_key)
+        trow = QHBoxLayout()
+        trow.addWidget(self.telegram_edit, 1)
+        trow.addWidget(save_telegram)
+        form.addRow("Telegram bot", trow)
+        self.telegram_state = QLabel()
+        self.telegram_state.setWordWrap(True)
+        self.telegram_state.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("", self.telegram_state)
         self.api_name_edit = QLineEdit()
         self.api_name_edit.setPlaceholderText("name, e.g. openweather")
         self.api_value_edit = QLineEdit()
@@ -1835,6 +1850,24 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage("Groq key saved. Jarvis uses Groq when Gemini can't answer.", 8000)
         self._refresh_brain()
+
+    def _save_telegram_key(self) -> None:
+        key = self.telegram_edit.text().strip()
+        if not key:
+            return
+        self.telegram_edit.clear()
+        try:
+            self.studio.set_telegram_key(key)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Telegram bot", f"Could not save the key: {exc}")
+            return
+        self.statusBar().showMessage("Telegram bot key saved. Jarvis is connecting to Telegram.", 8000)
+        self._refresh_telegram()
+
+    def _refresh_telegram(self) -> None:
+        if self._closed or not hasattr(self, "telegram_state"):
+            return
+        self.telegram_state.setText(telegram_line(self.studio.telegram.status()))
 
     def _refresh_brain(self) -> None:
         st = self.studio.brain.status()

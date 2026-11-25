@@ -751,3 +751,25 @@ def test_game_news_is_announced_and_the_tab_runs_an_auction(window, qapp):
     if studio.game.state.get("auction"):
         tab._pass()
     assert studio.game.state["auction"] is None
+
+
+def test_settings_connects_a_telegram_bot(window, qapp):
+    from test_telegram import KEY, FakeTelegram
+
+    win, studio, book = window
+    api = FakeTelegram()
+    studio.telegram.api_factory = lambda k: api
+    win._refresh_telegram()
+    assert "BotFather" in win.telegram_state.text()
+    win.telegram_edit.setText("not a key")
+    from unittest import mock
+    with mock.patch("jarvis_books.ui.main_window.QMessageBox.warning") as warned:
+        win._save_telegram_key()
+    assert warned.called and not studio.telegram.status()["key_saved"]
+    win.telegram_edit.setText(KEY)
+    win._save_telegram_key()
+    assert win.telegram_edit.text() == ""
+    pump(qapp, lambda: api.drained.is_set() and (win._refresh_telegram() or "this code" in win.telegram_state.text()))
+    code = studio.telegram.status()["pair_code"]
+    assert code in win.telegram_state.text() and "@jarvis_test_bot" in win.telegram_state.text()
+    assert KEY not in win.telegram_state.text()

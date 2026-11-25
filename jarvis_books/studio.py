@@ -20,6 +20,7 @@ from jarvis_books.audio.export import export_audiobook
 from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
+from jarvis_books.telegram import TelegramBridge, forget_bot_key, load_bot_key, save_bot_key
 from jarvis_books.llm.brain import GEMINI, Brain
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
     GroqSearch, load_groq_key, save_groq_key
@@ -88,10 +89,13 @@ class Studio:
         self.gate = PermissionGate(self.library)  # one yes/no gate for every Jarvis (voice, chat, War Room)
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
-        self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=("chat", "voice"))
+        # Chat, voice and Telegram are one conversation with the same Jarvis.
+        self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=("chat", "voice", "telegram"))
+        self.telegram_assistant = Assistant(self.brain, self.library, self.tools, channel="telegram",
+                                            history_channels=("chat", "voice", "telegram"))
         self.fast = FastRouter(self.home / "tool_brain")
         self.fast.enabled = self.settings()["tool_brain"] != "0"
-        self.assistant.fast = self.tools.fast = self.fast
+        self.assistant.fast = self.telegram_assistant.fast = self.tools.fast = self.fast
         self.warroom = WarRoom(self.library, self.brain, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
@@ -111,7 +115,7 @@ class Studio:
         self.tools.settings_store = self.war_tools.settings_store = self
         self.memory = JarvisMemory(self.library, self.brain, self.settings)
         self.tools.memory = self.war_tools.memory = self.memory
-        self.assistant.memory = self.war_assistant.memory = self.memory
+        self.assistant.memory = self.war_assistant.memory = self.telegram_assistant.memory = self.memory
         self.writer.guidance = self.memory.writing_guidance
         self.warroom.memory = self.memory
         self.gate.subscribe(self.memory.on_permission)
@@ -142,6 +146,8 @@ class Studio:
         self.tools.web = self.war_tools.web = self.web
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
+        self.telegram = TelegramBridge(self.library, self.telegram_assistant, self.gate,
+                                       lambda: load_bot_key(self.home), planner=self.planner)
         self.tools.planner = self.war_tools.planner = self.planner
         self.api_keys = ApiKeys(self.home)
         # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.
@@ -167,7 +173,7 @@ class Studio:
         for box in (self.tools, self.war_tools):
             box.researcher, box.research_clock = self.researcher, self.research_clock
             box.lab, box.lab_clock = self.lab, self.lab_clock
-        self.assistant.researcher = self.war_assistant.researcher = self.researcher
+        self.assistant.researcher = self.war_assistant.researcher = self.telegram_assistant.researcher = self.researcher
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.game = Game(self.home / "game" / "atlanta.json")
         self.tools.game = self.war_tools.game = self.game
@@ -181,7 +187,7 @@ class Studio:
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
                 "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1",
-                "rsi": "1"}
+                "rsi": "1", "telegram": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -202,6 +208,8 @@ class Studio:
             self.narrator.edge_voice = value
         elif key == "tool_brain":
             self.fast.enabled = str(value) != "0"
+        elif key == "telegram":
+            self.telegram.start() if str(value) != "0" else self.telegram.stop()
 
     # ---- lifecycle -------------------------------------------------------------------
     def start(self, probe: bool = True) -> None:
@@ -228,6 +236,8 @@ class Studio:
         if LAB_AUTOSTART:
             self.lab_clock.start()
         self.trading_clock.start()
+        if self.settings()["telegram"] != "0":
+            self.telegram.start()
         try:
             self._start_local()
         except Exception:
@@ -306,6 +316,20 @@ class Studio:
     def set_groq_key(self, key: str) -> None:
         save_groq_key(key, self.home)
 
+    def set_telegram_key(self, key: str) -> dict:
+        """Save a bot key from @BotFather and start answering on Telegram. A new key means a new pairing."""
+        if key.strip() != (load_bot_key(self.home) or ""):
+            save_bot_key(key, self.home)
+            self.telegram.forget()
+        self.set_setting("telegram", "1")
+        self.telegram.restart()
+        return self.telegram.status()
+
+    def remove_telegram(self) -> None:
+        self.telegram.stop()
+        forget_bot_key(self.home)
+        self.telegram.forget()
+
     def set_api_key(self, key: str) -> None:
         from jarvis_books.keystore import save_key
         save_key(key, self.home)
@@ -367,6 +391,7 @@ class Studio:
         return {"saved": str(path)}
 
     def close(self) -> None:
+        self.telegram.stop()
         self.research_clock.stop()
         self.lab_clock.stop()
         self.trading_clock.stop()

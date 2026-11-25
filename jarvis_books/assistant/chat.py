@@ -83,9 +83,10 @@ class Assistant:
         return "\n".join(lines)
 
     def send(self, text: str, on_tool: Optional[Callable[[str, dict, dict], None]] = None,
-             on_text: Optional[Callable[[str], None]] = None) -> str:
+             on_text: Optional[Callable[[str], None]] = None, decided: Optional[dict] = None) -> str:
         """Send one user message; runs tool calls until Gemini answers in text. Returns the reply. on_text gets the
-        reply so far while it is being written (it may start over when another brain takes over)."""
+        reply so far while it is being written (it may start over when another brain takes over). decided is the
+        outcome of a yes/no question the author already settled with a button (the message is their answer)."""
         self.last_used = time.time()
         key_book = self.tools.current_book_id if self.per_book else None
         if self.memory is not None:  # a conversation that went quiet is learned from before this one goes on
@@ -96,7 +97,8 @@ class Assistant:
         last_asked = next((part.get("text", "") for turn in reversed(history) if turn.get("role") == "user"
                            for part in turn.get("parts", []) if isinstance(part, dict)), "")
         local_tools = self.tools.select(text + " " + last_asked)
-        answered = self.tools.gate.hear(text)  # "yes"/"no" to an open question is settled by the app itself
+        # "yes"/"no" to an open question is settled by the app itself
+        answered = decided if decided is not None else self.tools.gate.hear(text)
         model_text = text + ("\n\n" + outcome_note(answered) if answered else "")
         done = self._fast_call(text, tools, answered, on_tool)
         if done is not None:
