@@ -285,6 +285,15 @@ def test_when_gemini_is_unreachable_it_waits_and_tries_again(library, app, tmp_p
     assert u["test_output"].startswith("passed on try 1")
 
 
+def test_a_build_pauses_between_tries_while_the_brain_lab_has_its_turn(library, app, tmp_path):
+    turns, resting = [True, True, False], []
+    up = make(library, app, tmp_path, ScriptedEngine(GOOD),
+              wait=lambda seconds, cancel: resting.append((seconds, up.resting)))
+    up.hold = lambda: turns.pop(0) if turns else False
+    u = up.build(up.start("hello")["id"])
+    assert u["status"] == "ready" and resting == [(30, 1)] and up.resting == 0 and up.tries_done == 1
+
+
 def test_the_author_can_stop_a_build(library, app, tmp_path):
     cancel = threading.Event()
     up = make(library, app, tmp_path, ScriptedEngine(*numbered(3)))

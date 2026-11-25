@@ -314,7 +314,9 @@ class Upgrader:
         self.wait = wait or (lambda seconds, cancel: cancel.wait(seconds) if cancel is not None
                              else time.sleep(seconds))
         self.closing: Callable[[], bool] = lambda: False  # set by the Studio: True while the app shuts down
-        self.resting = 0  # builds now waiting for a brain to come back; they use no computer power meanwhile
+        self.resting = 0  # builds now waiting (for a brain, or for their turn); they use no computer power
+        self.hold: Callable[[], bool] = lambda: False  # set by the Studio: True while the Brain Lab has its turn
+        self.tries_done = 0
 
     # ---- building (touches only the copy) ------------------------------------------------
     def start(self, request: str) -> dict:
@@ -368,6 +370,15 @@ class Upgrader:
                 return self.library.update_upgrade(upgrade_id, status="stopped", summary=summary, files=changed,
                                                    test_output=f"stopped by the author after {tries} tries\n"
                                                                + output[-3000:])
+            if self.hold():
+                progress(min(0.9, 0.1 + 0.04 * tries), "Waiting while Jarvis tests a better brain for this computer")
+                self.resting += 1
+                try:
+                    while self.hold() and not self._stopped(cancel):
+                        self.wait(30, cancel)
+                finally:
+                    self.resting -= 1
+                continue
             if failed_in_a_row >= FRESH_START_EVERY:
                 progress(0.05, f"Starting over from a clean copy after {tries} tries")
                 self._fresh_copy(copy)
@@ -406,6 +417,7 @@ class Upgrader:
                     continue
             unreachable = 0
             tries += 1
+            self.tries_done += 1
             data = resp.data or {}
             wanted = self._readable(copy, data.get("need_files") or [])
             if not data.get("edits") and data.get("need_files") and asks < MAX_ASKS:

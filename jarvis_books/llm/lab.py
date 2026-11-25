@@ -463,6 +463,7 @@ class LabClock:
         self._thread: Optional[threading.Thread] = None
         self.failures = 0
         self.waiting = ""  # why no round is running right now
+        self.attempts = 0  # rounds started, finished or not
 
     def _note_wait(self, why: str) -> None:
         if why != self.waiting:
@@ -503,6 +504,8 @@ class LabClock:
                     self.failures += 1
                     self.lab.problem = f"{type(exc).__name__}: {exc}"[:300]
                     log.exception("brain lab round failed")
+                finally:
+                    self.attempts += 1
             elif self.lab.enabled():
                 delay = 60.0
             if self._stop.is_set():

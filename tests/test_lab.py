@@ -210,11 +210,20 @@ def test_studio_wires_rsi_mode_its_tools_and_the_idle_check(tmp_path):
         assert studio._lab_busy()
         studio.assistant.last_used = 0.0
         assert not studio._lab_busy()
+        studio.tools._t_brain_lab_switch(True)
         go, done = threading.Event(), threading.Event()
         studio.jobs.submit("upgrade", "Building app upgrade #1", lambda progress, cancel: go.wait(5) and done.set())
-        assert studio._lab_busy()
-        studio.upgrader.resting = 1
         assert not studio._lab_busy()
+        assert studio._lab_defer() and studio.upgrader.hold()  # the lab asks for the first turn
+        studio.upgrader.resting = 1  # the upgrade parks after its try
+        assert not studio._lab_defer()
+        studio.lab_clock.attempts += 1  # a round ran
+        studio.upgrader.resting = 0
+        assert studio._lab_defer() and not studio.upgrader.hold()  # now the upgrade's turn
+        studio.upgrader.tries_done += 1
+        assert studio._lab_defer() and studio.upgrader.hold()  # one try done: the lab's turn again
+        studio.upgrader.resting = 1
+        assert not studio._lab_defer()
         studio.upgrader.resting = 0
         go.set()
         assert done.wait(5)

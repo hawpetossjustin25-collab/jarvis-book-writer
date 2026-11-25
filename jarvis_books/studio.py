@@ -158,8 +158,11 @@ class Studio:
         self.lab = BrainLab(self.home / "brain_lab", self.local.client, self.fast, self.tools.declarations,
                             self.settings, web=self.web, measure_model_tools=self._lab_tool_score,
                             apply=self._apply_lab)
-        self.lab_clock = LabClock(self.lab, busy=self._lab_busy, defer=lambda: self.research_clock.working)
+        self.lab_clock = LabClock(self.lab, busy=self._lab_busy, defer=self._lab_defer)
         self.research_clock.hold = lambda: self.lab.running
+        # A self-upgrade and the Brain Lab take turns: one lab round after each upgrade try.
+        self._turn_seen, self._turn_tries, self._lab_turn = 0, -1, False
+        self.upgrader.hold = lambda: self.lab.running or (self._lab_turn and self.lab.enabled())
         for box in (self.tools, self.war_tools):
             box.researcher, box.research_clock = self.researcher, self.research_clock
             box.lab, box.lab_clock = self.lab, self.lab_clock
@@ -254,15 +257,26 @@ class Studio:
     def _lab_busy(self) -> bool:
         """The Brain Lab works only while Jarvis has nothing else to do: no running jobs and no recent chat."""
         last = max(getattr(a, "last_used", 0.0) for a in (self.assistant, self.war_assistant))
-        active = self.jobs.active()
-        if 0 < sum(j.kind == "upgrade" for j in active) <= self.upgrader.resting:
-            active = [j for j in active if j.kind != "upgrade"]  # an upgrade waiting for a brain leaves room
-        jobs = ", ".join(j.title for j in active)
+        jobs = ", ".join(j.title for j in self.jobs.active() if j.kind != "upgrade")
         if jobs != getattr(self, "_lab_jobs", ""):
             self._lab_jobs = jobs
             if jobs:
                 log.info("brain lab waits for: %s", jobs)
         return bool(jobs) or time.time() - last < IDLE_S
+
+
+    def _lab_defer(self) -> bool:
+        """Other background work using the computer: the researcher, or a self-upgrade between turns."""
+        if self.research_clock.working:
+            return True
+        upgrades = sum(j.kind == "upgrade" for j in self.jobs.active())
+        if not upgrades:
+            return False
+        if self.lab_clock.attempts != self._turn_seen:
+            self._turn_seen, self._turn_tries, self._lab_turn = self.lab_clock.attempts, self.upgrader.tries_done, False
+        if self.upgrader.tries_done != self._turn_tries:
+            self._lab_turn = True  # the upgrade pauses after the try it is on
+        return self.upgrader.resting < upgrades
 
     def _lab_tool_score(self, model: str, options: dict) -> float:
         """How well a local model picks Jarvis's tools: every third case of the fixed tool test."""
