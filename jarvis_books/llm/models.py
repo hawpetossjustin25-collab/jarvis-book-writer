@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Callable, Any, Optional
 
 
 @dataclass
@@ -107,6 +107,7 @@ class LLMRequest:
     temperature: Optional[float] = None
     purpose: str = ""
     allow_fallback: bool = True
+    on_text: Optional[Callable[[str], None]] = None  # gets the answer so far while it is being written
 
 
 @dataclass

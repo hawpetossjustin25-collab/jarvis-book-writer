@@ -71,8 +71,9 @@ class Studio:
         self.engine = AdaptiveLLMEngine(client, EngineStore(self.home / "adaptive_llm.db"), **(engine_kwargs or {})) \
             if client else None
         probe = (engine_kwargs or {}).get("hardware_probe")
+        # The chat brain stays in memory (keep_alive -1) so a message after a quiet spell doesn't wait for the disk.
         self.local = LocalEngine(local_client or OllamaClient(), state_path=self.home / "local_llm.json",
-                                 **({"hardware_probe": probe} if probe else {}))
+                                 keep_alive=-1, **({"hardware_probe": probe} if probe else {}))
         lab_model = self.library.get_meta("lab_model", "")  # the Brain Lab's best model for this computer
         if lab_model:
             self.local.model, self.local.label = lab_model, LABELS.get(lab_model, lab_model)
@@ -319,7 +320,10 @@ class Studio:
 
     def _start_local(self) -> None:
         """Get LFM3 ready on this computer; downloads it once in the background when Ollama is there."""
-        if self.local.initialize() or "downloaded" not in self.local.problem:
+        if self.local.initialize():
+            self.local.warm()
+            return
+        if "downloaded" not in self.local.problem:
             return
         if self.library.get_meta("local_download_failed", "") == self.local.model:
             return

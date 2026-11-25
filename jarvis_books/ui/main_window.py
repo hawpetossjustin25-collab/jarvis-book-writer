@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 from PyQt6.QtCore import QThread, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QFont
+from PyQt6.QtGui import QDesktopServices, QFont, QTextCursor
 from PyQt6.QtWidgets import (QTableWidgetItem, QTableWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                              QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter, QTabWidget,
@@ -93,6 +93,7 @@ class NewBookDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    chat_partial = pyqtSignal(str)  # Jarvis's reply so far, from the worker thread
     _perm_event = pyqtSignal(str, object)
     _ui_call = pyqtSignal(object)
     _brain_event = pyqtSignal(str, str, str)
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.watchdog = watchdog  # FreezeWatchdog: restarts the app if this window stops responding
         self.studio = studio
+        self.chat_partial.connect(self._chat_streamed)
         self.approval_bars: list[ApprovalBar] = []
         self.setWindowTitle("Jarvis Book Writer")
         self.resize(1280, 820)
@@ -516,16 +518,39 @@ class MainWindow(QMainWindow):
         self.chat_input.clear()
         self._chat_append("You", text)
         self.chat_send.setEnabled(False)
+        self._chat_mark = self._chat_end()
         self.chat_view.append("<i style='color:#718096'>Jarvis is thinking...</i>")
 
         def done(reply):
             self.chat_send.setEnabled(True)
-            self._chat_append("Jarvis", reply or "(done)")
+            self._chat_tail("Jarvis", reply or "(done)")
+            self._chat_mark = None
 
         def fail(err):
             self.chat_send.setEnabled(True)
-            self._chat_append("Jarvis", f"Sorry, that failed: {err}")
-        run_async(lambda: self.studio.assistant.send(text), done, fail)
+            self._chat_tail("Jarvis", f"Sorry, that failed: {err}")
+            self._chat_mark = None
+        run_async(lambda: self.studio.assistant.send(text, on_text=self.chat_partial.emit), done, fail)
+
+    def _chat_end(self) -> int:
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        return cursor.position()
+
+    def _chat_tail(self, who: str, text: str) -> None:
+        """Replace everything after the author's last message (the thinking line or the reply so far)."""
+        mark = getattr(self, "_chat_mark", None)
+        if mark is not None:
+            cursor = self.chat_view.textCursor()
+            cursor.setPosition(min(mark, self._chat_end()))
+            cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+        self._chat_append(who, text)
+
+    def _chat_streamed(self, text: str) -> None:
+        if getattr(self, "_chat_mark", None) is not None and text.strip():
+            self._chat_tail("Jarvis", text)
+            self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
 
     # ---- War Room -----------------------------------------------------------------------------
     WAR_LABELS = {"proposed": "Jarvis's idea", "accepted": "Canon", "rejected": "Rejected", "undone": "Undone"}

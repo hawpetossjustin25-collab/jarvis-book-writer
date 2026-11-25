@@ -151,19 +151,28 @@ class FakeOllama:
                              "prompt_eval_duration": int(prompt_tokens / 50 * 1e9), "eval_count": output_tokens,
                              "eval_duration": int(output_tokens / 8 * 1e9)})
 
-    def chat(self, payload, timeout=None, idle_s=None, first_token=None):
+    def chat(self, payload, timeout=None, idle_s=None, first_token=None, on_text=None):
         self._check()
         if first_token is not None:
             first_token()
         self.chats.append(payload)
         self.timeouts.append((timeout, idle_s))
         if not self.replies:
-            return {"message": {"role": "assistant", "content": "ok from LFM3"}, "prompt_eval_count": 100,
-                    "prompt_eval_duration": int(2e9), "eval_count": 16, "eval_duration": int(2e9)}
-        r = self.replies.pop(0)
+            r = {"message": {"role": "assistant", "content": "ok from LFM3"}, "prompt_eval_count": 100,
+                 "prompt_eval_duration": int(2e9), "eval_count": 16, "eval_duration": int(2e9)}
+        else:
+            r = self.replies.pop(0)
         if isinstance(r, Exception):
             raise r
+        words = ((r.get("message") or {}).get("content") or "").split(" ")
+        if on_text is not None:
+            for i in range(1, len(words) + 1):
+                on_text(" ".join(words[:i]))
         return r
+
+    def load(self, model, keep_alive):
+        self._check()
+        self.loaded.append({"name": model, "keep_alive": keep_alive})
 
     def pull(self, model, progress=None, cancel=None):
         self._check()

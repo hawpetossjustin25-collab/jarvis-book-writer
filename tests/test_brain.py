@@ -42,7 +42,8 @@ def test_context_grows_with_measured_speed_and_is_remembered(tmp_path):
     assert eng.output_tokens() > 1000
     again = local(tmp_path, FakeOllama())
     again.initialize()
-    assert again.num_ctx == eng.num_ctx  # measurements survive a restart
+    assert again.speed.prompt_tps == eng.speed.prompt_tps  # measurements survive a restart
+    assert again.num_ctx >= eng.num_ctx  # a running engine only resizes for big changes; a restart sizes exactly
 
 
 def test_context_never_exceeds_free_ram(tmp_path):

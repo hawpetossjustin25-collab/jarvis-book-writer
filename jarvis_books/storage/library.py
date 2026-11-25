@@ -335,6 +335,13 @@ class Library:
         rows = self.db.query(f"SELECT * FROM messages WHERE {where} ORDER BY id DESC LIMIT ?", (*params, int(limit)))
         return [Message.from_row(r) for r in reversed(rows)]
 
+    def count_messages(self, channel: str | tuple, book_id: str | None = None) -> int:
+        channels = (channel,) if isinstance(channel, str) else tuple(channel)
+        where = f"channel IN ({','.join('?' * len(channels))})" + (" AND book_id=?" if book_id else "")
+        rows = self.db.query(f"SELECT COUNT(*) AS n FROM messages WHERE {where}",
+                             channels + ((book_id,) if book_id else ()))
+        return int(rows[0]["n"]) if rows else 0
+
     def messages_after(self, channel: str, after_id: int, book_id: str | None = None,
                        limit: int = 200) -> list[Message]:
         where, params = ("AND book_id=?", (book_id,)) if book_id else ("", ())

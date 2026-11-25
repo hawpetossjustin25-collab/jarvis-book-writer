@@ -111,3 +111,72 @@ def test_windows_starts_the_ollama_tray_app_instead_of_a_second_server(tmp_path,
     assert launch_command(str(exe)) == [str(tmp_path / "ollama app.exe")]
     monkeypatch.setattr(sys, "platform", "linux")
     assert launch_command(str(exe)) == [str(exe), "serve"]
+
+
+# ---- speed: streaming, keeping the model loaded and reusing the prompt Ollama already read ----------------------
+
+def _engine(tmp_path, **kw):
+    from tests.fakes import FakeOllama
+    from jarvis_books.llm.local import LocalEngine
+    client = FakeOllama()
+    eng = LocalEngine(client, state_path=tmp_path / "s.json", **kw)
+    assert eng.initialize()
+    return eng, client
+
+
+def test_the_reply_streams_to_on_text_as_it_is_written(tmp_path):
+    from jarvis_books.llm.models import LLMRequest
+    eng, client = _engine(tmp_path)
+    client.reply("Hello there Justin")
+    seen = []
+    resp = eng.generate(LLMRequest(role="chat", system="s", instruction="hi", on_text=seen.append))
+    assert seen == ["Hello", "Hello there", "Hello there Justin"] and resp.text == "Hello there Justin"
+    assert client.timeouts[-1][1] is not None  # streamed, with a quiet limit
+
+
+def test_keep_alive_is_sent_and_warm_loads_the_model(tmp_path):
+    from jarvis_books.llm.models import LLMRequest
+    eng, client = _engine(tmp_path, keep_alive=-1)
+    assert eng.warm() and client.loaded[-1] == {"name": eng.model, "keep_alive": -1}
+    eng.generate(LLMRequest(role="chat", system="s", instruction="hi"))
+    assert client.chats[-1]["keep_alive"] == -1
+
+
+def test_partial_thinking_is_never_shown():
+    from jarvis_books.llm.local import _strip_thinking
+    assert _strip_thinking("<think>planning", partial=True) == ""
+    assert _strip_thinking("<think>x</think>Hi <think>more", partial=True) == "Hi"
+
+
+def _decl(name):
+    return {"name": name, "description": name, "parameters": {"type": "object", "properties": {}}}
+
+
+def test_the_tool_list_and_system_prompt_stay_the_same_while_they_still_cover_the_request(tmp_path):
+    from jarvis_books.llm.models import LLMRequest
+    eng, client = _engine(tmp_path)
+    big = "rules " * 4000  # longer than its share, so it is cut
+    eng.generate(LLMRequest(role="chat", system=big, instruction="a", tools=[_decl("a"), _decl("b"), _decl("c")]))
+    first = client.chats[-1]
+    eng.generate(LLMRequest(role="chat", system=big, instruction="b", tools=[_decl("b")]))
+    second = client.chats[-1]
+    assert second["tools"] == first["tools"] and second["messages"][0] == first["messages"][0]
+    eng.generate(LLMRequest(role="chat", system=big, instruction="d", tools=[_decl("d")]))
+    assert [t["function"]["name"] for t in client.chats[-1]["tools"]] == ["d"]  # a new tool: a new list
+    assert client.chats[-1]["messages"][0] == first["messages"][0]
+
+
+def test_small_speed_changes_do_not_resize_the_context(tmp_path):
+    eng, client = _engine(tmp_path)
+    before = eng.num_ctx
+    eng.speed.prompt_tps *= 1.05
+    eng._measure({"prompt_eval_count": 100, "prompt_eval_duration": int(100 / eng.speed.prompt_tps * 1e9)})
+    assert eng.num_ctx == before
+
+
+def test_the_history_window_only_moves_every_few_messages():
+    from jarvis_books.llm.history import steady_count
+    starts = [total - steady_count(total, 8, 4) for total in range(1, 30)]
+    assert all(n <= 11 for n in (steady_count(t, 8, 4) for t in range(1, 30)))
+    assert sorted(set(starts)) == [0, 4, 8, 12, 16, 20] and starts == sorted(starts)
+

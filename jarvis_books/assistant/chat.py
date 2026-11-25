@@ -11,6 +11,7 @@ from typing import Callable, Optional
 from jarvis_books.assistant.game_tools import asks_for_game_move
 from jarvis_books.assistant.permissions import READ, level_of, outcome_note
 from jarvis_books.assistant.tools import ToolBox
+from jarvis_books.llm.history import steady_count
 from jarvis_books.llm.models import LLMRequest, PromptSection
 from jarvis_books.storage.library import Library
 from jarvis_books.writer import prompts
@@ -31,6 +32,9 @@ FAST_NOTE = ("(Note from the app: Jarvis's quick tool brain already did this for
              "{name} again for this request; call another tool only if the request still needs one.)")
 SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
                      "and say plainly anything you couldn't confirm")
+
+
+CONTEXT_NOTE = "For you, not from the author: what you know right now"
 
 
 def now_line() -> str:
@@ -57,7 +61,11 @@ class Assistant:
     def _history(self) -> list[dict]:
         config = self.engine.get_runtime_configuration()
         book_id = self.tools.current_book_id if self.per_book else None
-        msgs = self.library.recent_messages(self.history_channels, limit=config.history_turns, book_id=book_id)
+        limit = config.history_turns
+        total = self.library.count_messages(self.history_channels, book_id=book_id)
+        # The window's oldest turn only moves every few messages, so a local brain can reuse the prompt it read.
+        msgs = self.library.recent_messages(self.history_channels, book_id=book_id,
+                                            limit=steady_count(total, limit, max(1, limit // 2)))
         return [{"role": "user" if m.role == "user" else "model", "parts": [{"text": m.text}]} for m in msgs]
 
     def _situation(self) -> str:
@@ -74,8 +82,10 @@ class Assistant:
             lines.append("Running jobs: " + "; ".join(f"{j.title} {round(j.progress * 100)}%" for j in active))
         return "\n".join(lines)
 
-    def send(self, text: str, on_tool: Optional[Callable[[str, dict, dict], None]] = None) -> str:
-        """Send one user message; runs tool calls until Gemini answers in text. Returns the reply."""
+    def send(self, text: str, on_tool: Optional[Callable[[str, dict, dict], None]] = None,
+             on_text: Optional[Callable[[str], None]] = None) -> str:
+        """Send one user message; runs tool calls until Gemini answers in text. Returns the reply. on_text gets the
+        reply so far while it is being written (it may start over when another brain takes over)."""
         self.last_used = time.time()
         key_book = self.tools.current_book_id if self.per_book else None
         if self.memory is not None:  # a conversation that went quiet is learned from before this one goes on
@@ -92,20 +102,24 @@ class Assistant:
         if done is not None:
             model_text += "\n\n" + FAST_NOTE.format(name=done[0]["name"], args=json.dumps(done[0]["args"]),
                                                      result=json.dumps(_clip(done[1], 6000), ensure_ascii=False))
-        contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
-        system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "") + "\n\n" + self._situation()
+        # The system prompt stays the same from message to message and what changes (the time, open book, memories
+        # and research for this message) goes after the author's words: brains reuse a prompt's unchanged start.
+        system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "")
+        context = [self._situation()]
         remembered = self.memory.prompt(text, self.tools.current_book_id) if self.memory is not None else ""
         if remembered:
-            system += "\n\n" + remembered
+            context.append(remembered)
         researched = self.researcher.prompt(text) if self.researcher is not None else ""
         if researched:
-            system += "\n\n" + researched
+            context.append(researched)
+        model_text += "\n\n(" + CONTEXT_NOTE + ")\n" + "\n\n".join(context)
+        contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
         reply = ""
         searches = 0
         called, checked = done is not None, False
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
-                                                   local_tools=local_tools,
+                                                   local_tools=local_tools, on_text=on_text,
                                                    temperature=0.7, purpose="chat"))
             if not resp.function_calls:
                 reply = resp.text.strip()

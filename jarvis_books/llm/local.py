@@ -80,10 +80,13 @@ def to_tools(declarations: list[dict]) -> list[dict]:
             for d in declarations]
 
 
-def _strip_thinking(text: str) -> str:
+def _strip_thinking(text: str, partial: bool = False) -> str:
+    """partial: an answer still being written, whose thinking may not have closed yet (none of it is shown)."""
     while "<think>" in text and "</think>" in text:
         start, end = text.index("<think>"), text.index("</think>") + len("</think>")
         text = text[:start] + text[end:]
+    if partial and "<think>" in text:
+        text = text[:text.index("<think>")]
     return text.strip()
 
 
@@ -173,11 +176,17 @@ class OllamaClient:
     def list_models(self) -> list[dict]:
         return self._call("GET", "/api/tags", timeout=10).json().get("models", [])
 
+    def load(self, model: str, keep_alive) -> None:
+        """Load a model into memory now (an empty chat), so the first real message doesn't wait for the disk."""
+        self._call("POST", "/api/chat", {"model": model, "messages": [], "keep_alive": keep_alive, "stream": False},
+                   timeout=600)
+
     def show(self, model: str) -> dict:
         return self._call("POST", "/api/show", {"model": model}, timeout=30).json()
 
     def chat(self, payload: dict, timeout: Optional[float] = None, idle_s: Optional[float] = None,
-             first_token: Optional[Callable[[], None]] = None) -> dict:
+             first_token: Optional[Callable[[], None]] = None,
+             on_text: Optional[Callable[[str], None]] = None) -> dict:
         """One answer. With idle_s the answer streams: it may take up to `timeout` in all, as long as the model
         never goes quiet for idle_s (reading the prompt counts as quiet, so idle_s must cover that too)."""
         if idle_s is None:
@@ -199,6 +208,8 @@ class OllamaClient:
                     first_token = None
                 text.append(part.get("content") or "")
                 calls.extend(part.get("tool_calls") or [])
+                if on_text is not None and part.get("content"):
+                    on_text(_strip_thinking("".join(text), partial=True))
                 if msg.get("done"):
                     message = dict(part, role="assistant", content="".join(text))
                     if calls:
@@ -267,8 +278,13 @@ class LocalEngine:
                  hardware_probe: Callable[[], HardwareProfile] = probe_hardware,
                  answer_budget_s: float = 90.0, prompt_budget_s: float = 60.0, label: str = LABEL,
                  fit_request: bool = False, ram_probe: Callable[[], Optional[int]] = available_ram,
-                 stream_cap_s: Optional[float] = None, max_ctx: Optional[int] = None):
+                 stream_cap_s: Optional[float] = None, max_ctx: Optional[int] = None,
+                 keep_alive: Optional[int | str] = None):
         self.client = client
+        # keep_alive: how long Ollama keeps the model in memory after an answer (-1 = until it closes). Loading a
+        # model from disk costs seconds on every message that comes after a quiet spell.
+        self.keep_alive = keep_alive
+        self._tools_sent: list[dict] = []
         # max_ctx: the most context this engine ever uses. Reading a long prompt slows down on a small CPU far
         # more than short requests show, so a request-sized context still needs a ceiling.
         self.max_ctx = max_ctx or self.MAX_CTX
@@ -343,6 +359,17 @@ class LocalEngine:
         self._size()
         log.info("local model %s ready: context %d (window %d), tools %s", self.model, self.num_ctx, ctx, tools)
         return True
+
+    def warm(self) -> bool:
+        """Load the model into memory ahead of the first message. False when Ollama can't."""
+        if not self.available:
+            return False
+        try:
+            self.client.load(self.model, self.keep_alive if self.keep_alive is not None else "5m")
+            return True
+        except LLMError as exc:
+            log.info("couldn't preload %s: %s", self.model, exc)
+            return False
 
     def _size(self, need: Optional[int] = None) -> None:
         p = self.profile
@@ -436,19 +463,35 @@ class LocalEngine:
             tools.pop()
         return tools
 
+    SYSTEM_SHARE = 0.25  # of the context; it depends on nothing that changes between messages
+    HISTORY_TURNS, HISTORY_STEP = 8, 4
+
+    def _steady_tools(self, tools: list[dict], budget_in: int) -> list[dict]:
+        """The tools sent last time, while they still cover every tool this request needs and fit: the tool list
+        comes first in the prompt, so changing it makes the model reread the whole prompt."""
+        names = {t["function"]["name"] for t in tools}
+        last = self._tools_sent
+        if tools and last and names <= {t["function"]["name"] for t in last} \
+                and estimate_tokens(json.dumps(last), 3.0) <= int(budget_in * self.TOOL_SHARE):
+            return last
+        self._tools_sent = tools
+        return tools
+
     def build(self, request: LLMRequest) -> dict:
         if self.fit_request:
             self._fit_context(request)
         cpt = self.chars_per_token
         budget_in, out = self.input_tokens(), self.answer_tokens()
-        tools = self._fit_tools(request, budget_in)
+        tools = self._steady_tools(self._fit_tools(request, budget_in), budget_in)
+        # The system prompt is cut against the whole room, not what the tools leave: Ollama reuses its work on a
+        # prompt's unchanged start, and a cut that moved with the tool list would make it reread everything.
+        system, room = request.system, int(self.num_ctx * self.SYSTEM_SHARE)
+        if estimate_tokens(system, cpt) > room:
+            system = _cut(system, room, cpt, "start")
         if tools:
             budget_in = max(512, budget_in - estimate_tokens(json.dumps(tools), 3.0))
-        system = request.system
-        if estimate_tokens(system, cpt) > budget_in * 0.5:
-            system = _cut(system, int(budget_in * 0.5), cpt, "start")
         answering = not (request.instruction or request.sections)
-        history = window(request.history, 8, answering)
+        history = window(request.history, self.HISTORY_TURNS + self.HISTORY_STEP, answering)
         room = int(budget_in * 0.8) - estimate_tokens(system, cpt)
         history = fit_turns(history, room, lambda t: estimate_tokens(json.dumps(t.get("parts", "")), cpt), answering)
         used = estimate_tokens(system, cpt) + sum(estimate_tokens(json.dumps(t.get("parts", "")), cpt) for t in history)
@@ -473,6 +516,8 @@ class LocalEngine:
                                      "num_predict": min(request.max_output_tokens or out, out)}}
         if request.temperature is not None:
             payload["options"]["temperature"] = float(request.temperature)
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         if self.profile and self.profile.supports_thinking:
             payload["think"] = self.thinks(request.role)
         if tools:
@@ -489,8 +534,10 @@ class LocalEngine:
             for attempt in (1, 2):
                 start = time.perf_counter()
                 try:
-                    if self.stream_cap_s:
-                        body = self.client.chat(payload, timeout=self.stream_cap_s, idle_s=self.quiet_limit_s())
+                    if self.stream_cap_s or request.on_text is not None:
+                        body = self.client.chat(payload, idle_s=self.quiet_limit_s(), on_text=request.on_text,
+                                                timeout=self.stream_cap_s or
+                                                self.prompt_budget_s + self.answer_budget_s + 120)
                     else:
                         body = self.client.chat(payload, timeout=self.prompt_budget_s + self.answer_budget_s + 120)
                 except LLMError as exc:
@@ -530,7 +577,12 @@ class LocalEngine:
         self.speed.update(rate(body.get("prompt_eval_count"), body.get("prompt_eval_duration")),
                           rate(body.get("eval_count"), body.get("eval_duration")))
         if self.profile:
+            before = self.num_ctx
             self._size()
+            # A new context size makes Ollama reload the model and forget the prompt it has read, so small
+            # changes in measured speed wait until they add up.
+            if before != self.num_ctx and abs(self.num_ctx - before) < max(2048, before // 4):
+                self.num_ctx = before
         self._save_state()
 
 

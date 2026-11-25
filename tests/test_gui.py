@@ -81,6 +81,28 @@ def test_chat_round_trip(window, qapp):
     assert [m.role for m in studio.library.recent_messages("chat", 5)][-2:] == ["user", "assistant"]
 
 
+def test_chat_reply_appears_while_it_is_being_written(window, qapp):
+    win, studio, book = window
+    shown = []
+    real = studio.assistant.send
+
+    def slow_send(text, on_tool=None, on_text=None):
+        for part in ("Hel", "Hello the", "Hello there"):
+            on_text(part)
+        pump(qapp, lambda: False, timeout=0.3)
+        shown.append(win.chat_view.toPlainText())
+        return real(text, on_tool=on_tool)
+
+    studio.assistant.send = slow_send
+    win.chat_input.setText("stream please")
+    win._send_chat()
+    assert pump(qapp, lambda: win.chat_send.isEnabled(), timeout=10)
+    page = win.chat_view.toPlainText()
+    assert "Hello there" in shown[0] and "thinking" not in shown[0]  # the partial reply replaced "thinking"
+    assert "Hello there" not in page and page.count("Jarvis:") == 1  # the final reply replaced the partial one
+    assert "stream please" in page
+
+
 def test_full_control_switch_in_settings(window, qapp):
     win, studio, book = window
     assert not win.full_control.isChecked() and studio.gate.decide("run_command") == "ask"

@@ -1,3 +1,4 @@
+import json
 """The background researcher: noticing interests, research rounds, the notebook, Jarvis's tools and the loop."""
 import threading
 import time
@@ -297,12 +298,12 @@ def test_chat_prompt_includes_the_researchers_notes(studio):
     real = studio.brain.generate
 
     def spy(req):
-        seen.append(req.system)
+        seen.append(json.dumps(req.history[-1]))
         return real(req)
 
     studio.brain.generate = spy
     studio.assistant.send("what solar generator should I buy")
-    assert "https://e.com/j" in seen[0]
+    assert "https://e.com/j" in seen[0]  # with this message, after the author's words, not in the steady system prompt
 
 
 def test_groq_researches_when_picked_and_is_the_last_resort_otherwise(res):
@@ -404,3 +405,19 @@ def test_a_local_model_out_of_room_is_not_waited_on(res):
     res.add_topic("Solar")
     res.backup.queue("researcher question", {"question": "q"})
     assert res.step()["question"] == "q" and slept == []
+
+
+def test_chat_keeps_its_system_prompt_steady_and_streams_to_the_caller(studio):
+    seen, systems = [], []
+    real = studio.brain.generate
+
+    def spy(req):
+        systems.append(req.system)
+        if req.on_text:
+            req.on_text("Hi")
+        return real(req)
+
+    studio.brain.generate = spy
+    studio.assistant.send("hello", on_text=seen.append)
+    studio.assistant.send("how are you")
+    assert systems[0] == systems[-1] and "Right now it is" not in systems[0] and seen and seen[0] == "Hi"

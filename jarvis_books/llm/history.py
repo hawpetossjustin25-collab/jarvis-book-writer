@@ -63,3 +63,12 @@ def _shorten(turn: dict, cap: int) -> dict:
                 p = {**p, "functionResponse": reply}
         parts.append(p)
     return {**turn, "parts": parts}
+
+
+def steady_count(total: int, limit: int, step: int) -> int:
+    """How many of the newest `total` turns to keep so the oldest kept turn only moves every `step` turns. A local
+    model reuses the work it did on a prompt's unchanged start, so a window that slid by one turn every message
+    would make it reread the whole conversation each time."""
+    if total <= limit:
+        return total
+    return limit + (total - limit) % max(1, step)
