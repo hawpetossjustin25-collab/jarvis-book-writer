@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import logging
 import os
 import re
@@ -240,12 +241,67 @@ class Stopped(Exception):
     """The app is closing mid-build; the build picks up again next time the app starts."""
 
 
+ROUTING_PROBE = (
+    "import json, sys\n"
+    "from pathlib import Path\n"
+    "from jarvis_books.assistant.tools import DECLARATIONS, ToolBox\n"
+    "from jarvis_books.llm.tool_eval import check_cases, load_cases, route_coverage\n"
+    "box = ToolBox.__new__(ToolBox); box.war_session_id = None\n"
+    "cases = load_cases(Path(sys.argv[1]))\n"
+    "print(json.dumps({'problems': check_cases(cases, DECLARATIONS), **route_coverage(cases, box.select)}))\n")
+
+
+def routing_score(root: Path, cases: Path, python: str = sys.executable, timeout_s: int = 120) -> Optional[dict]:
+    """How the app in root does on the tool-calling test set without any brain: the cases still name real tools
+    and arguments, and the short tool list the small brains get still holds the right tool. None when that app
+    has no test set yet (older versions)."""
+    if not (Path(root) / "jarvis_books" / "llm" / "tool_eval.py").is_file():
+        return None
+    with tempfile.TemporaryDirectory(prefix="jb-routing-") as scratch:
+        try:
+            done = subprocess.run([python, "-c", ROUTING_PROBE, str(cases)], cwd=str(root),
+                                  env=clean_env(Path(scratch)), capture_output=True, text=True, timeout=timeout_s,
+                                  encoding="utf-8", errors="replace",
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
+            return {"error": f"the tool test took longer than {timeout_s} seconds"}
+    lines = done.stdout.strip().splitlines()
+    try:
+        return json.loads(lines[-1]) if done.returncode == 0 and lines else {"error": done.stderr.strip()[-800:]}
+    except ValueError:
+        return {"error": done.stdout.strip()[-800:]}
+
+
+def compare_routing(current: Path, candidate: Path) -> tuple[bool, str]:
+    """The side-by-side check: the upgraded copy must do at least as well as the installed app on the installed
+    app's own tool test set (the copy's set can't be used, or an upgrade could pass by editing it)."""
+    cases = Path(current) / "jarvis_books" / "llm" / "data" / "tool_cases.jsonl"
+    before = routing_score(current, cases) if cases.is_file() else None
+    if before is None or "error" in before:
+        return True, "tool test: no score for the installed app to compare with"
+    after = routing_score(candidate, cases)
+    if after is None:
+        return False, "tool test: the upgrade removed the tool-calling test set (jarvis_books/llm/tool_eval.py)"
+    if "error" in after:
+        return False, "tool test could not run on the upgraded copy: " + after["error"]
+    new_problems = sorted(set(after["problems"]) - set(before["problems"]))
+    if new_problems:
+        return False, ("tool test: the upgrade broke tools the test set uses: " + "; ".join(new_problems[:10]))
+    lost = sorted(set(after["missing"]) - set(before["missing"]))
+    if after["covered"] < before["covered"]:
+        return False, (f"tool test: the small brains' tool list now misses the right tool for {', '.join(lost)} "
+                       f"({after['covered']} of {after['total']} covered, was {before['covered']})")
+    return True, f"tool test: {after['covered']} of {after['total']} covered (was {before['covered']})"
+
+
 class Upgrader:
     def __init__(self, library, engine, work_root: Path, root: Optional[Path] = None,
                  runner: Callable[[Path], tuple[bool, str]] = run_tests, max_tries: int = 0,
                  wait: Optional[Callable[[float, object], None]] = None, fallback=None,
-                 fallback_after_s: float = FALLBACK_AFTER_S, clock: Callable[[], float] = time.time):
+                 fallback_after_s: float = FALLBACK_AFTER_S, clock: Callable[[], float] = time.time,
+                 compare: Callable[[Path, Path], tuple[bool, str]] = compare_routing):
         self.library = library
+        self.compare = compare
         self.engine = engine
         self.fallback = fallback  # slower free model, used only once the main brain has been out a long time
         self.fallback_after_s = fallback_after_s
@@ -380,6 +436,9 @@ class Upgrader:
                 continue
             progress(busy + 0.03, f"Running every test on the copy (try {tries})")
             ok, output = self.runner(copy)
+            if ok:
+                ok, verdict = self.compare(self.root, copy)
+                output = output + "\n" + verdict if ok else verdict + "\n" + output
             if ok:
                 return self.library.update_upgrade(
                     upgrade_id, status="ready", summary=summary, files=changed, diff=self._diff(copy, changed),

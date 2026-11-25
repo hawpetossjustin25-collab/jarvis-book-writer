@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as ToolTimeout
 from datetime import datetime
 from typing import Callable, Optional
 
 from jarvis_books.assistant.game_tools import asks_for_game_move
-from jarvis_books.assistant.permissions import outcome_note
+from jarvis_books.assistant.permissions import READ, level_of, outcome_note
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.llm.models import LLMRequest, PromptSection
 from jarvis_books.storage.library import Library
@@ -20,6 +21,10 @@ MAX_SEARCHES = 3  # per question: more searches mostly repeat the same pages and
 NO_TOOL_NOTE = ("(Check from the app: you answered without calling any tool, so nothing in the game changed. If "
                 "the author asked for a game move, make it now with the game tools and report only what they "
                 "return. If they only asked a question, give your answer again.)")
+READ_TIMEOUT_S = 90  # a lookup that takes longer is reported as slow instead of holding up the answer
+SLOW_READS = {"research_web": 240, "explore_website": 240, "best_tax_deals": 300, "online_tax_sales": 240,
+              "tax_lien_listings": 240, "look_at_screen": 150}
+MAX_PARALLEL = 4
 SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
                      "and say plainly anything you couldn't confirm")
 
@@ -103,13 +108,13 @@ class Assistant:
             called = True
             contents.append(resp.content or {"role": "model", "parts": [{"functionCall": c} for c in resp.function_calls]})
             parts = []
+            allowed = []
             for call in resp.function_calls:
                 if call.get("name", "") in SEARCH_TOOLS:
                     searches += 1
-                if call.get("name", "") in SEARCH_TOOLS and searches > MAX_SEARCHES:
-                    result = {"error": SEARCH_LIMIT_NOTE}
-                else:
-                    result = self.tools.call(call.get("name", ""), call.get("args") or {}, source="chat")
+                allowed.append(not (call.get("name", "") in SEARCH_TOOLS and searches > MAX_SEARCHES))
+            results = self._run_calls(resp.function_calls, allowed)
+            for call, result in zip(resp.function_calls, results):
                 if on_tool:
                     on_tool(call.get("name", ""), call.get("args") or {}, result)
                 parts.append({"functionResponse": {"name": call.get("name", ""), "response": _clip(result)}})
@@ -123,6 +128,37 @@ class Assistant:
         if self.memory is not None:
             self.memory.schedule(self.channel, key_book)
         return reply
+
+    def _run_calls(self, calls: list[dict], allowed: list[bool]) -> list[dict]:
+        """Lookups that only read run side by side, each with a time limit; anything that changes something
+        runs one at a time, in the order Jarvis asked, with no time limit (stopping it halfway would mislead)."""
+        results: list = [None] * len(calls)
+        reads = []
+        for i, (call, ok) in enumerate(zip(calls, allowed)):
+            if not ok:
+                results[i] = {"error": SEARCH_LIMIT_NOTE}
+            elif level_of(call.get("name", "")) == READ:
+                reads.append(i)
+        if reads:
+            pool = ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(reads)), thread_name_prefix="jarvis-read")
+            try:
+                futures = {i: pool.submit(self.tools.call, calls[i].get("name", ""), calls[i].get("args") or {},
+                                          source="chat") for i in reads}
+                for i, future in futures.items():
+                    name = calls[i].get("name", "")
+                    limit = SLOW_READS.get(name, READ_TIMEOUT_S)
+                    try:
+                        results[i] = future.result(timeout=limit)
+                    except ToolTimeout:
+                        log.warning("tool %s took longer than %s s", name, limit)
+                        results[i] = {"error": f"{name} took longer than {limit} seconds, so it was left out. Tell "
+                                               "the author it was too slow and offer to try again."}
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
+        for i, call in enumerate(calls):
+            if results[i] is None:
+                results[i] = self.tools.call(call.get("name", ""), call.get("args") or {}, source="chat")
+        return results
 
 
 def _clip(result: dict, limit: int = 20000) -> dict:

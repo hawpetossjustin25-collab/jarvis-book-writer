@@ -1,0 +1,73 @@
+{"id": "books-01", "category": "books", "request": "What books do I have?", "tool": "list_books", "args": {}}
+{"id": "books-02", "category": "books", "request": "Open my book Shadow Harbor.", "tool": "open_book", "args": {"book": "shadow harbor"}}
+{"id": "books-03", "category": "books", "request": "Start a new book about a girl who finds a dragon egg in her grandmother's attic.", "tool": "create_book", "args": {"idea": "dragon egg"}}
+{"id": "books-04", "category": "books", "request": "Write the next 3 chapters of Shadow Harbor.", "tool": "write_chapters", "args": {"book": "shadow harbor", "count": 3}}
+{"id": "books-05", "category": "books", "request": "Read me chapter 4 of Shadow Harbor.", "tool": ["read_chapter", "play_audiobook"], "args": {"book": "shadow harbor", "chapter": 4}}
+{"id": "books-06", "category": "books", "request": "Rewrite chapter 2 of Shadow Harbor so the storm hits earlier.", "tool": "rewrite_chapter", "args": {"book": "shadow harbor", "chapter": 2, "instructions": "storm"}}
+{"id": "books-07", "category": "books", "request": "Make Shadow Harbor 40 chapters long.", "tool": "set_book_length", "args": {"book": "shadow harbor", "chapters": 40}}
+{"id": "books-08", "category": "books", "request": "Stop writing Shadow Harbor.", "tool": ["stop_writing", "cancel_job"], "args": {"book": "shadow harbor"}}
+{"id": "books-09", "category": "books", "request": "Search my books for the lighthouse keeper.", "tool": "search_books", "args": {"query": "lighthouse keeper"}}
+{"id": "books-10", "category": "books", "request": "Who are the characters in Shadow Harbor?", "tool": "story_bible", "args": {"book": "shadow harbor"}}
+{"id": "books-11", "category": "books", "request": "Add a note to Shadow Harbor: the captain has a twin brother.", "tool": "add_note", "args": {"book": "shadow harbor", "text": "twin brother"}}
+{"id": "books-12", "category": "books", "request": "Export Shadow Harbor as an epub.", "tool": "export_book", "args": {"book": "shadow harbor", "format": "epub"}}
+{"id": "books-13", "category": "books", "request": "How far along is the writing job?", "tool": "job_status", "args": {}}
+{"id": "books-14", "category": "books", "request": "Play the audiobook of Shadow Harbor.", "tool": "play_audiobook", "args": {"book": "shadow harbor"}}
+{"id": "books-15", "category": "books", "request": "Stop the audiobook.", "tool": "stop_audiobook", "args": {}}
+{"id": "books-16", "category": "books", "request": "Read slower.", "tool": "reading_speed", "args": {"change": "slower"}}
+{"id": "books-17", "category": "books", "request": "How long should a thriller be?", "tool": "writing_advice", "args": {"genre": "thriller"}}
+{"id": "memory-01", "category": "memory", "request": "Remember that my daughter's name is Maya.", "tool": "remember", "args": {"text": "maya"}}
+{"id": "memory-02", "category": "memory", "request": "What do you remember about me?", "tool": "recall_memories", "args": {}}
+{"id": "app-01", "category": "app", "request": "Take me to the planner tab.", "tool": "open_tab", "args": {"tab": "planner"}}
+{"id": "app-02", "category": "app", "request": "What brain are you using right now?", "tool": "brain_status", "args": {}}
+{"id": "app-03", "category": "app", "request": "Switch to Groq.", "tool": "switch_brain", "args": {"use": "groq"}}
+{"id": "app-04", "category": "app", "request": "Run your tests.", "tool": "test_app", "args": {}}
+{"id": "app-05", "category": "app", "request": "Upgrade yourself so the chat box has a bigger font.", "tool": "build_upgrade", "args": {"request": "font"}}
+{"id": "app-06", "category": "app", "request": "Show me the upgrades you've built.", "tool": "list_upgrades", "args": {}}
+{"id": "app-07", "category": "app", "request": "Undo that last change.", "tool": "undo_last_change", "args": {}}
+{"id": "app-08", "category": "app", "request": "What are my settings?", "tool": "get_settings", "args": {}}
+{"id": "computer-01", "category": "computer", "request": "What's in my Downloads folder?", "tool": "list_folder", "args": {"path": "downloads"}}
+{"id": "computer-02", "category": "computer", "request": "Read the file C:\\Users\\hawpe\\Desktop\\notes.txt", "tool": "read_file", "args": {"path": "notes.txt"}}
+{"id": "computer-03", "category": "computer", "request": "Make a folder called Taxes 2026 on my desktop.", "tool": "make_folder", "args": {"path": "taxes 2026"}}
+{"id": "computer-04", "category": "computer", "request": "Delete the file old_draft.docx on my desktop.", "tool": "delete_path", "args": {"path": "old_draft.docx"}}
+{"id": "computer-05", "category": "computer", "request": "Run pip list in the terminal.", "tool": "run_command", "args": {"command": "pip list"}}
+{"id": "computer-06", "category": "computer", "request": "Open Notepad.", "tool": "open_item", "args": {"target": "notepad"}}
+{"id": "computer-07", "category": "computer", "request": "Close Chrome.", "tool": "close_program", "args": {"name": "chrome"}}
+{"id": "computer-08", "category": "computer", "request": "What programs are running?", "tool": "list_programs", "args": {}}
+{"id": "computer-09", "category": "computer", "request": "How much memory does my computer have?", "tool": "system_info", "args": {}}
+{"id": "computer-10", "category": "computer", "request": "What's on my screen right now?", "tool": "look_at_screen", "args": {}}
+{"id": "computer-11", "category": "computer", "request": "Copy 'meeting at 5' to my clipboard.", "tool": "copy_to_clipboard", "args": {"text": "meeting at 5"}}
+{"id": "computer-12", "category": "computer", "request": "Pause the music.", "tool": ["media_control", "stop_audiobook"], "args": {"action": "play_pause"}}
+{"id": "web-01", "category": "web", "request": "Search the web for the best budget laptops of 2026.", "tool": ["web_search", "research_web"], "args": {"query": "laptop"}}
+{"id": "web-02", "category": "web", "request": "Read this page: https://example.com/article", "tool": ["read_web_page", "scrape_web_page"], "args": {"url": "https://example.com/article"}}
+{"id": "web-03", "category": "web", "request": "Download https://example.com/file.zip to my Downloads.", "tool": "download_file", "args": {"url": "https://example.com/file.zip"}}
+{"id": "web-04", "category": "web", "request": "Find GitHub repos for local speech recognition.", "tool": "github_search", "args": {"query": "speech recognition"}}
+{"id": "web-05", "category": "web", "request": "Find a small GGUF model on Hugging Face for coding.", "tool": "hf_search", "args": {"query": "cod"}}
+{"id": "web-06", "category": "web", "request": "Show me tax lien listings in DeKalb County under $5,000.", "tool": "tax_lien_listings", "args": {"area": "dekalb", "max_price": 5000}}
+{"id": "web-07", "category": "web", "request": "What are the best tax deals in the whole country right now?", "tool": "best_tax_deals", "args": {}}
+{"id": "web-08", "category": "web", "request": "What online tax sales are coming up in Florida?", "tool": "online_tax_sales", "args": {"state": "fl"}}
+{"id": "planner-01", "category": "planner", "request": "Remind me to call the bank tomorrow at 9 am.", "tool": "set_reminder", "args": {"text": "bank"}}
+{"id": "planner-02", "category": "planner", "request": "What's on my planner this week?", "tool": "show_planner", "args": {}}
+{"id": "planner-03", "category": "planner", "request": "Add a dentist appointment to my planner for Friday at 2.", "tool": ["add_to_planner", "set_reminder"], "args": {"title": "dentist"}}
+{"id": "planner-04", "category": "planner", "request": "What reminders do I have?", "tool": "list_reminders", "args": {}}
+{"id": "planner-05", "category": "planner", "request": "Stop the alarm.", "tool": "stop_alarm", "args": {}}
+{"id": "research-01", "category": "research", "request": "What has the researcher found so far?", "tool": ["research_status", "research_notes"], "args": {}}
+{"id": "research-02", "category": "research", "request": "Have the researcher look into Georgia tax deed laws.", "tool": "research_topic", "args": {"name": "tax deed"}}
+{"id": "research-03", "category": "research", "request": "Turn the researcher off.", "tool": "researcher_switch", "args": {"on": false}}
+{"id": "game-01", "category": "game", "request": "How much money do we have in the game?", "tool": ["game_status", "game_goal"], "args": {}}
+{"id": "game-02", "category": "game", "request": "Add 8000 to our money in the game.", "tool": "game_add_cash", "args": {}}
+{"id": "game-03", "category": "game", "request": "In the game, add 8000 three times.", "tool": "game_add_cash", "args": {"times": 3}}
+{"id": "game-04", "category": "game", "request": "How many $8,000 adds do we have left this year in the game?", "tool": "game_cash_adds", "args": {}}
+{"id": "game-05", "category": "game", "request": "Take us to the tax sale in the game.", "tool": ["game_go_to_tax_sale", "game_go_forward"], "args": {}}
+{"id": "game-06", "category": "game", "request": "Bid 2500 in the game auction.", "tool": "game_bid", "args": {"amount": 2500}}
+{"id": "game-07", "category": "game", "request": "Pass on this auction in the game.", "tool": "game_pass", "args": {}}
+{"id": "game-08", "category": "game", "request": "Go back in time one move in the game.", "tool": "game_go_back", "args": {"moves": 1}}
+{"id": "game-09", "category": "game", "request": "Go forward to the next tax sale in the game.", "tool": ["game_go_forward", "game_go_to_tax_sale"], "args": {"to": "tax sale"}}
+{"id": "game-10", "category": "game", "request": "Skip ahead 30 days in the game.", "tool": ["game_advance", "game_go_forward"], "args": {"days": 30}}
+{"id": "game-11", "category": "game", "request": "Let's learn.", "tool": "game_learn", "args": {}}
+{"id": "game-12", "category": "game", "request": "Back to the game.", "tool": "game_back_to_game", "args": {}}
+{"id": "game-13", "category": "game", "request": "Show the game houses for sale under $150,000.", "tool": "game_market", "args": {"max_price": 150000}}
+{"id": "game-14", "category": "game", "request": "Any calls from my secretary in the game?", "tool": "game_calls", "args": {}}
+{"id": "game-15", "category": "game", "request": "Hire a bidding assistant in the game with a $30,000 budget and $4,000 max per house.", "tool": "game_hire_bidder", "args": {"budget": 30000, "max_per_property": 4000}}
+{"id": "chat-01", "category": "chat", "request": "Hi Jarvis, how are you doing tonight?", "tool": null, "args": {}}
+{"id": "chat-02", "category": "chat", "request": "Thanks, that's all for now.", "tool": [null, "app_action"], "args": {}}
+{"id": "chat-03", "category": "chat", "request": "What's a good word for 'happy'?", "tool": null, "args": {}}

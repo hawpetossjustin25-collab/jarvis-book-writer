@@ -6,6 +6,7 @@ Long-running operations are started as background jobs and return immediately.
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import time
 from pathlib import Path
@@ -287,6 +288,10 @@ DECLARATIONS = [
     _decl("test_app", "Run the app's own full test suite on the installed code. If any test fails, a repair "
           "upgrade starts by itself and keeps fixing the code until every test passes; when it is ready ask "
           "the author, then install_upgrade."),
+    _decl("test_tool_calling", "Score how well a brain picks Jarvis's tools: it is asked every request in the "
+          "built-in tool test set (no tool runs) and the app reports how many it got right and how fast. brain: "
+          "automatic (default, whichever is answering), gemini, groq or lfm3. Runs as a job; see job_status.",
+          {"brain": {"type": "STRING", "enum": ["automatic", "gemini", "groq", "lfm3"]}}),
     _decl("install_upgrade", "Install a tested app upgrade (status ready). The app restarts.",
           {"upgrade_id": I}, ["upgrade_id"]),
     _decl("undo_upgrade", "Put the app back the way it was before an installed upgrade (latest if omitted). The "
@@ -403,6 +408,8 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
             "list_upgrades": ("upgrade", "feature", "install", "tests pass", "code"),
             "test_app": ("test yourself", "run your tests", "test suite", "self test", "self-test",
                          "check yourself", "tests pass", "fix yourself", "repair yourself"),
+            "test_tool_calling": ("tool test", "tool calling", "tool-calling", "test your tools", "pick tools",
+                                  "picks tools", "pick the right tool"),
             "install_upgrade": ("upgrade", "install"),
             "undo_upgrade": ("upgrade", "undo", "put the app back", "old version"),
             "brain_status": ("brain", "gemini", "groq", "lfm", "local model", "offline", "which model", "switch"),
@@ -591,6 +598,9 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
         if name == "test_app":
             return ("Run the app's full test suite, and if anything fails, build a repair upgrade in a separate "
                     "test copy that keeps fixing it until every test passes")
+        if name == "test_tool_calling":
+            return (f"Test how well {args.get('brain') or 'the current brain'} picks tools: ask it each request in "
+                    "the tool test set (nothing runs; it uses some of that brain's daily quota)")
         if name == "build_upgrade":
             return ("Build an app upgrade in a separate test copy (the running app is not touched): "
                     + truncate_words(args.get("request", ""), 30))
@@ -1071,6 +1081,30 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
                                   "without weakening or deleting tests. Test output:\n" + output[-3000:])
         self._start_upgrade(fix["id"])
         return f"tests failed; repair upgrade #{fix['id']} started and keeps going until every test passes"
+
+    def _t_test_tool_calling(self, brain: str = "automatic") -> dict:
+        from jarvis_books.llm.brain import LOCAL
+        which = (brain or "automatic").lower()
+        engine = self._brain()
+        if which != "automatic":
+            engine = engine.only(LOCAL if which == "lfm3" else which)
+        job = self.jobs.submit("tooltest", f"Testing tool calling ({which})",
+                               lambda progress, cancel: self._tool_test(engine, which, progress, cancel))
+        return {"started": True, "job_id": job.id, "next": "check job_status for the score when it finishes"}
+
+    def _tool_test(self, engine, which: str, progress, cancel) -> str:
+        from jarvis_books.llm.tool_eval import load_cases, run_tool_eval
+        from jarvis_books.writer import prompts
+        report = run_tool_eval(engine, self.declarations(), load_cases(), prompts.ASSISTANT, select=self.select,
+                               progress=progress, cancel=cancel.is_set)
+        home = getattr(self.settings_store, "home", None)
+        if home is not None:
+            folder = Path(home) / "tool_tests"
+            folder.mkdir(parents=True, exist_ok=True)
+            out = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{which}.json"
+            out.write_text(json.dumps(report.to_dict(), indent=1), encoding="utf-8")
+        missed = "; ".join(f"{f['id']}: {f['why']}" for f in report.failures()[:8])
+        return report.summary() + (f". Missed: {missed}" if missed else "")
 
     def _t_list_upgrades(self) -> dict:
         return {"upgrades": [{"id": u["id"], "asked": u["request"], "status": u["status"], "summary": u["summary"],

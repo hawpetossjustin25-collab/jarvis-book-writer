@@ -36,7 +36,7 @@ TOOL_LEVELS = MappingProxyType({
     "change_outline": CHANGE, "export_book": CHANGE, "decide_proposal": CHANGE,
     "change_setting": CHANGE, "undo_last_change": CHANGE,
     "publish_audiobook": OUTSIDE, "send_api": OUTSIDE,
-    "list_upgrades": READ, "test_app": CHANGE,
+    "list_upgrades": READ, "test_app": CHANGE, "test_tool_calling": SAFE,
     "brain_status": READ, "switch_brain": SAFE,
     "list_folder": READ, "read_file": READ, "computer_log": READ, "command_output": READ,
     "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "hf_model_info": READ,

@@ -23,5 +23,8 @@ jarvis-books = "jarvis_books.app:main"
 [tool.setuptools.packages.find]
 include = ["jarvis_books*"]
 
+[tool.setuptools.package-data]
+"jarvis_books.llm" = ["data/*.jsonl"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

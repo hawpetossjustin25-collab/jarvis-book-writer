@@ -1,5 +1,6 @@
 """App upgrades: Gemini may only change a tested copy; installing needs a yes and can always be undone."""
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -609,3 +610,64 @@ def test_the_free_model_sees_only_the_changed_parts_of_a_big_file(library, app, 
     assert len(part.text) < len(whole.text) // 5 and "return 1999" not in part.text
     small = {s.name: s for s in up._sections(copy, "x", ["jarvis_books/feature.py"], cut_big=True)}
     assert small["jarvis_books/feature.py"].text == FEATURE
+
+
+# ---- side-by-side tool test ---------------------------------------------------------------
+
+def _app_copy(dest):
+    from jarvis_books.upgrade import app_root
+    shutil.copytree(app_root() / "jarvis_books", dest / "jarvis_books",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    return dest
+
+
+def test_routing_check_passes_an_unchanged_copy_and_rejects_one_that_loses_tools(tmp_path):
+    from jarvis_books.upgrade import compare_routing
+    current = _app_copy(tmp_path / "current")
+    same = _app_copy(tmp_path / "same")
+    ok, verdict = compare_routing(current, same)
+    assert ok, verdict
+    assert "covered" in verdict
+    worse = _app_copy(tmp_path / "worse")
+    tools = worse / "jarvis_books" / "assistant" / "tools.py"
+    text = tools.read_text(encoding="utf-8")
+    line = '**{d["name"]: GAME_WORDS for d in GAME_DECLARATIONS},'
+    assert line in text
+    tools.write_text(text.replace(line, ""), encoding="utf-8")
+    ok, verdict = compare_routing(current, worse)
+    assert not ok and "misses the right tool" in verdict and "game-" in verdict
+
+
+def test_routing_check_uses_the_installed_cases_and_catches_a_renamed_tool(tmp_path):
+    from jarvis_books.upgrade import compare_routing
+    current = _app_copy(tmp_path / "current")
+    renamed = _app_copy(tmp_path / "renamed")
+    cases = renamed / "jarvis_books" / "llm" / "data" / "tool_cases.jsonl"
+    cases.write_text("", encoding="utf-8")  # emptying the copy's own test set must not help
+    tools = renamed / "jarvis_books" / "assistant" / "game_tools.py"
+    tools.write_text(tools.read_text(encoding="utf-8").replace('"game_pass"', '"game_skip"'), encoding="utf-8")
+    ok, verdict = compare_routing(current, renamed)
+    assert not ok and "unknown tool game_pass" in verdict
+
+
+def test_routing_check_rejects_removing_the_test_set_and_allows_old_installs(tmp_path):
+    from jarvis_books.upgrade import compare_routing
+    current = _app_copy(tmp_path / "current")
+    gone = _app_copy(tmp_path / "gone")
+    (gone / "jarvis_books" / "llm" / "tool_eval.py").unlink()
+    ok, verdict = compare_routing(current, gone)
+    assert not ok and "removed the tool-calling test set" in verdict
+    old = tmp_path / "old"
+    (old / "jarvis_books").mkdir(parents=True)
+    assert compare_routing(old, current)[0]
+
+
+def test_an_upgrade_that_passes_tests_but_fails_the_tool_check_keeps_fixing(library, app, tmp_path):
+    verdicts = iter([(False, "tool test: the small brains' tool list now misses the right tool for game-06"),
+                     (True, "tool test: 71 of 71 covered (was 71)")])
+    again = edit("jarvis_books/feature.py", "return 'hello'", "return 'hello there'")
+    up = make(library, app, tmp_path, ScriptedEngine(GOOD, again), compare=lambda cur, cand: next(verdicts))
+    rec = up.build(up.start("make the title nicer")["id"])
+    assert rec["status"] == "ready"
+    assert "passed on try 2" in rec["test_output"] and "71 of 71 covered" in rec["test_output"]
+    assert "misses the right tool for game-06" in up.engine.requests[1].instruction
