@@ -20,6 +20,12 @@ def no_real_ollama(monkeypatch):
     monkeypatch.setattr("jarvis_books.studio.OllamaClient", lambda *a, **k: FakeOllama(online=False))
 
 
+@pytest.fixture(autouse=True)
+def no_tool_brain_training(monkeypatch):
+    """The Studio doesn't train the quick tool brain in the background during tests (test_tool_brain does)."""
+    monkeypatch.setattr("jarvis_books.studio.TOOL_BRAIN_AUTOBUILD", False)
+
+
 @pytest.fixture
 def library(tmp_path):
     db = Database(tmp_path / "library.db")

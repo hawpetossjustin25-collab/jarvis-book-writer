@@ -1,0 +1,310 @@
+# tool | request pattern | fixed arguments (JSON). {argument:pool} slots, [a|b|] choices. See tool_data.py.
+# ---- books
+list_books | [what|which] books do i have
+list_books | [show|list] [me|] my books
+list_books | what's in my library
+open_book | open [my book|the book|] {book:book}
+open_book | let's work on {book:book}
+open_book | switch to {book:book}
+create_book | [start|write|make] a [new|] book about {idea:idea}
+create_book | i want to write a {genre:genre} book about {idea:idea}
+create_book | new book idea: {idea:idea}
+write_chapters | write the next {count:n} chapters [of|for] {book:book}
+write_chapters | write {count:n} more chapters [of|in] {book:book}
+write_chapters | keep writing {book:book}
+write_chapters | write the next chapter of {book:book}
+set_book_length | make {book:book} {chapters:big} chapters [long|]
+set_book_length | i want {book:book} to have {chapters:big} chapters
+stop_writing | stop writing {book:book}
+stop_writing | [pause|halt] the writing on {book:book}
+rewrite_chapter | rewrite chapter {chapter:n} of {book:book} [so|and] {instructions:instructions}
+rewrite_chapter | in {book:book} redo chapter {chapter:n} and {instructions:instructions}
+rewrite_chapter | revise chapter {chapter:n}: {instructions:instructions}
+read_chapter | [read|show] me chapter {chapter:n} of {book:book}
+read_chapter | what happens in chapter {chapter:n} of {book:book}
+search_books | search my books for {query:character}
+search_books | find where {query:character} shows up in {book:book}
+story_bible | who are the characters in {book:book}
+story_bible | show me the story bible for {book:book}
+story_bible | what places are in {book:book} | {"kind": "location"}
+update_story_bible | add a character named {name:character} to {book:book}: {summary:text} | {"kind": "character"}
+add_note | add a note to {book:book}: {text:text}
+add_note | [note|jot down] for {book:book} that {text:text}
+change_outline | change the outline for chapter {chapter:n} of {book:book} [so|to say] {outline:instructions}
+writing_advice | how long should a {genre:genre} [book|novel] be
+writing_advice | give me advice on writing {genre:genre}
+job_status | how far along is the [writing|job|book]
+job_status | [is it|are you] done writing yet
+job_status | what's the status of the job
+cancel_job | cancel job {job_id:jobid}
+play_audiobook | play the audiobook [of|for] {book:book}
+play_audiobook | read {book:book} to me
+play_audiobook | play chapter {chapter:n} of {book:book}
+stop_audiobook | stop the audiobook
+stop_audiobook | stop reading [to me|]
+reading_speed | read {change:speedword}
+reading_speed | [can you|] [talk|read] {change:speedword}
+export_book | export {book:book} as [a|an|] {format:format}
+export_book | save {book:book} to {format:format}
+# ---- memory
+remember | remember that {text:text}
+remember | don't forget {text:text}
+remember | keep in mind {text:text}
+recall_memories | what do you [remember|know] about me
+recall_memories | what do you remember about {about:topic}
+forget_memory | forget memory {memory_id:id}
+# ---- war room
+war_briefing | [catch me up|fill me in|brief me] on {book:book}
+find_gaps | find the [gaps|holes] in {book:book}
+propose_idea | [pitch|propose] an idea for {book:book}: {title:idea} | {"kind": "note", "content": ""}
+list_proposals | [show|list] the [proposals|ideas] [for {book:book}|]
+decide_proposal | accept proposal {proposal_id:id} | {"decision": "accept"}
+decide_proposal | reject proposal {proposal_id:id} | {"decision": "reject"}
+# ---- publish
+publish_audiobook | [post|upload|publish] {book:book} to youtube | {"privacy": "unlisted"}
+publish_audiobook | upload {book:book} to youtube as private | {"privacy": "private"}
+list_posts | [show|what are] my youtube [posts|uploads]
+# ---- app
+app_status | what are you doing [right now|]
+app_status | [how much storage|what's running] [is left|in the app]
+open_tab | [take me to|open|go to|show] the {tab:tab} tab
+open_tab | switch to the {tab:tab} [tab|screen]
+get_settings | what are my settings
+get_settings | show me the settings
+change_setting | change my author name to {value:character} | {"key": "author"}
+change_setting | turn on full control | {"key": "full_control", "value": "on"}
+change_setting | turn off full control | {"key": "full_control", "value": "off"}
+change_setting | change the wake word to {value:character} | {"key": "wake_word"}
+app_action | mute [the|my] mic | {"action": "mute_mic"}
+app_action | unmute [the|my] mic | {"action": "unmute_mic"}
+app_action | [hang up|end the call|goodbye jarvis] | {"action": "end_voice"}
+app_action | open the book folder | {"action": "open_book_folder"}
+build_upgrade | upgrade yourself [so|to] {request:instructions}
+build_upgrade | [add a feature|improve the app] [so|that] {request:instructions}
+build_upgrade | fix the app [so|because] {request:instructions}
+list_upgrades | [show|list] [me|] the upgrades
+list_upgrades | what upgrades have you built
+test_app | [run|do] your [tests|test suite]
+test_app | test yourself
+test_app | check yourself for bugs
+test_tool_calling | run the tool calling test [on {brain:brainname}|]
+test_tool_calling | test how well {brain:brainname} picks tools
+install_upgrade | install upgrade {upgrade_id:id}
+undo_upgrade | undo upgrade {upgrade_id:id}
+undo_upgrade | put the app back to the old version
+undo_last_change | undo [that|the last change]
+undo_last_change | [take that back|change it back|put it back]
+brain_status | [what|which] brain are you using
+brain_status | are you on gemini or groq
+switch_brain | switch to {use:brainuse}
+switch_brain | use {use:brainuse} [from now on|]
+voice_cast | who reads [the voices in|] {book:book}
+cast_voices | give the characters in {book:book} voices
+cast_voices | cast voices for {book:book}
+set_voice | make {character:character} sound [older|deeper|younger] [in {book:book}|]
+swap_voices | swap the voices of {first:character} and {second:character}
+hear_voice | let me hear {character:character}'s voice
+# ---- computer
+list_folder | what's in [my|the] {path:folder} [folder|]
+list_folder | [show|list] the files in {path:folder}
+read_file | read [the file|] {path:path}
+read_file | open {path:path} and tell me what it says
+write_file | write {content:text} to {path:path}
+write_file | save a file called {path:path} that says {content:text}
+edit_file | in {path:path} replace {find:character} with {replace:character}
+make_folder | make a folder called {path:name} [on my desktop|]
+make_folder | create a new folder {path:name}
+move_path | move {source:path} to {destination:folder}
+move_path | rename {source:path} to {destination:path}
+delete_path | delete [the file|] {path:path}
+delete_path | get rid of {path:path}
+computer_log | what did you [change|run] on my computer
+run_command | run {command:command} [in the terminal|in powershell|]
+run_command | [can you|] type {command:command} in the command line
+command_output | [what was|show me] the output of job {job_id:jobid}
+open_item | open {target:program}
+open_item | [launch|start] {target:program}
+open_item | open {target:url}
+close_program | close {name:program}
+close_program | [shut down|quit|exit] {name:program}
+list_programs | what programs are [running|open]
+system_info | how much [memory|ram|disk space] does my computer have
+system_info | what are my computer specs
+read_clipboard | what's on my clipboard
+copy_to_clipboard | copy {text:text} to my clipboard
+look_at_screen | what's on my screen [right now|]
+look_at_screen | look at my screen
+type_text | type {text:text}
+press_keys | press {keys:keys}
+click_screen | click at {x:xy} {y:xy}
+media_control | [pause|play|resume] the music | {"action": "play_pause"}
+media_control | [turn it up|volume up|louder] | {"action": "volume_up"}
+media_control | [turn it down|volume down|quieter] | {"action": "volume_down"}
+media_control | [next song|skip this song|next track] | {"action": "next_track"}
+media_control | mute the [sound|volume|computer] | {"action": "mute"}
+# ---- web
+web_search | search the web for {query:query}
+web_search | [google|look up] {query:query}
+web_search | find [me|] {query:query} online
+research_web | research {question:query}
+research_web | do some research on {question:query}
+read_web_page | read [this page|this|the page] {url:url}
+explore_website | explore {url:url} [and find|for] {look_for:query}
+scrape_web_page | scrape {url:url}
+scrape_web_page | grab the data from {url:url}
+call_api | call the api at {url:url}
+send_api | post to {url:url} | {"method": "POST"}
+list_api_keys | what api keys do i have
+hf_search | find [a|] {query:query} model on hugging face
+hf_model_info | tell me about the hugging face model {repo:hf}
+github_search | [find|search] github [repos|] for {query:query}
+github_read | read the github repo {repo:repo}
+download_file | download {url:url} [to my downloads|]
+download_file | save the file at {url:url}
+github_download | [download|clone] the github repo {repo:repo}
+tax_lien_listings | show me tax lien listings in {area:area} [under {max_price:money}|]
+tax_lien_listings | what tax sale properties are in {area:area}
+best_tax_deals | what are the best tax deals [right now|in the country]
+best_tax_deals | find the best tax deals under {max_price:money}
+online_tax_sales | what online tax sales are coming up in {state:state}
+online_tax_sales | [list|show] online tax auctions
+# ---- planner
+add_to_planner | add {title:title} to my planner [for {when:when}|]
+add_to_planner | put {title:title} on my [schedule|calendar] {when:when}
+show_planner | what's on my [planner|schedule] [this week|today|]
+show_planner | show my planner
+update_planner_item | mark planner item {item_id:id} done | {"done": true}
+delete_planner_item | delete planner item {item_id:id}
+set_reminder | remind me to {text:text} {when:when}
+set_reminder | set a reminder {when:when} to {text:text}
+set_reminder | wake me up {when:when} | {"alarm": true, "text": "wake up"}
+list_reminders | what reminders do i have
+list_reminders | [show|list] my reminders
+change_reminder | move reminder {reminder_id:id} to {when:when}
+cancel_reminder | cancel reminder {reminder_id:id}
+snooze_reminder | snooze [it|that|the alarm] for {minutes:minutes} minutes
+stop_alarm | stop the alarm
+stop_alarm | [turn off|shut off] the alarm
+plan_writing_schedule | make a writing schedule for {book:book}
+# ---- researcher
+research_status | what has the researcher found [so far|]
+research_status | what is the researcher [doing|working on]
+research_notes | show me the research notes on {topic:topic}
+research_topic | have the researcher look into {name:topic}
+research_topic | research {name:topic} in the background
+change_research | pause the research on {topic:topic} | {"status": "paused"}
+drop_research | stop researching {topic:topic}
+research_now | research {topic:topic} right now
+researcher_switch | turn the researcher [off|down] | {"on": false}
+researcher_switch | turn the researcher on | {"on": true}
+# ---- game
+game_status | how much money do we have [in the game|]
+game_status | [what's|show me] our game status
+game_status | where did we leave off in the game
+game_new | start a new game [with {starting_cash:money}|]
+game_market | show [me|] the [game|] houses for sale [under {max_price:price}|]
+game_market | what properties are for sale in the game
+game_inspect | inspect {id:gid}
+game_inspect | tell me about [property|listing] {id:gid}
+game_offer | offer {amount:price} on {listing_id:gid}
+game_offer | make an offer of {amount:price} for {listing_id:gid}
+game_renovation_quotes | what repairs does {id:gid} need
+game_renovation_quotes | get renovation quotes for {id:gid}
+game_renovate | fix the {items:repair} on {property_id:gid}
+game_list_property | [list|sell] {property_id:gid} [for {price:price}|]
+game_rent_out | rent out {property_id:gid}
+game_tax_sale | what's on the tax sale list
+game_tax_sale | show me the tax sale [parcels|list]
+game_go_to_tax_sale | [take us|go] to the tax sale
+game_start_auction | [start bidding|open bidding] on {parcel_id:gid}
+game_bid | bid {amount:money}
+game_bid | [raise it to|go to|i'll bid] {amount:money}
+game_pass | pass [on this one|on this auction|]
+game_pass | we're out, pass
+game_tax_deeds | show our tax deeds
+game_foreclose | foreclose on {deed_id:gid}
+game_start_company | start a company called {name:company} in {industry:industry}
+game_staff | hire {employees:n} [people|workers] at {company_id:cid}
+game_close_company | close [company|] {company_id:cid}
+game_calls | any calls from my secretary
+game_calls | [did anyone call|any messages] in the game
+game_answer_call | accept the offer on call {call_id:callid} | {"accept": true}
+game_answer_call | turn down call {call_id:callid} | {"accept": false}
+game_answer_call | counter call {call_id:callid} at {counter:price} | {"accept": false}
+game_advance | skip ahead {days:big} days
+game_advance | [wait|fast forward] {days:big} days
+game_go_forward | [go|jump|skip] forward to {to:gtarget}
+game_go_forward | take us to {to:gtarget}
+game_go_back | go back {moves:n} moves
+game_go_back | undo [that|the last move] [in the game|] | {"moves": 1}
+game_go_back | rewind the game to {to_day:gday}
+game_add_cash | add 8000 [to our money|to the money|] [in the game|]
+game_add_cash | add 8000 {times:n} times
+game_add_cash | give us another 8000
+game_cash_adds | how many 8000 adds do we have left [this year|]
+game_cash_adds | show the record of the 8000 adds
+game_timeline | show the game timeline
+game_lesson | teach me about {topic:topic}
+game_goal | how close are we to a trillion
+game_take_loan | take a loan of {amount:price} on {property_id:gid}
+game_repay_loan | pay off loan {loan_id:loanid}
+game_title | what liens are on {property_id:gid}
+game_clear_title | clear the title on {property_id:gid}
+game_take_personal_loan | take out a personal loan for {amount:budget}
+game_take_personal_loan | get a personal loan of {amount:budget} for the bidder | {"for_bidder": true}
+game_fund_bidder | give the bidder {amount:budget}
+game_transit | show the transit systems
+game_buy_transit | buy {system:transit}
+game_upgrade_transit | upgrade {system:transit} to a hyperloop | {"upgrade": "hyperloop"}
+game_upgrade_transit | make {system:transit} electric | {"upgrade": "electric"}
+game_car_lot | how's the car lot doing
+game_stock_cars | stock {count:big} {model:carmodel} at {property_id:gid}
+game_trading | how did the day trading do
+game_open_trading | open a trading account with {deposit:budget}
+game_trading_funds | withdraw {amount:budget} from trading | {"action": "withdraw"}
+game_trading_funds | deposit {amount:budget} into trading | {"action": "deposit"}
+game_trading_agents | turn the trading agents off | {"on": false}
+game_trading_agents | turn the trading agents on | {"on": true}
+game_bidder | how is the bidding assistant doing
+game_hire_bidder | hire a bidding assistant with {budget:budget} and {max_per_property:money} max per house
+game_fire_bidder | fire the bidding assistant
+game_learn | [let's learn|lets learn|teach me how that works]
+game_back_to_game | [back to the game|let's get back to the game|resume the game]
+game_dev | dev mode add {value:price} | {"action": "add_money"}
+# ---- no tool
+(none) | {x:chat}
+open_book | [pull up|load] {book:book}
+open_book | go to my book {book:book}
+add_note | [put a note in|note in] {book:book}: {text:text}
+story_bible | [list|show] the characters [in|of] {book:book}
+export_book | turn {book:book} into [a|an] {format:format} [file|]
+play_audiobook | start the audiobook of {book:book}
+set_book_length | change {book:book} to {chapters:big} chapters
+remember | remember my {text:text}
+copy_to_clipboard | copy '{text:text}' to [my|the] clipboard
+build_upgrade | upgrade yourself so {request:text}
+web_search | search [the web|online|the internet] for [the|] {query:query}
+search_books | search my books for [the|] {query:query}
+hf_search | find a [small|tiny|fast] {query:query} model on hugging face
+game_bid | bid {amount:money} [in the auction|in the game auction|at the auction]
+game_go_back | go back in time {moves:n} [move|moves] [in the game|]
+game_hire_bidder | hire a bidding assistant [in the game|] with a {budget:budget} budget and {max_per_property:money} max per [house|property]
+(none) | {x:chat}
+(none) | {x:chat} jarvis
+(none) | hey jarvis {x:chat}
+rewrite_chapter | rewrite chapter {chapter:n} of {book:book} so {instructions:change}
+rewrite_chapter | redo chapter {chapter:n} in {book:book} so {instructions:change}
+add_note | add a note to {book:book}: {text:fact}
+add_note | note for {book:book}: {text:fact}
+remember | remember that {text:fact}
+remember | [save this|keep this in memory]: {text:fact}
+set_reminder | remind me to {text:errand} {when:when}
+set_reminder | remind me {when:when} to {text:errand}
+play_audiobook | play the audiobook of {book:book}
+play_audiobook | [listen to|i want to hear] {book:book}
+open_book | [pull up|open] my [novel|book|story] {book:book}
+copy_to_clipboard | copy [the address|the text|this|] {text:clip} to my clipboard
+make_folder | make a folder [called|named] {path:name}
+web_search | search the web for {query:query}
+web_search | look up {query:query}
+(none) | {x:chat}

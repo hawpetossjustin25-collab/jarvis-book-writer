@@ -25,6 +25,9 @@ READ_TIMEOUT_S = 90  # a lookup that takes longer is reported as slow instead of
 SLOW_READS = {"research_web": 240, "explore_website": 240, "best_tax_deals": 300, "online_tax_sales": 240,
               "tax_lien_listings": 240, "look_at_screen": 150}
 MAX_PARALLEL = 4
+FAST_NOTE = ("(Note from the app: Jarvis's quick tool brain already did this for the request above: {name} with "
+             "{args}. It returned: {result}\nTell the author what happened using only that result. Don't call "
+             "{name} again for this request; call another tool only if the request still needs one.)")
 SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
                      "and say plainly anything you couldn't confirm")
 
@@ -46,6 +49,7 @@ class Assistant:
         self.history_channels = tuple(history_channels) or (channel,)  # e.g. chat and voice are one conversation
         self.memory = None  # Jarvis's long-term memory (set by the Studio)
         self.researcher = None  # the background researcher, whose notes Jarvis reads (set by the Studio)
+        self.fast = None  # the quick tool brain (FastRouter), set by the Studio
 
     def _history(self) -> list[dict]:
         config = self.engine.get_runtime_configuration()
@@ -80,6 +84,10 @@ class Assistant:
         local_tools = self.tools.select(text + " " + last_asked)
         answered = self.tools.gate.hear(text)  # "yes"/"no" to an open question is settled by the app itself
         model_text = text + ("\n\n" + outcome_note(answered) if answered else "")
+        done = self._fast_call(text, tools, answered, on_tool)
+        if done is not None:
+            model_text += "\n\n" + FAST_NOTE.format(name=done[0]["name"], args=json.dumps(done[0]["args"]),
+                                                     result=json.dumps(_clip(done[1], 6000), ensure_ascii=False))
         contents = history + [{"role": "user", "parts": [{"text": model_text}]}]
         system = prompts.ASSISTANT + ("\n\n" + self.guide if self.guide else "") + "\n\n" + self._situation()
         remembered = self.memory.prompt(text, self.tools.current_book_id) if self.memory is not None else ""
@@ -90,7 +98,7 @@ class Assistant:
             system += "\n\n" + researched
         reply = ""
         searches = 0
-        called = checked = False
+        called, checked = done is not None, False
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
                                                    local_tools=local_tools,
@@ -113,7 +121,11 @@ class Assistant:
                 if call.get("name", "") in SEARCH_TOOLS:
                     searches += 1
                 allowed.append(not (call.get("name", "") in SEARCH_TOOLS and searches > MAX_SEARCHES))
-            results = self._run_calls(resp.function_calls, allowed)
+            again = [done is not None and c.get("name") == done[0]["name"] and (c.get("args") or {}) == done[0]["args"]
+                     for c in resp.function_calls]
+            fresh = [c for c, a in zip(resp.function_calls, again) if not a]
+            ran = iter(self._run_calls(fresh, [ok for ok, a in zip(allowed, again) if not a]))
+            results = [done[1] if a else next(ran) for a in again]  # the same move is never made twice
             for call, result in zip(resp.function_calls, results):
                 if on_tool:
                     on_tool(call.get("name", ""), call.get("args") or {}, result)
@@ -128,6 +140,24 @@ class Assistant:
         if self.memory is not None:
             self.memory.schedule(self.channel, key_book)
         return reply
+
+    def _fast_call(self, text: str, tools: list[dict], answered, on_tool) -> Optional[tuple[dict, dict]]:
+        """Short, clear commands are done by the quick tool brain at once. Returns (call, result) or None."""
+        if self.fast is None or answered or getattr(self.tools.gate, "pending", None) is not None:
+            return None
+        try:
+            call = self.fast.route(text, tools, level_of)
+        except Exception:
+            log.exception("quick tool brain failed; the main brain will pick the tool")
+            return None
+        if call is None:
+            return None
+        log.info("quick tool brain: %s (%.2f)", call["name"], call["confidence"])
+        call = {"name": call["name"], "args": call["args"]}
+        result = self._run_calls([call], [True])[0]
+        if on_tool:
+            on_tool(call["name"], call["args"], result)
+        return call, result
 
     def _run_calls(self, calls: list[dict], allowed: list[bool]) -> list[dict]:
         """Lookups that only read run side by side, each with a time limit; anything that changes something

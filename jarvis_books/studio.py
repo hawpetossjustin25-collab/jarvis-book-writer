@@ -27,6 +27,7 @@ from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
 from jarvis_books.llm.models import LLMRequest
 from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
+from jarvis_books.llm.tool_brain import FastRouter
 from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
@@ -44,6 +45,7 @@ from jarvis_books.warroom import WAR_ROOM_GUIDE, WarRoom
 from jarvis_books.writer import BookWriter
 
 log = logging.getLogger(__name__)
+TOOL_BRAIN_AUTOBUILD = True  # tests turn this off so they don't spend minutes training
 
 
 class Studio:
@@ -78,6 +80,9 @@ class Studio:
         self.tools = ToolBox(self.library, self.writer, self.index, self.jobs, gate=self.gate, undo=self.undo)
         self.tools.export_handler = self.export
         self.assistant = Assistant(self.brain, self.library, self.tools, history_channels=("chat", "voice"))
+        self.fast = FastRouter(self.home / "tool_brain")
+        self.fast.enabled = self.settings()["tool_brain"] != "0"
+        self.assistant.fast = self.tools.fast = self.fast
         self.warroom = WarRoom(self.library, self.brain, self.context)
         self.tools.warroom = self.warroom
         # The War Room has its own conversation (voice and text share it) and its own session state.
@@ -157,7 +162,7 @@ class Studio:
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
-                "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local"}
+                "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -176,6 +181,8 @@ class Studio:
             self.narrator.voice = value
         elif key == "edge_voice":
             self.narrator.edge_voice = value
+        elif key == "tool_brain":
+            self.fast.enabled = str(value) != "0"
 
     # ---- lifecycle -------------------------------------------------------------------
     def start(self, probe: bool = True) -> None:
@@ -196,6 +203,8 @@ class Studio:
                 log.exception("engine start failed")
                 self.start_error = f"Could not reach Gemini: {exc}"
         self.ready.set()
+        if TOOL_BRAIN_AUTOBUILD:
+            threading.Thread(target=self._build_tool_brain, name="jarvis-tool-brain", daemon=True).start()
         self.research_clock.start()
         self.trading_clock.start()
         try:
@@ -216,6 +225,13 @@ class Studio:
                 log.exception("could not resume app upgrades")
         if probe and self.engine is not None and not self.start_error:
             self.engine.refine()
+
+    def _build_tool_brain(self) -> None:
+        """Loads the quick tool brain, or trains it (a few minutes, once) when the app's tools have changed."""
+        from jarvis_books.llm.tool_eval import load_cases
+        self.fast.build(self.tools.declarations(), held_out=load_cases())
+        if self.fast.error:
+            log.warning("quick tool brain unavailable: %s", self.fast.error)
 
     def _groq_key(self) -> Optional[str]:
         return load_groq_key(self.home)

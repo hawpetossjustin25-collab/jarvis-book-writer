@@ -192,8 +192,11 @@ def run_tool_eval(engine, declarations: list[dict], cases: Iterable[ToolCase], s
                   select: Optional[Callable[[str], list[dict]]] = None,
                   progress: Callable[[float, str], None] = lambda p, m: None,
                   cancel: Optional[Callable[[], bool]] = None,
-                  clock: Callable[[], float] = time.monotonic) -> ToolEvalReport:
-    """Ask the brain each request once with the real tool list and score its first call. No tool runs."""
+                  clock: Callable[[], float] = time.monotonic,
+                  sleep: Callable[[float], None] = time.sleep, retries: int = 4) -> ToolEvalReport:
+    """Ask the brain each request once with the real tool list and score its first call. No tool runs.
+    A brain that is only briefly busy or over its per-minute limit (Groq's free plan) is waited for and asked
+    again, so the score measures its answers rather than its rate limit; the wait is not counted as latency."""
     cases = list(cases)
     report = ToolEvalReport(results=[], started=time.time())
     for n, case in enumerate(cases):
@@ -204,12 +207,22 @@ def run_tool_eval(engine, declarations: list[dict], cases: Iterable[ToolCase], s
                              history=[{"role": "user", "parts": [{"text": case.request}]}],
                              tools=declarations, local_tools=select(case.request) if select else None,
                              temperature=0.0, purpose="tool test")
-        start = clock()
-        try:
-            resp = engine.generate(request)
-        except LLMError as exc:
+        resp, error = None, None
+        for attempt in range(retries + 1):
+            start = clock()
+            try:
+                resp = engine.generate(request)
+                break
+            except LLMError as exc:
+                error = exc
+                if not exc.retryable or exc.daily_quota or attempt == retries or (cancel is not None and cancel()):
+                    break
+                wait = min(70.0, max(2.0, exc.retry_after_s or 15.0 * (attempt + 1)))
+                progress(n / max(1, len(cases)), f"Tool test {n + 1}: the brain is busy, trying again in {wait:.0f} s")
+                sleep(wait)
+        if resp is None:
             report.results.append(CaseResult(case.id, case.category, False, "brain error", None,
-                                             {"error": str(exc)[:200]}, clock() - start))
+                                             {"error": str(error)[:200]}, clock() - start))
             continue
         ok, why = score(case, resp.function_calls)
         first = resp.function_calls[0] if resp.function_calls else {}

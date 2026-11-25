@@ -174,3 +174,28 @@ def test_jarvis_tool_runs_the_test_set_as_a_job_and_saves_the_report(tmp_path):
     assert len(saved) == 1 and json.loads(saved[0].read_text())["total"] == len(load_cases())
     toolbox._t_test_tool_calling()
     assert brain.picked == ["local"]  # automatic uses the brain with its usual fallback
+
+
+def test_a_rate_limited_brain_is_waited_for_and_asked_again():
+    calls, waits = [], []
+
+    class Busy:
+        def generate(self, request):
+            calls.append(1)
+            if len(calls) < 3:
+                raise LLMError("free limit is used up for now", kind="rate", retry_after_s=7)
+            return LLMResponse(text="", model="groq", function_calls=[{"name": "list_books", "args": {}}])
+
+    report = run_tool_eval(Busy(), DECLARATIONS, [case("list_books")], "", sleep=waits.append)
+    assert report.passed == 1 and waits == [7, 7] and len(calls) == 3
+
+
+def test_a_brain_out_for_the_day_is_not_waited_for():
+    waits = []
+
+    class OutForTheDay:
+        def generate(self, request):
+            raise LLMError("daily quota", kind="rate", quota_id="GenerateRequestsPerDay")
+
+    report = run_tool_eval(OutForTheDay(), DECLARATIONS, [case("list_books")], "", sleep=waits.append)
+    assert report.results[0].reason == "brain error" and waits == []

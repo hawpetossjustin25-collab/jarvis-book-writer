@@ -21,7 +21,7 @@ from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_edge, \
     another_voice, default_style, describe_voice, edge_matching, who
 from jarvis_books.craft import get_structure, match_genre
-from jarvis_books.errors import NotFound
+from jarvis_books.errors import NotFound, ValidationError
 from jarvis_books.jobs import JobManager
 from jarvis_books.llm.schema import validate
 from jarvis_books.memory.index import StoryIndex
@@ -64,7 +64,7 @@ BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). 
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research", "game")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
-                "research_brain")
+                "research_brain", "tool_brain")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
                    "brain": ("gemini", "groq", "local"), "research_brain": ("local", "groq", "gemini"),
                    "researcher": ("0", "1")}
@@ -276,7 +276,7 @@ DECLARATIONS = [
           + "); edge_voice: a backup narrator; narration_speed: 0.5 to 3.0; dialogue_tags: how many times per "
           "chapter the narrator says 'said Tom' for each character before the voices alone show who is talking "
           "(all = every time); wake_word, auto_mute and memory (learn from conversations): on/off; "
-          "author: the author's name.",
+          "author: the author's name; tool_brain: on/off (the quick tool brain that does short commands at once).",
           {"key": {"type": "STRING", "enum": list(SETTING_KEYS)}, "value": S}, ["key", "value"]),
     _decl("app_action", "Press a button in the app: mute_mic, unmute_mic, end_voice (hang up this voice chat), "
           "open_book_folder (show the book's files on the computer).",
@@ -290,8 +290,9 @@ DECLARATIONS = [
           "the author, then install_upgrade."),
     _decl("test_tool_calling", "Score how well a brain picks Jarvis's tools: it is asked every request in the "
           "built-in tool test set (no tool runs) and the app reports how many it got right and how fast. brain: "
-          "automatic (default, whichever is answering), gemini, groq or lfm3. Runs as a job; see job_status.",
-          {"brain": {"type": "STRING", "enum": ["automatic", "gemini", "groq", "lfm3"]}}),
+          "automatic (default, whichever is answering), gemini, groq, lfm3 or toolbrain (the quick tool brain). Runs "
+          "as a job; see job_status.",
+          {"brain": {"type": "STRING", "enum": ["automatic", "gemini", "groq", "lfm3", "toolbrain"]}}),
     _decl("install_upgrade", "Install a tested app upgrade (status ready). The app restarts.",
           {"upgrade_id": I}, ["upgrade_id"]),
     _decl("undo_upgrade", "Put the app back the way it was before an installed upgrade (latest if omitted). The "
@@ -351,6 +352,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
         self.publisher = None  # set by the Studio
         self.war_session_id: Optional[int] = None  # set while a War Room session is open
         self.app_handler: Optional[Callable[[str, dict], dict]] = None  # set by the UI (tabs, buttons, status)
+        self.fast = None  # the quick tool brain (FastRouter), set by the Studio
         self.settings_store = None  # set by the Studio (settings() / set_setting() / capacity)
         self.upgrader = None  # set by the Studio
         self.director = None  # set by the Studio (voice cast)
@@ -968,7 +970,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:
@@ -1084,9 +1086,18 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
 
     def _t_test_tool_calling(self, brain: str = "automatic") -> dict:
         from jarvis_books.llm.brain import LOCAL
-        which = (brain or "automatic").lower()
-        engine = self._brain()
-        if which != "automatic":
+        which = (brain or "automatic").lower().replace(" ", "")
+        if which in ("toolbrain", "quick", "fast"):
+            which = "toolbrain"
+            fast = getattr(self, "fast", None)
+            engine = fast.engine() if fast is not None else None
+            if engine is None:
+                raise ValidationError("the quick tool brain isn't ready yet"
+                                      + (f": {fast.error}" if fast is not None and fast.error else
+                                         " (it trains in the background for a few minutes after the app starts)"))
+        else:
+            engine = self._brain()
+        if which not in ("automatic", "toolbrain"):
             engine = engine.only(LOCAL if which == "lfm3" else which)
         job = self.jobs.submit("tooltest", f"Testing tool calling ({which})",
                                lambda progress, cancel: self._tool_test(engine, which, progress, cancel))
@@ -1259,7 +1270,11 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
         return brain
 
     def _t_brain_status(self) -> dict:
-        return self._brain().status()
+        status = self._brain().status()
+        fast = getattr(self, "fast", None)
+        if fast is not None:
+            status["tool_brain"] = fast.status()
+        return status
 
     def _t_switch_brain(self, use: str = "", automatic: str = "") -> dict:
         store = self._store()

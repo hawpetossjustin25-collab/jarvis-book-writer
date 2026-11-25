@@ -915,3 +915,51 @@ def test_a_game_move_answered_without_a_tool_call_is_asked_again(library, tools)
     plain = ScriptedBrain("We have $16,000.")
     assert Assistant(plain, library, tools).send("how much money do we have in the game?") == "We have $16,000."
     assert len(plain.requests) == 1
+
+
+class FixedRouter:
+    """Stands in for the quick tool brain: always routes to the given call."""
+
+    def __init__(self, call):
+        self.call, self.asked = call, []
+
+    def route(self, text, declarations, level_of):
+        self.asked.append(text)
+        return dict(self.call, confidence=0.99) if self.call else None
+
+
+def test_the_quick_tool_brain_makes_the_move_once_and_the_main_brain_reports_it(library, tools):
+    from jarvis_books.assistant.chat import Assistant
+    brain = ScriptedBrain({"name": "game_add_cash", "args": {}}, "Added $8,000. Cash is $16,000.")
+    chat = Assistant(brain, library, tools)
+    chat.fast = FixedRouter({"name": "game_add_cash", "args": {}})
+    seen = []
+    reply = chat.send("add 8000", on_tool=lambda name, args, result: seen.append(name))
+    assert reply == "Added $8,000. Cash is $16,000."
+    assert tools.game.state["cash"] == 16_000  # done once, though the main brain asked for it again
+    assert seen == ["game_add_cash", "game_add_cash"]
+    first = json.dumps(brain.requests[0].history)
+    assert "quick tool brain already did this" in first and "game_add_cash" in first
+
+
+def test_the_quick_tool_brain_stays_out_when_it_has_nothing(library, tools):
+    from jarvis_books.assistant.chat import Assistant
+    brain = ScriptedBrain("Hi there.")
+    chat = Assistant(brain, library, tools)
+    chat.fast = FixedRouter(None)
+    assert chat.send("hi jarvis") == "Hi there."
+    assert "quick tool brain" not in json.dumps(brain.requests[0].history)
+
+
+def test_the_quick_tool_brain_waits_while_a_yes_no_question_is_open(library, tools):
+    from jarvis_books.assistant.chat import Assistant
+    from types import SimpleNamespace
+    tools.gate.pending = SimpleNamespace(armed=False)  # a question Jarvis asked that hasn't been answered
+    brain = ScriptedBrain("Okay.")
+    chat = Assistant(brain, library, tools)
+    chat.fast = router = FixedRouter({"name": "list_reminders", "args": {}})
+    try:
+        assert chat.send("what reminders do I have") == "Okay."
+    finally:
+        tools.gate.pending = None
+    assert router.asked == [] and tools.game.state["cash"] == 8_000
