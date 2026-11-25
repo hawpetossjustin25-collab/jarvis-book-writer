@@ -21,6 +21,7 @@ from jarvis_books.export import export_docx, export_epub, export_markdown
 from jarvis_books.jobs import JobManager
 from jarvis_books.keystore import load_key
 from jarvis_books.telegram import TelegramBridge, forget_bot_key, load_bot_key, save_bot_key
+from jarvis_books.voice.notes import VoiceNotes
 from jarvis_books.llm.brain import GEMINI, Brain
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
     GroqSearch, load_groq_key, save_groq_key
@@ -147,7 +148,9 @@ class Studio:
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
         self.telegram = TelegramBridge(self.library, self.telegram_assistant, self.gate,
-                                       lambda: load_bot_key(self.home), planner=self.planner)
+                                       lambda: load_bot_key(self.home), planner=self.planner,
+                                       voice=VoiceNotes(self._look if self.engine is not None else None,
+                                                        self._groq_key, lambda: self.settings()["edge_voice"]))
         self.tools.planner = self.war_tools.planner = self.planner
         self.api_keys = ApiKeys(self.home)
         # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.

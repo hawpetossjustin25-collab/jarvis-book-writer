@@ -34,6 +34,10 @@ class FakeTelegram:
         self.errors: list[TelegramError] = []  # raised (FIFO) by get_updates
         self.edit_errors: list[TelegramError] = []
         self.drained = threading.Event()
+        self.files: dict = {}
+        self.downloads: list = []
+        self.voices: list[dict] = []
+        self.actions: list[str] = []
         self._next = 100
 
     def get_me(self):
@@ -66,8 +70,18 @@ class FakeTelegram:
     def answer_button(self, callback_id, text=""):
         self.answers.append((callback_id, text))
 
-    def typing(self, chat_id):
-        pass
+    def typing(self, chat_id, action="typing"):
+        self.actions.append(action)
+
+    def download(self, file_id, limit=None):
+        self.downloads.append(file_id)
+        if file_id not in self.files:
+            raise TelegramError(400, "file not found")
+        return self.files[file_id]
+
+    def send_voice(self, chat_id, audio, mime="audio/ogg"):
+        self.voices.append({"chat_id": chat_id, "audio": audio, "mime": mime})
+        return {"message_id": 999}
 
     def texts(self, chat_id=None):
         """What the chat shows: each sent message with its latest edit."""

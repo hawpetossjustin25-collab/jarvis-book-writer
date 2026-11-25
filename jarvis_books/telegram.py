@@ -4,7 +4,7 @@ memory and yes/no gate as the app.
 The bot asks Telegram for new messages over HTTPS (long polling), so nothing on the router is opened. Only the
 owner is served: the first private chat that sends the pairing code shown in Settings becomes the owner, and
 everyone else is turned away. Questions from the yes/no gate come with Yes/No buttons, and reminders that ring
-are sent to the phone too. The bot key is sealed for this Windows user like the Gemini key and is never logged
+are sent to the phone too. A voice note is heard (voice/notes.py) and answered in text and with a voice note. The bot key is sealed for this Windows user like the Gemini key and is never logged
 (errors from the network are reported without the address, which holds the key).
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Callable, Optional
 import requests
 
 from jarvis_books.keystore import unseal, write_sealed
+from jarvis_books.voice.notes import MAX_NOTE_BYTES, HearingError
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +84,13 @@ class TelegramAPI:
         self._token = token
         self.session = session or requests.Session()
 
-    def call(self, method: str, payload: Optional[dict] = None, timeout: float = 20.0):
+    def call(self, method: str, payload: Optional[dict] = None, timeout: float = 20.0, files: Optional[dict] = None):
+        url = f"{API_URL}/bot{self._token}/{method}"
         try:
-            resp = self.session.post(f"{API_URL}/bot{self._token}/{method}", json=payload or {}, timeout=timeout)
+            if files:
+                resp = self.session.post(url, data=payload or {}, files=files, timeout=timeout)
+            else:
+                resp = self.session.post(url, json=payload or {}, timeout=timeout)
         except requests.RequestException as exc:
             raise TelegramError(0, f"no connection ({type(exc).__name__})") from None
         try:
@@ -127,8 +132,27 @@ class TelegramAPI:
     def answer_button(self, callback_id: str, text: str = "") -> None:
         self.call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 
-    def typing(self, chat_id: int) -> None:
-        self.call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+    def typing(self, chat_id: int, action: str = "typing") -> None:
+        self.call("sendChatAction", {"chat_id": chat_id, "action": action})
+
+    def download(self, file_id: str, limit: int = MAX_NOTE_BYTES) -> bytes:
+        """The bytes of a file someone sent the bot (Telegram lets bots fetch up to 20 MB)."""
+        path = (self.call("getFile", {"file_id": file_id}) or {}).get("file_path")
+        if not path:
+            raise TelegramError(0, "Telegram didn't say where the file is")
+        try:
+            resp = self.session.get(f"{API_URL}/file/bot{self._token}/{path}", timeout=60)
+        except requests.RequestException as exc:
+            raise TelegramError(0, f"no connection ({type(exc).__name__})") from None
+        if resp.status_code != 200:
+            raise TelegramError(resp.status_code, "the file couldn't be downloaded")
+        if len(resp.content) > limit:
+            raise TelegramError(0, "the file is too big")
+        return resp.content
+
+    def send_voice(self, chat_id: int, audio: bytes, mime: str = "audio/ogg") -> dict:
+        name = "jarvis.ogg" if mime == "audio/ogg" else "jarvis.mp3"
+        return self.call("sendVoice", {"chat_id": str(chat_id)}, timeout=120, files={"voice": (name, audio, mime)})
 
 
 def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
@@ -156,8 +180,8 @@ class TelegramBridge:
 
     def __init__(self, library, assistant, gate, load_key: Callable[[], Optional[str]], planner=None,
                  api_factory: Callable[[str], TelegramAPI] = TelegramAPI, clock: Callable[[], float] = time.time,
-                 edit_every_s: float = EDIT_EVERY_S, poll_s: int = POLL_S):
-        self.library, self.assistant, self.gate = library, assistant, gate
+                 edit_every_s: float = EDIT_EVERY_S, poll_s: int = POLL_S, voice=None):
+        self.library, self.assistant, self.gate, self.voice = library, assistant, gate, voice
         self.load_key, self.api_factory, self.clock = load_key, api_factory, clock
         self.edit_every_s, self.poll_s = edit_every_s, poll_s
         self.bot_name: Optional[str] = None
@@ -279,17 +303,62 @@ class TelegramBridge:
         if chat_id != owner or sender.get("id") != owner:
             api.send_message(chat_id, "This Jarvis is private.")
             return
-        if not text:
-            api.send_message(chat_id, "I can only read text messages here for now.")
+        note = msg.get("voice") or msg.get("audio")
+        if not text and not isinstance(note, dict):
+            api.send_message(chat_id, "I can read text messages and listen to voice notes here.")
             return
         if text == "/start":
-            api.send_message(chat_id, "Jarvis here. Send me anything.")
+            api.send_message(chat_id, "Jarvis here. Send me anything, typed or as a voice note.")
             return
         if self.clock() - float(msg.get("date") or self.clock()) > STALE_S:
-            short = text if len(text) <= 80 else text[:77] + "..."
-            api.send_message(chat_id, f"I was closed when you sent \"{short}\". Send it again if you still want it.")
+            short = (text if len(text) <= 80 else text[:77] + "...") if text else ""
+            what = f"\"{short}\"" if text else "a voice note"
+            api.send_message(chat_id, f"I was closed when you sent {what}. Send it again if you still want it.")
             return
-        self.turn(api, chat_id, text)
+        if text:
+            self.turn(api, chat_id, text)
+        else:
+            self.voice_turn(api, chat_id, note)
+
+    def voice_turn(self, api: TelegramAPI, chat_id: int, note: dict) -> Optional[str]:
+        """Hear a voice note, answer it like a typed message, then say the answer back as a voice note."""
+        if self.voice is None:
+            api.send_message(chat_id, "I can't listen to voice notes right now. Please type it.")
+            return None
+        if int(note.get("file_size") or 0) > MAX_NOTE_BYTES:
+            api.send_message(chat_id, "That voice note is too big for me (Telegram lets me fetch up to 20 MB).")
+            return None
+        try:
+            api.typing(chat_id)
+        except TelegramError:
+            pass
+        try:
+            heard = self.voice.hear(api.download(str(note.get("file_id") or "")), note.get("mime_type") or "audio/ogg")
+        except (TelegramError, HearingError) as exc:
+            why = exc.description if isinstance(exc, TelegramError) else str(exc)
+            log.info("telegram: voice note not heard (%s)", type(exc).__name__)
+            api.send_message(chat_id, f"I couldn't hear that voice note ({why}). Try again, or type it.")
+            return None
+        if not heard:
+            api.send_message(chat_id, "I didn't hear any words in that voice note.")
+            return None
+        api.send_message(chat_id, f"You said: {heard}")
+        reply = self.turn(api, chat_id, heard)
+        self.say(api, chat_id, reply)
+        return reply
+
+    def say(self, api: TelegramAPI, chat_id: int, reply: str) -> None:
+        if not reply or self.voice is None:
+            return
+        try:
+            api.typing(chat_id, "record_voice")
+        except TelegramError:
+            pass
+        try:
+            audio, mime = self.voice.speak(reply)
+            api.send_voice(chat_id, audio, mime)
+        except Exception as exc:  # the text answer is already in the chat
+            log.warning("telegram: spoken reply not sent (%s)", type(exc).__name__)
 
     def _pair(self, api: TelegramAPI, chat_id: int, sender_id: Optional[int], text: str) -> None:
         match = _PAIR_RE.fullmatch(text)
