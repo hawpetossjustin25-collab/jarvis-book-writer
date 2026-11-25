@@ -84,7 +84,9 @@ GAME_DECLARATIONS = [
           "snapshots are kept, so going back can itself be undone.",
           {"to_day": S, "moves": I, "snapshot": I}),
     _decl("game_add_cash", "Add $8,000 to the player's cash. Allowed 5 times per game year (counted by the game "
-          "date); the game keeps the record and refuses more. Only when the player asks for it.", {}),
+          "date); the game keeps the record and refuses more. times adds several at once (\"add 8000 three "
+          "times\" is times=3). Only when the player asks for it.",
+          {"times": {"type": "INTEGER", "description": "how many $8,000 adds (default 1)"}}),
     _decl("game_cash_adds", "The record of the player's $8,000 cash adds: used and left this game year, the "
           "dates, and when the next year's adds open.", {}),
     _decl("game_timeline", "The game's saved points in time (snapshot number, day, the move just made), for "
@@ -160,6 +162,18 @@ GAME_WORDS = ("game", "atlanta", "tax sale", "tax lien", "auction", "bid", "flip
               "go forward", "fast forward", "back in time", "marta", "streetcar", "light rail", "rail", "bus", "hyperloop", "transit",
               "car lot", "cars", "dealership", "add 8", "add $8", "8,000", "8000", "add money", "trading", "trade", "day trad", "nasdaq",
               "futures", "mnq", "stock", "agents", "assistant", "hire", "bid for", "learn", "teach", "back to the game")
+
+GAME_ACTION_WORDS = ("add ", "buy", "bid", "sell", "list it", "renovat", "fix ", "rent ", "hire", "fire ", "accept",
+                     "counter", "go forward", "fast forward", "go back", "rewind", "undo", "skip ahead", "jump",
+                     "go to the tax sale", "start a company", "loan", "borrow", "pay off", "deposit", "withdraw",
+                     "clear the title", "foreclose", "send the notice", "open the account", "upgrade")
+
+
+def asks_for_game_move(text: str) -> bool:
+    """Whether the player asked for something that changes the game, so an answer with no tool call can't be
+    real (a weak backup brain sometimes just says it did it)."""
+    t = f" {(text or '').lower()} "
+    return any(w in t for w in GAME_WORDS) and any(w in t for w in GAME_ACTION_WORDS)
 
 
 class GameTools:
@@ -314,8 +328,8 @@ class GameTools:
         return self._game().clear_title(property_id)
 
     @_play
-    def _t_game_add_cash(self) -> dict:
-        return self._game().add_cash()
+    def _t_game_add_cash(self, times: int = 1) -> dict:
+        return self._game().add_cash(times)
 
     @_play
     def _t_game_cash_adds(self) -> dict:

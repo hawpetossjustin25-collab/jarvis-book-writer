@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from typing import Callable, Optional
 
+from jarvis_books.assistant.game_tools import asks_for_game_move
 from jarvis_books.assistant.permissions import outcome_note
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.llm.models import LLMRequest, PromptSection
@@ -16,6 +17,9 @@ log = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 10  # research can take a few searches and pages
 SEARCH_TOOLS = ("research_web", "web_search")
 MAX_SEARCHES = 3  # per question: more searches mostly repeat the same pages and make the author wait
+NO_TOOL_NOTE = ("(Check from the app: you answered without calling any tool, so nothing in the game changed. If "
+                "the author asked for a game move, make it now with the game tools and report only what they "
+                "return. If they only asked a question, give your answer again.)")
 SEARCH_LIMIT_NOTE = ("search limit reached for this question: answer now from what you already found, "
                      "and say plainly anything you couldn't confirm")
 
@@ -81,13 +85,22 @@ class Assistant:
             system += "\n\n" + researched
         reply = ""
         searches = 0
+        called = checked = False
         for _ in range(MAX_TOOL_ROUNDS):
             resp = self.engine.generate(LLMRequest(role="chat", system=system, history=contents, tools=tools,
                                                    local_tools=local_tools,
                                                    temperature=0.7, purpose="chat"))
             if not resp.function_calls:
                 reply = resp.text.strip()
+                if not called and not checked and getattr(self.tools, "game", None) is not None \
+                        and asks_for_game_move(text):
+                    checked = True  # a game move with no tool call didn't happen: ask once more
+                    log.info("game move answered without a tool call by %s; asking again", resp.model)
+                    contents.append({"role": "model", "parts": [{"text": reply or "(no answer)"}]})
+                    contents.append({"role": "user", "parts": [{"text": NO_TOOL_NOTE}]})
+                    continue
                 break
+            called = True
             contents.append(resp.content or {"role": "model", "parts": [{"functionCall": c} for c in resp.function_calls]})
             parts = []
             for call in resp.function_calls:

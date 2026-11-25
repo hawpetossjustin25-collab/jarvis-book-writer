@@ -294,3 +294,16 @@ def test_groq_web_search_failures_find_nothing_instead_of_crashing():
                       Resp(200, {"choices": [{"message": {"content": "no tools ran"}}]}))
     s = GroqSearch(lambda: "gsk_test", session=session)
     assert [s.search("solar") for _ in range(4)] == [[], [], [], []]
+
+
+def test_a_call_to_a_tool_that_is_not_in_the_list_is_retried_once():
+    bad = Resp(400, {"error": {"message": "Tool call validation failed: attempted to call tool 'list_folder' "
+                                          "which was not in request.tools"}})
+    e = engine(bad, ok("done"))
+    assert e.generate(LLMRequest(role="chat", system="s", history=[{"role": "user", "parts": [{"text": "hi"}]}],
+                                 tools=[{"name": "battery", "description": "d", "parameters": {"type": "OBJECT"}}])
+                      ).text == "done"
+    assert "exact names" in e.session.posts[1]["json"]["messages"][-1]["content"]
+    with pytest.raises(LLMError, match="could not use"):
+        engine(bad, bad).generate(LLMRequest(role="chat", system="s",
+                                             history=[{"role": "user", "parts": [{"text": "hi"}]}]))

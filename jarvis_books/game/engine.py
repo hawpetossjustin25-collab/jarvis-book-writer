@@ -885,24 +885,32 @@ class Game(Empire, Trading, Bidder, Title, Timeline):
                     "used_this_year": len(this_year), "left_this_year": max(0, CASH_ADDS_PER_YEAR - len(this_year)),
                     "next_reset": f"{year + 1}-01-01", "this_year": this_year, "all_time": len(record)}
 
-    def add_cash(self) -> dict:
+    def add_cash(self, times: int = 1) -> dict:
         with self._lock:
             info = self.cash_adds()
+            times = int(times)
             if info["left_this_year"] <= 0:
                 raise ValidationError(f"all {CASH_ADDS_PER_YEAR} {money(CASH_ADD)} adds for {info['year']} are used "
                                       f"(on {', '.join(a['day'] for a in info['this_year'])}); the next one opens "
                                       f"on {info['next_reset']}")
-            self._earn(CASH_ADD)
-            entry = {"day": self.state["today"], "amount": CASH_ADD, "number": info["used_this_year"] + 1,
-                     "cash_after": self.state["cash"]}
-            self.state.setdefault("cash_adds", []).append(entry)
-            self._note(f"Added {money(CASH_ADD)} to cash ({entry['number']} of {CASH_ADDS_PER_YEAR} for "
-                       f"{info['year']}).")
-            self._did("add_cash", f"added {money(CASH_ADD)} to cash ({entry['number']} of "
+            if times < 1 or times > info["left_this_year"]:
+                raise ValidationError(f"{info['left_this_year']} {money(CASH_ADD)} add(s) are left for "
+                                      f"{info['year']}, so {times} can't be added; nothing was added")
+            record = self.state.setdefault("cash_adds", [])
+            for _ in range(times):
+                self._earn(CASH_ADD)
+                number = sum(a["day"][:4] == str(info["year"]) for a in record) + 1
+                record.append({"day": self.state["today"], "amount": CASH_ADD, "number": number,
+                               "cash_after": self.state["cash"]})
+            last = record[-1]["number"]
+            self._note(f"Added {money(CASH_ADD * times)} to cash ({times} add(s); {last} of {CASH_ADDS_PER_YEAR} "
+                       f"for {info['year']}).")
+            self._did("add_cash", f"added {money(CASH_ADD * times)} to cash ({last} of "
                                   f"{CASH_ADDS_PER_YEAR} for {info['year']})")
             self.save()
             after = self.cash_adds()
-            return {"added": CASH_ADD, "cash": self.state["cash"], "used_this_year": after["used_this_year"],
+            return {"added": CASH_ADD * times, "times": times, "cash": self.state["cash"],
+                    "used_this_year": after["used_this_year"],
                     "left_this_year": after["left_this_year"], "year": after["year"],
                     "next_reset": after["next_reset"], "record_this_year": after["this_year"]}
 

@@ -222,7 +222,16 @@ class GroqEngine:
             payload = self.build(request)
             for attempt in (1, 2):
                 start = time.perf_counter()
-                body = self._post(payload, key)
+                try:
+                    body = self._post(payload, key)
+                except LLMError as exc:
+                    if attempt == 1 and exc.kind == "bad_request" and "tool call validation" in str(exc).lower():
+                        # the model called a tool that isn't in the list; Groq refuses that, and a retry
+                        # with a reminder almost always picks a real one
+                        payload["messages"].append({"role": "user", "content": (
+                            "Only call tools from the tools list you were given, by their exact names.")})
+                        continue
+                    raise
                 latency = time.perf_counter() - start
                 choice = (body.get("choices") or [{}])[0]
                 msg = choice.get("message") or {}

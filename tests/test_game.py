@@ -2,6 +2,7 @@
 Jarvis's tools for it."""
 from datetime import date, timedelta
 
+import json
 import pytest
 
 from jarvis_books.errors import ValidationError
@@ -875,3 +876,42 @@ def test_jarvis_adds_cash_through_the_game_and_a_lesson_pauses_it(tools):
     tools.call("game_learn", {"topic": "tax sale"})
     assert "paused for a lesson" in tools.call("game_add_cash")["error"]
     assert tools.call("game_cash_adds")["used_this_year"] == 1
+
+
+def test_several_cash_adds_at_once_stay_within_the_years_limit(game):
+    assert game.add_cash(3)["used_this_year"] == 3 and game.state["cash"] == 32_000
+    with pytest.raises(ValidationError, match="2 \\$8,000 add\\(s\\) are left.*nothing was added"):
+        game.add_cash(3)
+    assert game.add_cash(2)["left_this_year"] == 0
+    assert [a["number"] for a in game.cash_adds()["this_year"]] == [1, 2, 3, 4, 5]
+    assert game.state["cash"] == 48_000
+
+
+class ScriptedBrain:
+    """Answers with the given replies in order, like a backup brain that may skip the tool call."""
+
+    def __init__(self, *replies):
+        from jarvis_books.llm.models import LLMResponse
+        self.replies = [LLMResponse(text=r, model="LFM3") if isinstance(r, str) else
+                        LLMResponse(text="", model="LFM3", function_calls=[r],
+                                    content={"role": "model", "parts": [{"functionCall": r}]}) for r in replies]
+        self.requests = []
+
+    def generate(self, request):
+        self.requests.append(request)
+        return self.replies.pop(0)
+
+    def get_runtime_configuration(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(history_turns=8)
+
+
+def test_a_game_move_answered_without_a_tool_call_is_asked_again(library, tools):
+    from jarvis_books.assistant.chat import NO_TOOL_NOTE, Assistant
+    brain = ScriptedBrain("Done, cash is now $24,000.", {"name": "game_add_cash", "args": {}}, "Cash is $16,000.")
+    reply = Assistant(brain, library, tools).send("Add another 8000 to our money")
+    assert reply == "Cash is $16,000." and tools.game.state["cash"] == 16_000
+    assert NO_TOOL_NOTE in json.dumps([c for c in brain.requests[1].history])
+    plain = ScriptedBrain("We have $16,000.")
+    assert Assistant(plain, library, tools).send("how much money do we have in the game?") == "We have $16,000."
+    assert len(plain.requests) == 1
