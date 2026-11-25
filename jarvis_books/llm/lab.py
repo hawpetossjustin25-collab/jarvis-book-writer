@@ -462,6 +462,13 @@ class LabClock:
         self._wake = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.failures = 0
+        self.waiting = ""  # why no round is running right now
+
+    def _note_wait(self, why: str) -> None:
+        if why != self.waiting:
+            self.waiting = why
+            if why:
+                log.info("brain lab waiting: %s", why)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -484,7 +491,10 @@ class LabClock:
         self._wait(self.start_delay)
         while not self._stop.is_set():
             delay = self.lab.pace_s()
-            if self.lab.enabled() and not self.busy() and not self.defer():
+            why = "" if not self.lab.enabled() else "Jarvis is busy (a job or a recent chat)" if self.busy() \
+                else "another background job is using the computer" if self.defer() else ""
+            self._note_wait(why)
+            if self.lab.enabled() and not why:
                 try:
                     self.lab.round(self._cancel)
                     self.failures = 0

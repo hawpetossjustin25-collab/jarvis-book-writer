@@ -241,7 +241,7 @@ def test_other_background_work_delays_a_round_without_stopping_one(tmp_path):
     clock = LabClock(lab, start_delay=0, defer=researching.is_set)
     clock.start()
     time.sleep(0.3)
-    assert rounds == []
+    assert rounds == [] and clock.waiting == "another background job is using the computer"
     researching.clear()
     clock.poke()
     deadline = time.time() + 3

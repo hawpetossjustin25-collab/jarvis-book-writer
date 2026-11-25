@@ -254,7 +254,12 @@ class Studio:
     def _lab_busy(self) -> bool:
         """The Brain Lab works only while Jarvis has nothing else to do: no running jobs and no recent chat."""
         last = max(getattr(a, "last_used", 0.0) for a in (self.assistant, self.war_assistant))
-        return bool(self.jobs.active()) or time.time() - last < IDLE_S
+        jobs = ", ".join(j.title for j in self.jobs.active())
+        if jobs != getattr(self, "_lab_jobs", ""):
+            self._lab_jobs = jobs
+            if jobs:
+                log.info("brain lab waits for: %s", jobs)
+        return bool(jobs) or time.time() - last < IDLE_S
 
     def _lab_tool_score(self, model: str, options: dict) -> float:
         """How well a local model picks Jarvis's tools: every third case of the fixed tool test."""
