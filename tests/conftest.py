@@ -24,6 +24,7 @@ def no_real_ollama(monkeypatch):
 def no_tool_brain_training(monkeypatch):
     """The Studio doesn't train the quick tool brain in the background during tests (test_tool_brain does)."""
     monkeypatch.setattr("jarvis_books.studio.TOOL_BRAIN_AUTOBUILD", False)
+    monkeypatch.setattr("jarvis_books.studio.LAB_AUTOSTART", False)
 
 
 @pytest.fixture

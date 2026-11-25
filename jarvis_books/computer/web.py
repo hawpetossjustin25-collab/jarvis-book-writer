@@ -13,6 +13,7 @@ import shutil
 import socket
 import time
 import zipfile
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -573,6 +574,65 @@ class Web:
                 "downloads": info.get("downloads"), "likes": info.get("likes"), "gated": info.get("gated"),
                 "tags": info.get("tags", [])[:25], "files": files[:80], "readme": readme,
                 "url": f"https://huggingface.co/{repo}"}
+
+    # ---- research papers ----------------------------------------------------------------------------------
+    def papers(self, query: str, limit: int = 8, since_year: int = 0) -> dict:
+        """Newest research papers on a subject from arXiv and Semantic Scholar, each with its link. One source
+        being down or rate-limited still returns the other's papers."""
+        limit = min(max(1, int(limit or 8)), 25)
+        found: list[dict] = []
+        problems: list[str] = []
+        for name, fetch in (("arXiv", self._arxiv), ("Semantic Scholar", self._scholar)):
+            try:
+                found += fetch(query, limit)
+            except (NotFound, ValueError, ET.ParseError) as exc:
+                problems.append(f"{name}: {exc}"[:200])
+        seen: set = set()
+        papers = []
+        for p in sorted(found, key=lambda p: p["date"], reverse=True):
+            key = re.sub(r"\W+", "", p["title"].lower())
+            if key in seen or (since_year and int(p["date"][:4] or 0) < since_year):
+                continue
+            seen.add(key)
+            papers.append(p)
+        if not papers and len(problems) == 2:
+            raise NotFound("couldn't search for papers: " + "; ".join(problems))
+        out: dict = {"query": query, "papers": papers[:limit]}
+        if problems:
+            out["problems"] = problems
+        return out
+
+    def _arxiv(self, query: str, limit: int) -> list[dict]:
+        words = [w for w in re.findall(r"[\w.+-]+", query) if len(w) > 1][:8]
+        resp = self._get("https://export.arxiv.org/api/query",
+                         params={"search_query": " AND ".join(f"abs:{w}" for w in words) or "abs:" + query,
+                                 "sortBy": "relevance", "sortOrder": "descending", "max_results": limit})
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        out = []
+        for e in ET.fromstring(resp.content).findall("a:entry", ns):
+            link = (e.findtext("a:id", "", ns) or "").strip()
+            pdf = next((x.get("href") for x in e.findall("a:link", ns) if x.get("title") == "pdf"), "")
+            out.append({"title": " ".join((e.findtext("a:title", "", ns) or "").split()),
+                        "date": (e.findtext("a:published", "", ns) or "")[:10],
+                        "authors": [a.findtext("a:name", "", ns) for a in e.findall("a:author", ns)][:4],
+                        "summary": " ".join((e.findtext("a:summary", "", ns) or "").split())[:700],
+                        "url": link, "pdf": pdf, "source": "arXiv"})
+        return out
+
+    def _scholar(self, query: str, limit: int) -> list[dict]:
+        resp = self._get("https://api.semanticscholar.org/graph/v1/paper/search",
+                         params={"query": query, "limit": limit,
+                                 "fields": "title,abstract,url,year,publicationDate,authors,citationCount,"
+                                           "openAccessPdf"})
+        out = []
+        for r in resp.json().get("data") or []:
+            out.append({"title": " ".join((r.get("title") or "").split()),
+                        "date": r.get("publicationDate") or (f"{r['year']}-01-01" if r.get("year") else ""),
+                        "authors": [a.get("name", "") for a in (r.get("authors") or [])][:4],
+                        "summary": " ".join((r.get("abstract") or "").split())[:700],
+                        "url": r.get("url") or "", "pdf": (r.get("openAccessPdf") or {}).get("url", ""),
+                        "citations": r.get("citationCount"), "source": "Semantic Scholar"})
+        return out
 
     # ---- GitHub ------------------------------------------------------------------------------------------
     def github_search(self, query: str, limit: int = 10) -> dict:

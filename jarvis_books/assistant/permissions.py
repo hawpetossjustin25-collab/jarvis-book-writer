@@ -39,7 +39,7 @@ TOOL_LEVELS = MappingProxyType({
     "list_upgrades": READ, "test_app": CHANGE, "test_tool_calling": SAFE,
     "brain_status": READ, "switch_brain": SAFE,
     "list_folder": READ, "read_file": READ, "computer_log": READ, "command_output": READ,
-    "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "hf_model_info": READ,
+    "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "search_papers": READ, "hf_model_info": READ,
     "github_search": READ, "github_read": READ,
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,
@@ -52,7 +52,8 @@ TOOL_LEVELS = MappingProxyType({
     "list_programs": READ, "system_info": READ, "read_clipboard": READ, "look_at_screen": READ,
     "open_item": SAFE, "copy_to_clipboard": SAFE, "media_control": SAFE,
     "research_status": READ, "research_notes": READ, "research_topic": SAFE, "change_research": SAFE,
-    "research_now": SAFE, "researcher_switch": SAFE, "drop_research": CHANGE,
+    "research_now": SAFE, "researcher_switch": SAFE,
+    "brain_lab_status": READ, "brain_lab_switch": SAFE, "brain_lab_round": SAFE, "drop_research": CHANGE,
     # the Atlanta game only changes the game, so moves need no yes; starting over does
     "game_status": READ, "game_market": READ, "game_inspect": READ, "game_renovation_quotes": READ,
     "game_tax_sale": READ, "game_tax_deeds": READ, "game_lesson": READ,

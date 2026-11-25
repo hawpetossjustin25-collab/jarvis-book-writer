@@ -176,7 +176,8 @@ class OllamaClient:
     def show(self, model: str) -> dict:
         return self._call("POST", "/api/show", {"model": model}, timeout=30).json()
 
-    def chat(self, payload: dict, timeout: Optional[float] = None, idle_s: Optional[float] = None) -> dict:
+    def chat(self, payload: dict, timeout: Optional[float] = None, idle_s: Optional[float] = None,
+             first_token: Optional[Callable[[], None]] = None) -> dict:
         """One answer. With idle_s the answer streams: it may take up to `timeout` in all, as long as the model
         never goes quiet for idle_s (reading the prompt counts as quiet, so idle_s must cover that too)."""
         if idle_s is None:
@@ -193,6 +194,9 @@ class OllamaClient:
                 if msg.get("error"):
                     raise LLMError(f"{LABEL} error: {str(msg['error'])[:300]}", kind="unknown")
                 part = msg.get("message") or {}
+                if first_token is not None and (part.get("content") or part.get("tool_calls")):
+                    first_token()
+                    first_token = None
                 text.append(part.get("content") or "")
                 calls.extend(part.get("tool_calls") or [])
                 if msg.get("done"):

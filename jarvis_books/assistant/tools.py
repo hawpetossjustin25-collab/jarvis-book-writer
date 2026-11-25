@@ -64,7 +64,7 @@ BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). 
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research", "game")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
-                "research_brain", "tool_brain")
+                "research_brain", "tool_brain", "rsi")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
                    "brain": ("gemini", "groq", "local"), "research_brain": ("local", "groq", "gemini"),
                    "researcher": ("0", "1")}
@@ -181,6 +181,9 @@ COMPUTER_DECLARATIONS = [
           {"query": S, "kind": {"type": "STRING", "enum": ["models", "datasets", "spaces"]}}, ["query"]),
     _decl("hf_model_info", "A Hugging Face model's details: task, license, size of each file and its model card.",
           {"repo": {"type": "STRING", "description": "owner/name, e.g. LiquidAI/LFM3-1.7B"}}, ["repo"]),
+    _decl("search_papers", "Search research papers (arXiv and Semantic Scholar), newest first, each with its "
+          "date, authors, summary and link. since_year: only papers from that year on.",
+          {"query": S, "limit": I, "since_year": I}, ["query"]),
     _decl("github_search", "Search GitHub repositories.", {"query": S}, ["query"]),
     _decl("github_read", "List a folder or read a file in a GitHub repository.",
           {"repo": {"type": "STRING", "description": "owner/name or a github.com link"}, "path": S, "ref": S},
@@ -441,6 +444,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
             "list_api_keys": API_WORDS,
             "hf_search": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
             "hf_model_info": ("hugging", "huggingface", "model", "hf://", "gguf", "dataset"),
+            "search_papers": ("paper", "arxiv", "study", "studies", "scholar", "journal", "research on"),
             "github_search": ("github", "repo", "repository", "git ", "source code"),
             "github_read": ("github", "repo", "repository", "git ", "source code"),
             "download_file": ("download", "get the file", "save the file", "grab", "hugging", "model"),
@@ -970,7 +974,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain", "rsi"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:
@@ -1549,6 +1553,9 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools):
 
     def _t_explore_website(self, url: str, look_for: str = "", pages: int = 5) -> dict:
         return self._web().explore_site(url, look_for, pages)
+
+    def _t_search_papers(self, query: str, limit: int = 8, since_year: int = 0) -> dict:
+        return self._web().papers(query, limit, since_year)
 
     def _t_hf_search(self, query: str, kind: str = "models") -> dict:
         return self._web().hf_search(query, kind)

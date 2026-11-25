@@ -1,0 +1,30 @@
+{"id": "sealed-01", "category": "books", "request": "Open the book Winter Bones.", "tool": "open_book", "args": {"book": "winter bones"}}
+{"id": "sealed-02", "category": "books", "request": "Write two chapters of Winter Bones.", "tool": "write_chapters", "args": {"book": "winter bones", "count": 2}}
+{"id": "sealed-03", "category": "books", "request": "Who's in the story bible for Winter Bones?", "tool": "story_bible", "args": {"book": "winter bones"}}
+{"id": "sealed-04", "category": "books", "request": "Stop writing Winter Bones.", "tool": "stop_writing", "args": {"book": "winter bones"}}
+{"id": "sealed-05", "category": "books", "request": "Read Winter Bones to me.", "tool": "play_audiobook", "args": {"book": "winter bones"}}
+{"id": "sealed-06", "category": "memory", "request": "Don't forget that my truck is a 2014 Silverado.", "tool": "remember", "args": {"text": "silverado"}}
+{"id": "sealed-07", "category": "computer", "request": "Read the file budget_2027.xlsx", "tool": "read_file", "args": {"path": "budget_2027.xlsx"}}
+{"id": "sealed-08", "category": "computer", "request": "Launch Notepad.", "tool": "open_item", "args": {"target": "notepad"}}
+{"id": "sealed-09", "category": "computer", "request": "How much RAM does my computer have?", "tool": "system_info", "args": {}}
+{"id": "sealed-10", "category": "computer", "request": "What programs are running?", "tool": "list_programs", "args": {}}
+{"id": "sealed-11", "category": "computer", "request": "Turn the volume up.", "tool": "media_control", "args": {"action": "volume_up"}}
+{"id": "sealed-12", "category": "computer", "request": "Run pip install numpy", "tool": "run_command", "args": {"command": "pip install numpy"}}
+{"id": "sealed-13", "category": "web", "request": "Google used boats for sale in Savannah.", "tool": "web_search", "args": {"query": "boats"}}
+{"id": "sealed-14", "category": "web", "request": "Read this page https://example.net/guide", "tool": "read_web_page", "args": {"url": "example.net/guide"}}
+{"id": "sealed-15", "category": "web", "request": "What online tax sales are coming up in Alabama?", "tool": "online_tax_sales", "args": {"state": "alabama"}}
+{"id": "sealed-16", "category": "planner", "request": "Remind me to water the plants tomorrow morning.", "tool": "set_reminder", "args": {"text": "plants"}}
+{"id": "sealed-17", "category": "planner", "request": "What reminders do I have?", "tool": "list_reminders", "args": {}}
+{"id": "sealed-18", "category": "planner", "request": "Snooze it for 10 minutes.", "tool": "snooze_reminder", "args": {"minutes": 10}}
+{"id": "sealed-19", "category": "research", "request": "Have the researcher look into hurricane season.", "tool": "research_topic", "args": {"name": "hurricane"}}
+{"id": "sealed-20", "category": "game", "request": "Bid 6,200.", "tool": "game_bid", "args": {"amount": 6200}}
+{"id": "sealed-21", "category": "game", "request": "Inspect P5.", "tool": "game_inspect", "args": {"id": "p5"}}
+{"id": "sealed-22", "category": "game", "request": "Rent out P2.", "tool": "game_rent_out", "args": {"property_id": "p2"}}
+{"id": "sealed-23", "category": "game", "request": "Any calls from my secretary?", "tool": "game_calls", "args": {}}
+{"id": "sealed-24", "category": "game", "request": "How close are we to a trillion?", "tool": "game_goal", "args": {}}
+{"id": "sealed-25", "category": "game", "request": "Show the game timeline.", "tool": "game_timeline", "args": {}}
+{"id": "sealed-26", "category": "game", "request": "Fire the bidding assistant.", "tool": "game_fire_bidder", "args": {}}
+{"id": "sealed-27", "category": "app", "request": "Open the research tab.", "tool": "open_tab", "args": {"tab": "research"}}
+{"id": "sealed-28", "category": "app", "request": "Undo that.", "tool": ["undo_last_change", "game_go_back"], "args": {}}
+{"id": "sealed-29", "category": "chat", "request": "Okay sounds good.", "tool": null, "args": {}}
+{"id": "sealed-30", "category": "chat", "request": "What does foreclosure mean?", "tool": null, "args": {}}

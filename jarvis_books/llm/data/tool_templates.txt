@@ -156,6 +156,10 @@ call_api | call the api at {url:url}
 send_api | post to {url:url} | {"method": "POST"}
 list_api_keys | what api keys do i have
 hf_search | find [a|] {query:query} model on hugging face
+search_papers | [find|search for|look up|get] [the latest|new|recent|] research papers on {query:query}
+search_papers | search arxiv for {query:query}
+search_papers | [are there|find] [any|] [studies|papers] about {query:query}
+search_papers | what [do|does] the [latest|newest|] research [papers|] say about {query:query}
 hf_model_info | tell me about the hugging face model {repo:hf}
 github_search | [find|search] github [repos|] for {query:query}
 github_read | read the github repo {repo:repo}
@@ -197,6 +201,14 @@ drop_research | stop researching {topic:topic}
 research_now | research {topic:topic} right now
 researcher_switch | turn the researcher [off|down] | {"on": false}
 researcher_switch | turn the researcher on | {"on": true}
+brain_lab_status | how is [the brain lab|rsi mode|rsi] [doing|going]
+brain_lab_status | [what are my|read my] computer specs
+brain_lab_status | how much has your brain improved
+brain_lab_switch | [turn|switch] [rsi mode|rsi|the brain lab] on | {"on": true}
+brain_lab_switch | start improving your brain | {"on": true}
+brain_lab_switch | [turn|switch] [rsi mode|rsi|the brain lab] off | {"on": false}
+brain_lab_switch | stop improving your brain | {"on": false}
+brain_lab_round | run [a|an] [brain lab|rsi] round [now|right now|]
 # ---- game
 game_status | how much money do we have [in the game|]
 game_status | [what's|show me] our game status

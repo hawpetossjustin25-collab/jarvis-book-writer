@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as ToolTimeout
 from datetime import datetime
 from typing import Callable, Optional
@@ -38,6 +39,8 @@ def now_line() -> str:
 
 
 class Assistant:
+    last_used = 0.0  # when the author last spoke to him; background work waits for quiet
+
     def __init__(self, engine, library: Library, tools: ToolBox, channel: str = "chat", guide: str = "",
                  per_book: bool = False, history_channels: tuple = ()):
         self.engine = engine
@@ -73,6 +76,7 @@ class Assistant:
 
     def send(self, text: str, on_tool: Optional[Callable[[str, dict, dict], None]] = None) -> str:
         """Send one user message; runs tool calls until Gemini answers in text. Returns the reply."""
+        self.last_used = time.time()
         key_book = self.tools.current_book_id if self.per_book else None
         if self.memory is not None:  # a conversation that went quiet is learned from before this one goes on
             self.memory.schedule(self.channel, key_book)

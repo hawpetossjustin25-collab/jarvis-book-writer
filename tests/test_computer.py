@@ -636,3 +636,40 @@ def test_the_app_searches_through_groq_when_the_engines_block_it(tmp_path):
         assert studio.web.ai_search.__self__.key == studio._groq_key
     finally:
         studio.close()
+
+
+ARXIV_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+ <entry><id>http://arxiv.org/abs/2610.28671v1</id><published>2026-10-17T00:00:00Z</published>
+  <title>Accelerating CPU Speculative
+   Decoding</title><summary> Faster decoding on plain processors. </summary>
+  <author><name>A. Lee</name></author><link title="pdf" href="http://arxiv.org/pdf/2610.28671v1"/></entry>
+ <entry><id>http://arxiv.org/abs/2605.06485v2</id><published>2026-05-07T00:00:00Z</published>
+  <title>Ternary Models on CPUs</title><summary>1.58-bit.</summary><author><name>B. Kim</name></author></entry>
+</feed>"""
+
+
+def test_paper_search_merges_arxiv_and_semantic_scholar_newest_first():
+    scholar = json.dumps({"data": [
+        {"title": "Ternary models on CPUs", "year": 2026, "publicationDate": "2026-05-07", "abstract": "dup",
+         "url": "https://s2.org/1", "authors": [{"name": "B. Kim"}], "citationCount": 3},
+        {"title": "Small Tool-Calling Models", "year": 2025, "publicationDate": None, "abstract": "tools",
+         "url": "https://s2.org/2", "authors": [], "openAccessPdf": {"url": "https://s2.org/2.pdf"}}]})
+    w = web({"export.arxiv.org": Resp(body=ARXIV_FEED), "semanticscholar.org": Resp(body=scholar.encode())})
+    out = w.papers("CPU speculative decoding", limit=5)
+    titles = [p["title"] for p in out["papers"]]
+    assert titles == ["Accelerating CPU Speculative Decoding", "Ternary Models on CPUs", "Small Tool-Calling Models"]
+    first = out["papers"][0]
+    assert first["pdf"].endswith("2610.28671v1") and first["authors"] == ["A. Lee"] and first["source"] == "arXiv"
+    assert out["papers"][2]["date"] == "2025-01-01" and out["papers"][2]["pdf"] == "https://s2.org/2.pdf"
+    query = [params for url, params in w.session.seen if "arxiv" in url][0]["search_query"]
+    assert query == "abs:CPU AND abs:speculative AND abs:decoding"
+    assert [p["title"] for p in w.papers("x", since_year=2026)["papers"]][-1] == "Ternary Models on CPUs"
+
+
+def test_paper_search_keeps_working_when_one_source_is_down():
+    w = web({"export.arxiv.org": Resp(body=ARXIV_FEED), "semanticscholar.org": Resp(429)})
+    out = w.papers("ternary")
+    assert len(out["papers"]) == 2 and "Semantic Scholar" in out["problems"][0]
+    with pytest.raises(NotFound, match="couldn't search for papers"):
+        web({}).papers("ternary")

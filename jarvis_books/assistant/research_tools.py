@@ -38,11 +38,19 @@ RESEARCH_DECLARATIONS = [
           "pick its brain: 'local' (free model on this computer, no daily limit), 'groq' (free online, "
           "about 1,000 requests a day, separate from Jarvis's) or 'gemini' (uses Gemini's daily requests).",
           {"on": B, "minutes": I, "brain": {"type": "STRING", "enum": ["local", "groq", "gemini"]}}),
+    _decl("brain_lab_status", "RSI mode (the Brain Lab, where Jarvis keeps improving his own brain on this "
+          "computer without a graphics card): this computer's measured specs, the targets set from them, the best "
+          "setup so far and its scores (tool calls, coding tests, long project, reply speed, RAM), which targets "
+          "aren't met yet, the last rounds and the research papers it read."),
+    _decl("brain_lab_switch", "Turn RSI mode (the Brain Lab) on or off. While on it runs rounds whenever Jarvis "
+          "is idle, nonstop until every target is met and then every few hours.", {"on": B}, ["on"]),
+    _decl("brain_lab_round", "Start a Brain Lab round right now (when Jarvis is idle) instead of waiting."),
 ]
 RESEARCH_TOOLS = tuple(d["name"] for d in RESEARCH_DECLARATIONS)
 RESEARCH_WORDS = ("research", "look into", "dig into", "keep digging", "find out more", "notebook", "notes",
                   "interested in", "learn about", "keep an eye", "follow up", "project", "topic", "build",
-                  "what did you find", "what have you found")
+                  "what did you find", "what have you found", "rsi", "brain lab", "self-improv", "improve your",
+                  "improve yourself", "your brain", "specs")
 
 
 class ResearchTools:
@@ -59,6 +67,38 @@ class ResearchTools:
     def _poke(self) -> None:
         if self.research_clock is not None:
             self.research_clock.poke()
+
+    lab = None
+    lab_clock = None
+
+    def _lab(self):
+        if self.lab is None:
+            raise NotFound("the Brain Lab is not available here")
+        return self.lab
+
+    def _t_brain_lab_status(self) -> dict:
+        return self._lab().status()
+
+    def _t_brain_lab_switch(self, on: bool) -> dict:
+        store = self.settings_store
+        if store is None:
+            raise NotFound("settings are not available here")
+        self._lab()
+        store.set_setting("rsi", "1" if on else "0")
+        if self.lab_clock is not None:
+            self.lab_clock.poke()
+        return {"on": bool(on), "note": "rounds run while Jarvis is idle" if on else "stopped; the best setup "
+                "found so far stays in use"}
+
+    def _t_brain_lab_round(self) -> dict:
+        lab = self._lab()
+        if lab.running:
+            return {"started": False, "note": f"a round is already running: {lab.step}"}
+        if not lab.enabled():
+            return {"started": False, "note": "RSI mode is off; turn it on first"}
+        if self.lab_clock is not None:
+            self.lab_clock.poke()
+        return {"started": True, "note": "it starts once Jarvis is idle; brain_lab_status shows progress"}
 
     def _t_research_status(self) -> dict:
         return self._res().status()

@@ -151,8 +151,10 @@ class FakeOllama:
                              "prompt_eval_duration": int(prompt_tokens / 50 * 1e9), "eval_count": output_tokens,
                              "eval_duration": int(output_tokens / 8 * 1e9)})
 
-    def chat(self, payload, timeout=None, idle_s=None):
+    def chat(self, payload, timeout=None, idle_s=None, first_token=None):
         self._check()
+        if first_token is not None:
+            first_token()
         self.chats.append(payload)
         self.timeouts.append((timeout, idle_s))
         if not self.replies:

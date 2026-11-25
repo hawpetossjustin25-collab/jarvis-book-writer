@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,8 @@ from jarvis_books.llm.local import LABEL, LocalEngine, OllamaClient
 from jarvis_books.llm.models import LLMRequest
 from jarvis_books.llm.gemini import GeminiClient
 from jarvis_books.llm.store import EngineStore
+from jarvis_books.llm.errors import LLMError
+from jarvis_books.llm.lab import LABELS, BrainLab, LabClock
 from jarvis_books.llm.tool_brain import FastRouter
 from jarvis_books.memory import ContextBuilder, StoryIndex
 from jarvis_books.memory.longterm import JarvisMemory
@@ -46,6 +49,8 @@ from jarvis_books.writer import BookWriter
 
 log = logging.getLogger(__name__)
 TOOL_BRAIN_AUTOBUILD = True  # tests turn this off so they don't spend minutes training
+LAB_AUTOSTART = True  # likewise for the Brain Lab's background rounds
+IDLE_S = 180  # the Brain Lab waits this long after the author's last message
 
 
 class Studio:
@@ -68,6 +73,9 @@ class Studio:
         probe = (engine_kwargs or {}).get("hardware_probe")
         self.local = LocalEngine(local_client or OllamaClient(), state_path=self.home / "local_llm.json",
                                  **({"hardware_probe": probe} if probe else {}))
+        lab_model = self.library.get_meta("lab_model", "")  # the Brain Lab's best model for this computer
+        if lab_model:
+            self.local.model, self.local.label = lab_model, LABELS.get(lab_model, lab_model)
         # Gemini and LFM3 behind one generate(); the index and narrator use Gemini-only embeddings and speech.
         self.groq = GroqEngine(self._groq_key, GROQ_CHAT)
         self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq)
@@ -147,8 +155,13 @@ class Studio:
         self.researcher.backup = self.local
         self.researcher.cloud = GroqEngine(self._groq_key, GROQ_RESEARCH)
         self.research_clock = ResearchClock(self.researcher)
+        self.lab = BrainLab(self.home / "brain_lab", self.local.client, self.fast, self.tools.declarations,
+                            self.settings, web=self.web, measure_model_tools=self._lab_tool_score,
+                            apply=self._apply_lab)
+        self.lab_clock = LabClock(self.lab, busy=self._lab_busy)
         for box in (self.tools, self.war_tools):
             box.researcher, box.research_clock = self.researcher, self.research_clock
+            box.lab, box.lab_clock = self.lab, self.lab_clock
         self.assistant.researcher = self.war_assistant.researcher = self.researcher
         self.tools.api_keys = self.war_tools.api_keys = self.api_keys
         self.game = Game(self.home / "game" / "atlanta.json")
@@ -162,7 +175,8 @@ class Studio:
     DEFAULTS = {"voice": "Charon", "edge_voice": "en-US-AndrewNeural", "jarvis_voice": "Charon", "author": "",
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
-                "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1"}
+                "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1",
+                "rsi": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -206,6 +220,8 @@ class Studio:
         if TOOL_BRAIN_AUTOBUILD:
             threading.Thread(target=self._build_tool_brain, name="jarvis-tool-brain", daemon=True).start()
         self.research_clock.start()
+        if LAB_AUTOSTART:
+            self.lab_clock.start()
         self.trading_clock.start()
         try:
             self._start_local()
@@ -229,9 +245,36 @@ class Studio:
     def _build_tool_brain(self) -> None:
         """Loads the quick tool brain, or trains it (a few minutes, once) when the app's tools have changed."""
         from jarvis_books.llm.tool_eval import load_cases
-        self.fast.build(self.tools.declarations(), held_out=load_cases())
+        self.fast.min_confidence = self.lab.champion_genome()["tool_confidence"]
+        self.fast.build(self.tools.declarations(), held_out=load_cases(), **self.lab.tool_kwargs())
         if self.fast.error:
             log.warning("quick tool brain unavailable: %s", self.fast.error)
+
+    def _lab_busy(self) -> bool:
+        """The Brain Lab works only while Jarvis has nothing else to do: no running jobs and no recent chat."""
+        last = max(getattr(a, "last_used", 0.0) for a in (self.assistant, self.war_assistant))
+        return bool(self.jobs.active()) or time.time() - last < IDLE_S
+
+    def _lab_tool_score(self, model: str, options: dict) -> float:
+        """How well a local model picks Jarvis's tools: every third case of the fixed tool test."""
+        from jarvis_books.llm.tool_eval import load_cases, run_tool_eval
+        from jarvis_books.writer import prompts
+        engine = LocalEngine(self.local.client, model=model, label=LABELS.get(model, model))
+        if not engine.initialize():
+            raise LLMError(engine.problem, kind="unknown")
+        report = run_tool_eval(engine, self.tools.declarations(), load_cases()[::3], prompts.ASSISTANT,
+                               select=self.tools.select, retries=0)
+        return report.accuracy
+
+    def _apply_lab(self, genome: dict) -> None:
+        """A better setup from the Brain Lab: its model becomes the brain on this computer."""
+        model = genome["model"]
+        if model == self.local.model:
+            return
+        self.local.model, self.local.label = model, LABELS.get(model, model)
+        self.local.speed = type(self.local.speed)()
+        self.library.set_meta("lab_model", model)
+        threading.Thread(target=self.local.initialize, name="jarvis-lab-model", daemon=True).start()
 
     def _groq_key(self) -> Optional[str]:
         return load_groq_key(self.home)
@@ -298,6 +341,7 @@ class Studio:
 
     def close(self) -> None:
         self.research_clock.stop()
+        self.lab_clock.stop()
         self.trading_clock.stop()
         self.reminder_clock.stop()
         self.memory.shutdown()
