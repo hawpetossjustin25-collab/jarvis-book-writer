@@ -34,7 +34,8 @@ jarvis_books/
   assistant/    tool declarations + permissions.py (yes/no gate in code), computer/desktop/planner/research tools
   computer/     files, terminal, web.py (search, read pages, downloads, GitHub), desktop control, OCR,
                 taxliens.py (DeKalb, Fulton, Maricopa, Hennepin), online_sales.py, deal_scan.py
-  nexus/        NEXUS OS1: web explorer + searchable page graph (nexus.db), see jarvis_books/nexus/README.md
+  nexus/        NEXUS OS1 (web explorer + searchable page graph, nexus.db) and OS2 (sourced facts,
+                verified/unverified/conflicting), see jarvis_books/nexus/README.md
   research.py   24/7 background researcher (topics, interest detection, sourced findings, ResearchClock)
   upgrade.py    self-upgrade: edits a copy, runs the full test suite, retries until it passes
   writer/ craft/ memory/ storage/ audio/ voice/ publish/ export/ ui/   books, memory, narration, UI tabs
@@ -103,8 +104,9 @@ After a laptop reboot the link changes; Jarvis sends `jarvis-link <host>` on Tel
 
 ## Unfinished
 
-- NEXUS: OS1 (web observation, graph, search) is built and tested. Still to do: OS1 RSI (measured
-  candidate configs with rollback), the NEXUS REST/WebSocket API, OS2 (intelligence) and OS3 (tool registry).
+- NEXUS: OS1 (web observation, graph, search) and OS2 (facts with sources, contradictions) are built and
+  tested. Still to do: OS3 (tool registry), the NEXUS REST/WebSocket API and OS1 RSI (measured
+  candidate configs with rollback).
 
 - Researcher: the laptop's internet address is treated as a robot by DuckDuckGo (202 robot check), Bing
   (results for the first word only), Google, Startpage and Mojeek, so web search falls back to Groq's

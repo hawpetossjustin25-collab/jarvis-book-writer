@@ -5,6 +5,7 @@ import time
 from typing import Optional
 
 from jarvis_books.errors import NotFound
+from jarvis_books.nexus.os2 import OS2
 from jarvis_books.nexus.urls import normalize
 
 S = {"type": "STRING"}
@@ -45,10 +46,25 @@ NEXUS_DECLARATIONS = [
           "catch pages that changed.", {"pages": {"type": "INTEGER", "description": "most pages, default 50"}}),
     _decl("web_index_continue", "NEXUS: continue the last web exploration that was stopped or cut off, from "
           "where it left off."),
+    _decl("web_index_brief", "NEXUS OS2: a sourced briefing on a topic from your web index: a summary in the "
+          "pages' own words, facts sorted into verified (2+ different websites agree), unverified (one source) "
+          "and conflicting (sources disagree), the main names, places and organisations, links between them "
+          "(inference: they appear together) and what's missing. Every fact keeps its source links and quotes. "
+          "Tell the user which facts are verified and which aren't; never present an unverified one as certain.",
+          {"query": S, "pages": {"type": "INTEGER", "description": "how many top pages to read, 1-20 (default 8)"}},
+          ["query"]),
+    _decl("web_index_facts", "NEXUS OS2: what the web index's pages say about one thing (a company, person, "
+          "place, parcel...), every value with its sources and whether it's verified, unverified, conflicting "
+          "or missing. Give `fact` (e.g. founded, population, price, starting bid) to check just that one.",
+          {"subject": S, "fact": {"type": "STRING", "description": "one kind of fact to check (optional)"}},
+          ["subject"]),
+    _decl("web_index_conflicts", "NEXUS OS2: facts where websites in your web index disagree (e.g. two founding "
+          "years or two prices), each value with its sources."),
 ]
 NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS)
-NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "spider", "map the site", "map of the web", "explore",
-               "observ", "recheck", "changed pages")
+NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
+               "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
+               "disagree", "source", "brief", "intel", "what do we know", "what does the web say")
 
 
 def _when(stamp: Optional[float]) -> Optional[str]:
@@ -59,11 +75,23 @@ class NexusTools:
     """Mixed into ToolBox; `self.nexus` (an OS1) is set by the Studio."""
 
     nexus = None
+    _nexus_os2 = None
 
     def _os1(self):
         if self.nexus is None:
             raise NotFound("the NEXUS web index isn't available here")
         return self.nexus
+
+    def _os2(self) -> OS2:
+        os1 = self._os1()
+        if self._nexus_os2 is None or self._nexus_os2.os1 is not os1:
+            self._nexus_os2 = OS2(os1)
+        return self._nexus_os2
+
+    def _read_new_pages(self, limit: int) -> int:
+        """After a crawl, OS2 reads the pages it saved so their facts are ready to brief from."""
+        resp = self._os2().call("analyze", {"limit": max(1, min(limit, 100_000))})
+        return resp.extra.get("facts_found", 0) if resp.ok else 0
 
     def _nexus_job(self, title: str, operation: str, payload: dict) -> dict:
         os1 = self._os1()
@@ -75,9 +103,12 @@ class NexusTools:
             if not resp.ok:
                 raise ValueError(resp.error_message)
             report = resp.results[0] if resp.results else {"pages_fetched": 0}
-            return {k: report.get(k) for k in ("status", "pages_fetched", "pages_new", "pages_changed", "duplicates",
-                                               "failed", "blocked", "links_found", "queued_left", "seconds",
-                                               "sample")}
+            out = {k: report.get(k) for k in ("status", "pages_fetched", "pages_new", "pages_changed", "duplicates",
+                                              "failed", "blocked", "links_found", "queued_left", "seconds",
+                                              "sample")}
+            if report.get("pages_fetched"):
+                out["facts_found"] = self._read_new_pages(report["pages_fetched"] + 50)
+            return out
         job = self.jobs.submit("nexus", title, run)
         return {"started": True, "job_id": job.id,
                 "note": "job_status shows progress; web_index_search searches the pages as they come in"}
@@ -152,3 +183,47 @@ class NexusTools:
                                          "started": _when(r["started_at"])} for r in history["crawls"]]
         stats["recent_searches"] = [s["query"] for s in history["searches"]]
         return stats
+
+    def _os2_call(self, operation: str, payload: dict):
+        resp = self._os2().call(operation, payload)
+        if not resp.ok:
+            raise NotFound(resp.error_message) if resp.error_code == "not_found" else ValueError(resp.error_message)
+        return resp
+
+    @staticmethod
+    def _verdict(v: dict) -> dict:
+        return {"about": v["subject"], "fact": v["predicate"], "status": v["status"], "confidence": v["confidence"],
+                "values": [{"value": x["value"], "websites": x["sites"],
+                            "sources": [{"title": s["title"], "url": s["url"], "quote": s["quote"][:300]}
+                                        for s in x["sources"][:3]]} for x in v["values"]]}
+
+    def _t_web_index_brief(self, query: str, pages: int = 8) -> dict:
+        resp = self._os2_call("brief", {"query": query, "max_pages": max(1, min(int(pages), 20))})
+        meta = resp.extra
+        if not resp.results:
+            return {"query": query, "missing": meta["missing"],
+                    "note": "web_index_explore can add pages about it first, or research_web searches the live web"}
+        return {"query": query, "summary": meta["summary"],
+                "verified": [self._verdict(v) for v in meta["facts"]["verified"]],
+                "unverified": [self._verdict(v) for v in meta["facts"]["unverified"]],
+                "conflicting": [self._verdict(v) for v in meta["facts"]["conflicting"]],
+                "names": [f"{e['name']} ({e['kind']})" for e in meta["entities"][:10]],
+                "connections": [f"{' and '.join(i['between'])} appear together on {i['pages']} page(s) (inference)"
+                                for i in meta["inferences"][:6]],
+                "missing": meta["missing"],
+                "sources": [{"title": s["title"], "url": s["url"], "kind": s["category"]} for s in meta["sources"]],
+                "note": UNTRUSTED}
+
+    def _t_web_index_facts(self, subject: str, fact: str = "") -> dict:
+        payload = {"subject": subject}
+        if fact.strip():
+            payload["predicate"] = fact.strip().lower()
+        verdicts = self._os2_call("facts", payload).results
+        return {"subject": subject, "facts": [self._verdict(v) for v in verdicts], "note": UNTRUSTED}
+
+    def _t_web_index_conflicts(self) -> dict:
+        found = self._os2_call("contradictions", {"limit": 20}).results
+        out = {"conflicts": [self._verdict(v) for v in found], "note": UNTRUSTED}
+        if not found:
+            out["note"] = "no facts in the web index disagree between websites"
+        return out

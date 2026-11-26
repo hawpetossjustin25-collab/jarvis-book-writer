@@ -344,6 +344,18 @@ web_index_refresh | check the indexed pages for changes
 web_index_refresh | [recheck|refresh] {pages:big} indexed pages
 web_index_continue | [continue|resume] the [crawl|web exploration|indexing]
 web_index_continue | pick the crawl back up where it stopped
+web_index_brief | [brief me|give me a briefing] on {query:query}
+web_index_brief | what do we know about {query:query} [from the web index|from your index|]
+web_index_brief | [sum up|summarize] what the web index says about {query:query}
+web_index_brief | [give me|make] a sourced report on {query:query}
+web_index_facts | [is it true|check if it's true] that {subject:topic} [was|is] founded in 1998 | {"fact": "founded"}
+web_index_facts | what are the facts about {subject:topic}
+web_index_facts | [check|verify] the facts [on|about] {subject:topic}
+web_index_facts | what's the population of {subject:topic} [according to the index|] | {"fact": "population"}
+web_index_facts | what's the price of {subject:topic} and who says so | {"fact": "price"}
+web_index_conflicts | [which|what] facts [do the websites|do sources] disagree on
+web_index_conflicts | [show|find] [me|] [the|any] contradictions in the web index
+web_index_conflicts | where do [the|my] sources conflict
 # ---- phone app
 phone_link | [give|send] me the phone [link|app]
 phone_link | phone link

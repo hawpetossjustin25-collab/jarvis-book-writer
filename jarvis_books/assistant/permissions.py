@@ -42,6 +42,7 @@ TOOL_LEVELS = MappingProxyType({
     "web_search": READ, "read_web_page": READ, "scrape_web_page": READ, "research_web": READ, "tax_lien_listings": READ, "online_tax_sales": READ, "best_tax_deals": READ, "explore_website": READ, "call_api": READ, "list_api_keys": READ, "hf_search": READ, "search_papers": READ, "hf_model_info": READ,
     "github_search": READ, "github_read": READ,
     "web_index_search": READ, "web_index_page": READ, "web_index_status": READ,
+    "web_index_brief": READ, "web_index_facts": READ, "web_index_conflicts": READ,
     "phone_link": READ,
     # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
     "phone_setup": READ, "phone_status": READ, "phone_read_texts": READ, "phone_contacts": READ,

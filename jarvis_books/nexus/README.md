@@ -1,7 +1,7 @@
-# NEXUS OS1: Jarvis's web observation system
+# NEXUS: Jarvis's web observation (OS1) and intelligence (OS2) systems
 
-OS1 explores the web within set limits and saves what it finds as a persistent, searchable graph. OS2
-(intelligence) and OS3 (tool calling) will talk to it through the same contracts. They are not built yet.
+OS1 explores the web within set limits and saves what it finds as a persistent, searchable graph. OS2 reads the
+saved pages and turns them into sourced facts, entities and relations. Both talk through the same contracts.
 
 ## Modules
 
@@ -16,6 +16,8 @@ OS1 explores the web within set limits and saves what it finds as a persistent, 
 | `store.py` | `GraphStore`: SQLite (WAL) in `nexus.db`. Holds resources, edges, crawl runs, the persistent frontier, visit history, vectors, search history and cache, metrics, FTS5 indexes, plus PageRank |
 | `crawler.py` | Bounded concurrent workers over the frontier: one request per host at a time, topic-ranked links, scope rules, stop and resume, revisits with adaptive intervals, measured run reports |
 | `search.py` | BM25 (FTS5, porter stemming), meaning search (Gemini embeddings, or offline hashed vectors), rank fusion with link rank, phrase / `-word` / `site:` / `type:` syntax, spelling expansion, dedup, cache and history |
+| `intel.py` | OS2's offline readers: sentences, entities (names, organisations, places, dates, amounts, percents, emails), claims stated plainly by a sentence (`X was founded in 1998`, `the population of X is N`, `X's tax rate was 4.2%`, `X is a ...`), value normalization, page category and an extractive summary |
+| `os2.py` | `OS2`: reads pages into `intel_*` tables (migration 2 of `nexus.db`; re-read only when a page's hash changes) and judges every (subject, fact): **verified** = 2+ different websites agree and none disagrees, **unverified** = one website, **conflicting** = websites give different values for a one-value fact (founded, population, price...), **missing** = nothing found. Names appearing together are relations labelled **inference**. Operations: `analyze`, `brief`, `facts`, `entity`, `contradictions`, `status` |
 | `os1.py` | `OS1`: the single entry point. `handle(request)` validates each operation's payload: `search`, `crawl`, `revisit`, `resource`, `status`, `history`, `embed` |
 
 ## Safety
@@ -29,10 +31,13 @@ OS1 explores the web within set limits and saves what it finds as a persistent, 
 ## Jarvis tools
 
 `web_index_explore`, `web_index_continue` and `web_index_refresh` run as background jobs (level *safe*).
-`web_index_search`, `web_index_page` and `web_index_status` are *read*-level tools. The code is in
+`web_index_search`, `web_index_page` and `web_index_status` are *read*-level tools. A crawl job ends with OS2
+reading the new pages. `web_index_brief`, `web_index_facts` and `web_index_conflicts` (*read*) return OS2's
+sourced, labelled facts; Jarvis is told never to present an unverified fact as certain. The code is in
 `jarvis_books/assistant/nexus_tools.py`.
 
 ## Tests
 
-The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py` and `tests/test_nexus_tools.py`. They make real
+The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py`, `tests/test_nexus_os2.py` and
+`tests/test_nexus_tools.py`. They make real
 `httpx` requests to an in-process fake web (`tests/nexus_site.py`), so they run offline.

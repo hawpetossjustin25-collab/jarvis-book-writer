@@ -161,6 +161,55 @@ CREATE TRIGGER resources_au AFTER UPDATE OF title, description, text, url ON res
     INSERT INTO resource_words(rowid, title, text) VALUES (new.id, new.title, new.text);
 END;
 """,
+    2: """
+CREATE TABLE intel_pages (
+    resource_id INTEGER PRIMARY KEY REFERENCES resources(id) ON DELETE CASCADE,
+    content_hash TEXT,
+    category TEXT NOT NULL DEFAULT 'general',
+    summary TEXT NOT NULL DEFAULT '',
+    entity_count INTEGER NOT NULL DEFAULT 0,
+    claim_count INTEGER NOT NULL DEFAULT 0,
+    analyzed_at REAL NOT NULL
+);
+CREATE TABLE intel_entities (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    norm TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mentions INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(kind, norm)
+);
+CREATE INDEX idx_ent_norm ON intel_entities(norm);
+CREATE TABLE intel_mentions (
+    entity_id INTEGER NOT NULL REFERENCES intel_entities(id) ON DELETE CASCADE,
+    resource_id INTEGER NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (entity_id, resource_id)
+);
+CREATE INDEX idx_mention_res ON intel_mentions(resource_id);
+CREATE TABLE intel_claims (
+    id INTEGER PRIMARY KEY,
+    resource_id INTEGER NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    subject_norm TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    value TEXT NOT NULL,
+    value_norm TEXT NOT NULL,
+    sentence TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX idx_claim_key ON intel_claims(subject_norm, predicate);
+CREATE INDEX idx_claim_res ON intel_claims(resource_id);
+CREATE TABLE intel_relations (
+    a INTEGER NOT NULL REFERENCES intel_entities(id) ON DELETE CASCADE,
+    b INTEGER NOT NULL REFERENCES intel_entities(id) ON DELETE CASCADE,
+    resource_id INTEGER NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+    weight INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (a, b, resource_id)
+);
+CREATE INDEX idx_rel_b ON intel_relations(b);
+CREATE INDEX idx_rel_res ON intel_relations(resource_id);
+""",
 }
 
 SEARCHABLE = ("fetched",)  # statuses whose pages appear in search results
