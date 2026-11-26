@@ -403,3 +403,55 @@ web_index_improve | [improve|tune|upgrade] your [web|] search [ranking|results|]
 web_index_improve | make your web index search better
 web_index_improve | run [a|] self[-| ]improvement [round|] on [the|your] web index
 web_index_improve | [undo|roll back] the last [search|web index] improvement | {"undo": true}
+# ---- NEXUS Collective
+collective_status | [show|how is] the collective
+collective_status | which computers are sharing work [with you|]
+collective_status | [is|are] [my|the] worker[s|] [healthy|running|busy]
+collective_status | what's in the [collective|] task queue
+collective_task | [what happened to|status of] [collective|] task {task_id:jobid}
+collective_run | run {text:query} on the collective | {"workload": "llm.generate"}
+collective_run | [have|let] the collective search [the web index|] for {text:query} | {"workload": "search.query"}
+collective_run | [fingerprint|digest] {text:query} on the collective | {"workload": "data.digest"}
+collective_run | [embed|make meaning vectors for] {text:query} on the collective | {"workload": "embed.text"}
+collective_run | ask the local model {text:query} [here only|on this computer only] | {"workload": "llm.generate", "here_only": true}
+collective_limits | let the collective use [at most|only] {max_cpu_percent:big} percent of [my|the] [cpu|processor]
+collective_limits | only share work when [my|the] battery is above {min_battery_percent:big} percent
+collective_limits | [pause|stop] sharing [this computer|my computer] [with the collective|] | {"enabled": false}
+collective_limits | [resume|start] sharing [this computer|my computer] [with the collective|] | {"enabled": true}
+collective_limits | only share work [when|while] [it's|i'm] plugged in | {"plugged_in_only": true}
+collective_worker | pause worker {worker_id:jobid} | {"action": "pause"}
+collective_worker | resume worker {worker_id:jobid} | {"action": "resume"}
+collective_worker | [remove|revoke|kick out] worker {worker_id:jobid} | {"action": "remove"}
+collective_join_code | [make|give me|create] a [collective|] join code
+collective_join_code | let another [computer|pc] of mine join the collective
+# ---- NEXUS Model Hub and DeepRAM
+model_hub | [which|what] [ai|local|] models [do you have|are installed]
+model_hub | [show|open] the model hub
+model_hub | how fast [are|is] [my|the] local model[s|]
+model_plan | will qwen3 4b fit in memory | {"model": "qwen3:4b-instruct-2507-q4_K_M"}
+model_plan | how much memory does qwen3 need [with|for] {context:big} tokens | {"model": "qwen3:4b-instruct-2507-q4_K_M"}
+model_plan | [plan|check] the memory for the small backup model | {"model": "hf.co/LiquidAI/LFM3-1.7B-GGUF:Q4_K_M"}
+model_route | which model [should|would] you use [right now|now]
+model_route | [pick|choose] the fastest model that fits [now|] | {"prefer": "speed"}
+model_route | which model fits {context:big} tokens of context
+model_install | [install|download|get] the model qwen3:1.7b | {"model": "qwen3:1.7b"}
+model_install | [install|download|pull] gemma3 1b [for me|] | {"model": "gemma3:1b"}
+model_install | add the nomic embedding model | {"model": "nomic-embed-text"}
+# ---- NEXUS Release Center
+release_center | [open|show] the release center
+release_center | what version [are you|of jarvis is] running
+release_center | [when is|what's in] the next [major|] release
+release_center | [show|give me] the release notes | {"what": "history"}
+release_center | [what|which] improvements are waiting for my approval
+release_center | [show|read] the improvement memory | {"what": "memory"}
+release_center | have we [already|] tried {text:query} | {"what": "tried"}
+release_center | [show|details of] improvement {improvement_id:big} | {"what": "improvement"}
+release_propose | [propose|suggest|plan] an improvement: {title:query} | {"area": "jarvis"}
+release_propose | add {title:query} to the next release | {"area": "platform"}
+release_propose | urgent fix: {title:query} | {"area": "jarvis", "kind": "fix", "urgent": true}
+release_propose | security fix: {title:query} | {"area": "security", "kind": "security"}
+release_decide | approve improvement {improvement_id:big} | {"action": "approve"}
+release_decide | reject improvement {improvement_id:big} because {reason:query} | {"action": "reject"}
+release_decide | [defer|postpone] improvement {improvement_id:big} because {reason:query} | {"action": "defer"}
+release_decide | move improvement {improvement_id:big} to [release|cycle] 1.1 because {reason:query} | {"action": "move", "cycle": "1.1"}
+release_decide | [open|start] the next [four month|release] cycle | {"action": "open_cycle"}

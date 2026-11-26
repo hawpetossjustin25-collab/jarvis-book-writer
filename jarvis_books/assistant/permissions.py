@@ -48,6 +48,7 @@ TOOL_LEVELS = MappingProxyType({
     "collective_status": READ, "collective_task": READ, "collective_run": CHANGE, "collective_limits": CHANGE,
     "collective_worker": CHANGE, "collective_join_code": SYSTEM,
     "model_hub": READ, "model_plan": READ, "model_route": READ, "model_install": OUTSIDE,
+    "release_center": READ, "release_propose": CHANGE, "release_decide": SYSTEM,
     "phone_link": READ,
     # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
     "phone_setup": READ, "phone_status": READ, "phone_read_texts": READ, "phone_contacts": READ,
@@ -84,7 +85,7 @@ TOOL_LEVELS = MappingProxyType({
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 })
 # Replacing the app's own code always waits for a yes, even in Full control.
-ALWAYS_ASK = ("install_upgrade", "undo_upgrade")
+ALWAYS_ASK = ("install_upgrade", "undo_upgrade", "release_decide")
 FULL_CONTROL_SETTING = "full_control"
 
 ASKING_NOTE = ("Not done yet: the app is asking the author yes or no. In one short sentence tell them what you "

@@ -44,6 +44,7 @@ from jarvis_books.publish.service import Publisher
 from jarvis_books.nexus.api import NexusHub, NexusServer, TokenBook, systems_for
 from jarvis_books.nexus.collective_os import CollectiveOS
 from jarvis_books.nexus.modelhub import ModelHub
+from jarvis_books.nexus.releases import ReleaseCenter, read_running
 from jarvis_books.nexus.os1 import OS1
 from jarvis_books.nexus.os2 import OS2
 from jarvis_books.nexus.os3 import OS3, registry_from_toolbox
@@ -53,7 +54,7 @@ from jarvis_books.storage.capacity import CapacityMonitor
 from jarvis_books.storage.db import Database
 from jarvis_books.storage.library import Library
 from jarvis_books.storage.mirror import BackupManager, BookMirror
-from jarvis_books.upgrade import UPGRADE_ANSWER_CAP_S, UPGRADE_LOCAL_CTX, Upgrader
+from jarvis_books.upgrade import UPGRADE_ANSWER_CAP_S, UPGRADE_LOCAL_CTX, Upgrader, app_root
 from jarvis_books.warroom import WAR_ROOM_GUIDE, WarRoom
 from jarvis_books.writer import BookWriter
 
@@ -170,6 +171,8 @@ class Studio:
         self.tools.collective = self.war_tools.collective = self.nexus_collective
         self.nexus_models = ModelHub(self.home, self.local.client)
         self.tools.models = self.war_tools.models = self.nexus_models
+        self.releases = ReleaseCenter(self.home)
+        self.tools.releases = self.war_tools.releases = self.releases
         self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3, self.nexus_collective))
         self.nexus_api = NexusServer(self.nexus_hub, TokenBook(self.home))
         self.planner = Planner(self.db)
@@ -283,6 +286,7 @@ class Studio:
         if NEXUS_API_AUTOSTART and self.settings()["nexus_api"] != "0":
             self.nexus_api.start()
         threading.Thread(target=self._read_waiting_pages, name="jarvis-os2-catchup", daemon=True).start()
+        self._sync_releases()
         if COLLECTIVE_AUTOSTART and self.settings()["collective"] != "0":
             threading.Thread(target=self._start_worker, name="jarvis-collective", daemon=True).start()
         if PHONE_AUTOSTART and self.settings()["phone"] != "0":
@@ -491,6 +495,18 @@ class Studio:
             log.info("OS2 read %d saved pages", read)
         return read
 
+    def _sync_releases(self) -> None:
+        """The Release Center learns the running commit and what the self-improvement systems tried."""
+        try:
+            self.releases.observe(read_running(app_root()))
+            if self.releases.active_cycle() is None and not self.releases.db.query_one("SELECT 1 FROM cycles"):
+                self.releases.cycle(objectives=["NEXUS Collective", "Model Hub and DeepRAM", "Search API v1",
+                                                "Real-data dashboard", "Release Center"], by="justin")
+            self.releases.ingest_upgrades(self.library.list_upgrades(200))
+            self.releases.ingest_rsi(self.nexus.improver.history(limit=500))
+        except Exception:
+            log.exception("Release Center sync failed")
+
     def _start_worker(self) -> None:
         try:
             self.nexus_collective.start_local_worker()
@@ -503,6 +519,7 @@ class Studio:
         self.nexus_hub.close()
         self.nexus_collective.close()
         self.nexus_models.close()
+        self.releases.close()
         self.nexus_os3.close()
         self.telegram.stop()
         self.tunnel.stop(keep=True)

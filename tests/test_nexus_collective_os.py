@@ -168,5 +168,8 @@ def _check_studio(studio):
     assert "collective" in studio.nexus_hub.systems
     assert studio.tools.collective is studio.nexus_collective
     assert studio.tools.models is studio.nexus_models and studio.war_tools.models is studio.nexus_models
+    assert studio.tools.releases is studio.releases
+    center = studio.releases.center()
+    assert center["running"]["commit"] and center["cycle"]["name"] == "NEXUS 1.0"
     assert studio.settings()["collective"] == "1"
     assert studio.nexus_hub.route(NexusRequest("jarvis", "collective", "status", {})).ok

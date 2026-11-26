@@ -219,3 +219,26 @@ def test_running_version_comes_from_the_installer_or_git(tmp_path):
     rc = ReleaseCenter(tmp_path / "home", clock=Clock())
     assert rc.observe(None)["version"] is None
     rc.close()
+
+
+def test_jarvis_release_tools_and_justins_decisions_always_ask(rc):
+    from jarvis_books.assistant.nexus_tools import RELEASE_TOOLS, NexusTools
+    from jarvis_books.assistant.permissions import ALWAYS_ASK, READ, SYSTEM, TOOL_LEVELS
+    assert set(RELEASE_TOOLS) == {"release_center", "release_propose", "release_decide"}
+    assert TOOL_LEVELS["release_center"] == READ and TOOL_LEVELS["release_decide"] == SYSTEM
+    assert "release_decide" in ALWAYS_ASK
+    tools = NexusTools()
+    with pytest.raises(NotFound):
+        tools._t_release_center()
+    tools.releases = rc
+    assert tools._t_release_decide("open_cycle", goals=["Collective"])["version"] == "1.0"
+    idea = tools._t_release_propose("Real-data dashboard", "ui", detail="live workers and tasks")
+    assert idea["author"] == "jarvis" and idea["cycle"] == "1.0"
+    i = make_tested(rc, "Search API v1", "api")
+    assert tools._t_release_center()["waiting_for_approval"][0]["id"] == i["id"]
+    assert tools._t_release_decide("approve", i["id"])["approver"] == "justin"
+    assert tools._t_release_decide("reject", idea["id"], "not now")["state"] == "rejected"
+    assert tools._t_release_center("tried", text="real data dashboard")["rejected_before"][0]["why"] == "not now"
+    assert tools._t_release_center("memory", idea["id"])["journal"][0]["event"] == "rejected"
+    with pytest.raises(ValueError):
+        tools._t_release_decide("ship_it")

@@ -7,6 +7,7 @@ from typing import Optional
 
 from jarvis_books.errors import NotFound
 from jarvis_books.nexus.os2 import OS2
+from jarvis_books.nexus.releases import AREAS, KINDS
 from jarvis_books.nexus.urls import normalize
 
 S = {"type": "STRING"}
@@ -109,17 +110,40 @@ NEXUS_DECLARATIONS = [
           "disk space and that it can fit in memory, then test its first answer and measure its speed.",
           {"model": S, "context": {"type": "INTEGER", "description": "context it must fit with (default 4096)"}},
           ["model"]),
+    _decl("release_center", "NEXUS Release Center: the version really running (its git commit and channel), the "
+          "four-month release cycle and its goals, improvements proposed, being tested, waiting for Justin's "
+          "approval and approved, recent releases and rollbacks. what=history gives the public release notes, "
+          "what=memory the permanent journal (optionally for one improvement), what=tried the ideas already "
+          "rejected like `text`, with why.",
+          {"what": {"type": "STRING", "enum": ["center", "history", "memory", "tried", "improvement"]},
+           "improvement_id": I, "text": S}),
+    _decl("release_propose", "NEXUS Release Center: record an improvement idea for Jarvis or NEXUS so it is "
+          "planned, tested and remembered. Security fixes and urgent fixes skip the four-month cycle.",
+          {"title": S, "area": {"type": "STRING", "enum": list(AREAS)},
+           "kind": {"type": "STRING", "enum": list(KINDS)}, "detail": S, "urgent": B,
+           "cycle": {"type": "STRING", "description": "release cycle version like 1.1 (default: the current one)"},
+           "despite_rejection": {"type": "STRING", "description": "what is different, if a like idea was rejected"}},
+          ["title", "area"]),
+    _decl("release_decide", "NEXUS Release Center, Justin's decisions (always asks him first): approve a tested "
+          "improvement, reject or defer one (with the reason), move one to another cycle, open the next "
+          "four-month cycle with goals, or record a rollback to an earlier commit with the reason.",
+          {"action": {"type": "STRING", "enum": ["approve", "reject", "defer", "move", "open_cycle", "rollback"]},
+           "improvement_id": I, "reason": S, "cycle": S, "goals": {"type": "ARRAY", "items": S}, "commit": S},
+          ["action"]),
 ]
-GROUPS = ("collective_", "model_")
+GROUPS = ("collective_", "model_", "release_")
 NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if not d["name"].startswith(GROUPS))
 COLLECTIVE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("collective_"))
 MODEL_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("model_"))
+RELEASE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("release_"))
 NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
                "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
                "disagree", "source", "brief", "intel", "what do we know", "what does the web say", "improve",
                "tune", "self-improv", "rsi", "roll back", "collective", "worker", "cluster", "join code", "share work",
                "other computer", "task queue", "limits", "model hub", "install model",
-               "download model", "which model", "fits in memory", "deepram", "memory plan", "benchmark")
+               "download model", "which model", "fits in memory", "deepram", "memory plan", "benchmark",
+               "release", "version", "roll back", "rollback", "release notes", "approve", "four month", "cycle",
+               "improvement", "proposal")
 
 
 def _when(stamp: Optional[float]) -> Optional[str]:
@@ -136,6 +160,7 @@ class NexusTools:
     _nexus_os2 = None
     collective = None
     models = None
+    releases = None
 
     def _os1(self):
         if self.nexus is None:
@@ -411,3 +436,46 @@ class NexusTools:
 
     def _t_model_install(self, model: str, context: int = 4096) -> dict:
         return self._hub().install(model.strip(), int(context))
+
+    # ---- NEXUS Release Center
+    def _rc(self):
+        if self.releases is None:
+            raise NotFound("the NEXUS Release Center isn't running here")
+        return self.releases
+
+    def _t_release_center(self, what: str = "center", improvement_id: int = 0, text: str = "") -> dict:
+        rc = self._rc()
+        if what == "history":
+            return {"releases": rc.releases(public=True), "all": [
+                {k: r[k] for k in ("version", "channel", "status", "commit")} for r in rc.releases()]}
+        if what == "memory":
+            subject = f"improvement:{int(improvement_id)}" if improvement_id else ""
+            return {"journal": rc.journal(subject, 40)}
+        if what == "tried":
+            if not text:
+                raise ValueError("say which idea to look up")
+            return {"rejected_before": rc.tried(text)}
+        if what == "improvement":
+            return rc.improvement(int(improvement_id))
+        return rc.center()
+
+    def _t_release_propose(self, title: str, area: str, kind: str = "feature", detail: str = "",
+                           urgent: bool = False, cycle: str = "", despite_rejection: str = "") -> dict:
+        return self._rc().propose(title, area, kind, detail, author="jarvis", urgent=urgent, cycle_version=cycle,
+                                  despite_rejection=despite_rejection)
+
+    def _t_release_decide(self, action: str, improvement_id: int = 0, reason: str = "", cycle: str = "",
+                          goals: Optional[list] = None, commit: str = "") -> dict:
+        """Runs only after Justin's own yes (this tool is always asked, even with Full control on)."""
+        rc, by = self._rc(), "justin"
+        if action == "approve":
+            return rc.approve(int(improvement_id), by)
+        if action in ("reject", "defer"):
+            return rc.advance(int(improvement_id), action + "ed" if action == "reject" else "deferred", by, reason)
+        if action == "move":
+            return rc.move(int(improvement_id), cycle, by, reason)
+        if action == "open_cycle":
+            return rc.cycle(cycle, [str(g) for g in (goals or [])], by=by)
+        if action == "rollback":
+            return rc.rollback(commit.strip().lower(), reason, by)
+        raise ValueError("action is approve, reject, defer, move, open_cycle or rollback")
