@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import warnings
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -126,3 +127,74 @@ def parse_text(body: str, max_text: int = 200_000) -> ParsedPage:
     text = _clean(body)[:max_text]
     first = next((line for line in text.splitlines() if line.strip()), "")
     return ParsedPage(title=first[:200], text=text, resource_type="text")
+
+
+_ATOM = "{http://www.w3.org/2005/Atom}"
+
+
+def _plain(markup: str) -> str:
+    if "<" not in markup:
+        return _SPACE.sub(" ", markup).strip()
+    return _SPACE.sub(" ", BeautifulSoup(markup, "html.parser").get_text(" ", strip=True)).strip()
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def parse_feed(body: bytes | str, base_url: str, max_text: int = 200_000, max_links: int = 300) -> Optional[ParsedPage]:
+    """An RSS or Atom feed: its title, the entries' titles and summaries as text, and each entry's link.
+    None when the body isn't a feed, so the caller can treat it as plain text."""
+    raw = body if isinstance(body, bytes) else body.encode("utf-8", "replace")
+    if b"<!DOCTYPE" in raw[:2048].upper() or b"<!ENTITY" in raw.upper():
+        return None
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return None
+    kind = _local(root.tag)
+    if kind == "rss":
+        channel = root.find("channel")
+        if channel is None:
+            return None
+        head, entries = channel, channel.findall("item")
+    elif kind == "rdf":
+        head = next((c for c in root if _local(c.tag) == "channel"), root)
+        entries = [c for c in root if _local(c.tag) == "item"]
+    elif root.tag == _ATOM + "feed":
+        head, entries = root, root.findall(_ATOM + "entry")
+    else:
+        return None
+
+    def child(node: ET.Element, *names: str) -> str:
+        for c in node:
+            if _local(c.tag) in names:
+                return "".join(c.itertext()).strip()
+        return ""
+
+    def link_of(node: ET.Element) -> str:
+        for c in node:
+            if _local(c.tag) != "link":
+                continue
+            href = c.get("href")
+            if href and c.get("rel", "alternate") == "alternate":
+                return href
+            if not href and (c.text or "").strip():
+                return c.text.strip()
+        return ""
+
+    page = ParsedPage(resource_type="feed")
+    page.title = _plain(child(head, "title"))[:500]
+    page.description = _plain(child(head, "description", "subtitle"))[:1000]
+    page.lang = child(head, "language")[:20]
+    parts, seen = [], set()
+    for entry in entries:
+        title = _plain(child(entry, "title"))
+        summary = _plain(child(entry, "description", "summary", "content"))
+        parts.append("\n".join(x for x in (title, summary) if x))
+        url = normalize(link_of(entry), base_url)
+        if url and url not in seen and len(page.links) < max_links:
+            seen.add(url)
+            page.links.append(Link(url, title[:300], "link"))
+    page.text = _clean("\n\n".join(p for p in parts if p))[:max_text]
+    return page

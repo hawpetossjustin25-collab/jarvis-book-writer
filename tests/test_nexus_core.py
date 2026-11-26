@@ -174,3 +174,41 @@ def test_response_round_trip():
     assert not bad.ok and bad.to_dict()["error"] == {"code": "not_found", "message": "none"}
     with pytest.raises(ContractError):
         NexusResponse("r3", "os1", "x", "maybe", [], 1.0)
+
+
+RSS = b"""<?xml version='1.0' encoding='UTF-8'?>
+<rss version="2.0"><channel><title>Python Insider</title><description>News &amp; releases</description>
+<language>en</language>
+<item><title>Python 3.15 released</title><link>https://blog.example/315</link>
+<description>&lt;p&gt;Faster &lt;b&gt;list comprehensions&lt;/b&gt;.&lt;/p&gt;</description></item>
+<item><title>Security fix</title><link>/fix</link><description>Patch now.</description></item>
+<item><title>Same link again</title><link>https://blog.example/315</link></item>
+</channel></rss>"""
+
+ATOM = b"""<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Jobs</title><subtitle>Open roles</subtitle>
+<entry><title>Backend engineer</title><link rel="alternate" href="https://jobs.example/1"/>
+<link rel="edit" href="https://jobs.example/edit/1"/><summary>Write Python.</summary></entry>
+</feed>"""
+
+
+def test_parse_feed_reads_rss_titles_items_and_links():
+    from jarvis_books.nexus.parse import parse_feed
+    page = parse_feed(RSS, "https://blog.example/feed.rss")
+    assert page.title == "Python Insider" and page.description == "News & releases" and page.lang == "en"
+    assert page.resource_type == "feed" and "<" not in page.text
+    assert "Python 3.15 released\nFaster list comprehensions ." in page.text and "Patch now." in page.text
+    assert [(l.url, l.anchor) for l in page.links] == [("https://blog.example/315", "Python 3.15 released"),
+                                                       ("https://blog.example/fix", "Security fix")]
+
+
+def test_parse_feed_reads_atom_and_rejects_non_feeds_and_entities():
+    from jarvis_books.nexus.parse import parse_feed
+    page = parse_feed(ATOM, "https://jobs.example/feed")
+    assert page.title == "Jobs" and page.description == "Open roles"
+    assert [l.url for l in page.links] == ["https://jobs.example/1"] and "Write Python." in page.text
+    assert parse_feed(b"<?xml version='1.0'?><config><a>1</a></config>", "https://x.example/") is None
+    assert parse_feed(b"not xml at all <", "https://x.example/") is None
+    bomb = (b"<?xml version='1.0'?><!DOCTYPE r [<!ENTITY a 'aaaa'><!ENTITY b '&a;&a;&a;'>]>"
+            b"<rss><channel><title>&b;</title></channel></rss>")
+    assert parse_feed(bomb, "https://x.example/") is None

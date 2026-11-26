@@ -429,16 +429,22 @@ def cloudflared_asset() -> str:
 
 
 class Tunnel:
-    """Keeps `cloudflared tunnel --url http://127.0.0.1:<port>` running and reports its public address."""
+    """Keeps `cloudflared tunnel --url http://127.0.0.1:<port>` running and reports its public address.
+
+    cloudflared runs detached and outlives Jarvis on purpose: a restarted Jarvis on the same port takes the running
+    tunnel back, so the link (and the app added to the phone's home screen) keeps working. Only turning the phone
+    app off, or a different port, ends it."""
 
     def __init__(self, bin_dir: Path, port: Callable[[], Optional[int]],
                  on_url: Optional[Callable[[Optional[str]], None]] = None, command: Optional[list[str]] = None,
-                 session: Optional[requests.Session] = None, restart_s: float = 5.0, max_restart_s: float = 300.0):
+                 session: Optional[requests.Session] = None, restart_s: float = 5.0, max_restart_s: float = 300.0,
+                 check_s: float = 5.0):
         self.bin_dir, self.port, self.on_url = Path(bin_dir), port, on_url
         self.command, self.session = command, session or requests.Session()
-        self.restart_s, self.max_restart_s = restart_s, max_restart_s
+        self.restart_s, self.max_restart_s, self.check_s = restart_s, max_restart_s, check_s
         self.host: Optional[str] = None
         self.error: Optional[str] = None
+        self.pid: Optional[int] = None
         self._stop: Optional[threading.Event] = None
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
@@ -476,26 +482,65 @@ class Tunnel:
 
     @property
     def pid_file(self) -> Path:
+        """Where older Jarvis versions recorded their cloudflared."""
         return self.bin_dir / "cloudflared.pid"
 
+    @property
+    def state_file(self) -> Path:
+        return self.bin_dir / "cloudflared.json"
+
+    @property
+    def log_file(self) -> Path:
+        return self.bin_dir / "cloudflared.log"
+
+    def _state(self) -> dict:
+        try:
+            data = json.loads(self.state_file.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_state(self, pid: int, port: int, host: Optional[str]) -> None:
+        try:
+            self.bin_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.state_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"pid": pid, "port": port, "host": host}), encoding="utf-8")
+            os.replace(tmp, self.state_file)
+        except OSError as exc:
+            log.warning("tunnel: couldn't record the running link (%s)", exc)
+
     def _end_leftover(self) -> None:
-        """Stops a cloudflared this Jarvis started before it was killed, so old links don't linger."""
+        """Stops a cloudflared recorded by an older Jarvis, which can't be taken back (its address wasn't saved)."""
         try:
             pid = int(self.pid_file.read_text().strip())
         except (OSError, ValueError):
             return
         self.pid_file.unlink(missing_ok=True)
-        if not _is_cloudflared(pid):
-            return
-        try:
-            if WINDOWS:
-                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            else:
-                os.kill(pid, 15)
+        if _kill_cloudflared(pid):
             log.info("tunnel: stopped a leftover cloudflared")
-        except (OSError, subprocess.SubprocessError) as exc:
-            log.warning("tunnel: couldn't stop a leftover cloudflared (%s)", exc)
+
+    def _adopt(self, port: int) -> Optional[tuple[int, str]]:
+        """The cloudflared an earlier Jarvis left running for this port, if it is alive and still reaches us."""
+        state = self._state()
+        pid, host = state.get("pid"), state.get("host")
+        if not isinstance(pid, int) or not isinstance(host, str) or not TUNNEL_RE.fullmatch(f"https://{host}"):
+            self.state_file.unlink(missing_ok=True)
+            return None
+        if not _is_cloudflared(pid):
+            self.state_file.unlink(missing_ok=True)
+            return None
+        if state.get("port") == port and self._reaches_us(host):
+            return pid, host
+        _kill_cloudflared(pid)
+        self.state_file.unlink(missing_ok=True)
+        return None
+
+    def _reaches_us(self, host: str) -> bool:
+        try:
+            resp = self.session.get(f"https://{host}/api/hello", timeout=15)
+            return resp.status_code == 200 and resp.json().get("app") == "jarvis"
+        except (requests.RequestException, ValueError, AttributeError):
+            return False
 
     def start(self) -> None:
         with self._lock:
@@ -505,17 +550,26 @@ class Tunnel:
             self._stop = threading.Event()
             threading.Thread(target=self._run, args=(self._stop,), name="jarvis-tunnel", daemon=True).start()
 
-    def stop(self) -> None:
+    def stop(self, keep: bool = False) -> None:
+        """Stop watching the tunnel. keep=True (Jarvis closing) leaves cloudflared running for the next Jarvis."""
         with self._lock:
             if self._stop is not None:
                 self._stop.set()
-            proc = self._proc
+            proc, pid = self._proc, self.pid
+            self._proc = None
+        if keep and pid is not None:
+            self.host = None
+            return
         if proc is not None and proc.poll() is None:
             proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        elif pid is not None:
+            _kill_cloudflared(pid)
+        self.pid = None
+        self.state_file.unlink(missing_ok=True)
         self.pid_file.unlink(missing_ok=True)
         self._set(None)
 
@@ -533,6 +587,23 @@ class Tunnel:
             except Exception:
                 log.exception("tunnel address listener failed")
 
+    def _launch(self, port: int) -> subprocess.Popen:
+        cmd = self.command or [str(self.binary()), "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"]
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.log_file, "wb") as out:
+            kwargs: dict = {"stdout": out, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
+            if WINDOWS:
+                detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                try:
+                    return subprocess.Popen(cmd, creationflags=detached | subprocess.CREATE_BREAKAWAY_FROM_JOB,
+                                            **kwargs)
+                except OSError:  # the job Jarvis runs in doesn't allow breaking away
+                    return subprocess.Popen(cmd, creationflags=detached, **kwargs)
+            return subprocess.Popen(cmd, start_new_session=True, **kwargs)
+
+    def _alive(self, proc: Optional[subprocess.Popen], pid: int) -> bool:
+        return proc.poll() is None if proc is not None else _is_cloudflared(pid)
+
     def _run(self, stop: threading.Event) -> None:
         backoff = self.restart_s
         while not stop.is_set():
@@ -541,28 +612,38 @@ class Tunnel:
                 port = self.port()
                 if not port:
                     raise RuntimeError("the phone server isn't running")
-                cmd = self.command or [str(self.binary()), "tunnel", "--no-autoupdate", "--url",
-                                       f"http://127.0.0.1:{port}"]
-                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                        text=True, encoding="utf-8", errors="replace", creationflags=flags)
+                adopted = self._adopt(port)
+                proc: Optional[subprocess.Popen] = None
+                if adopted:
+                    pid, host = adopted
+                    log.info("tunnel: kept the secure link from before")
+                else:
+                    proc = self._launch(port)
+                    pid, host = proc.pid, None
+                    self._save_state(pid, port, None)
                 with self._lock:
-                    self._proc = proc
-                try:
-                    self.bin_dir.mkdir(parents=True, exist_ok=True)
-                    self.pid_file.write_text(str(proc.pid))
-                except OSError:
-                    pass
+                    self._proc, self.pid = proc, pid
                 if stop.is_set():
-                    proc.terminate()
                     break
-                for line in proc.stdout:
-                    m = TUNNEL_RE.search(line)
-                    if m:
-                        self.error = None
-                        self._set(m.group(1))
-                proc.wait()
-                self.error = f"the secure link stopped (code {proc.returncode})"
+                if host:
+                    self.error = None
+                    self._set(host)
+                seen = 0
+                while not stop.is_set() and self._alive(proc, pid):
+                    if self.host is None:
+                        found, seen = self._read_host(seen)
+                        if found:
+                            self.error = None
+                            self._save_state(pid, port, found)
+                            self._set(found)
+                    stop.wait(0.25 if proc is not None else self.check_s)
+                if stop.is_set():
+                    break
+                code = proc.returncode if proc is not None else "gone"
+                self.error = f"the secure link stopped (code {code})"
+                with self._lock:
+                    self._proc, self.pid = None, None
+                self.state_file.unlink(missing_ok=True)
             except Exception as exc:
                 self.error = f"couldn't start the secure link: {exc}"
                 log.warning("tunnel: %s", self.error)
@@ -572,8 +653,38 @@ class Tunnel:
             stop.wait(backoff)
             backoff = min(self.max_restart_s, backoff * 2)
 
+    def _read_host(self, offset: int) -> tuple[Optional[str], int]:
+        try:
+            with open(self.log_file, "rb") as fh:
+                fh.seek(offset)
+                chunk = fh.read(1 << 20)
+        except OSError:
+            return None, offset
+        text = chunk.decode("utf-8", "replace")
+        m = TUNNEL_RE.search(text)
+        if m:
+            return m.group(1), offset + len(chunk)
+        cut = text.rfind("\n")
+        return None, offset + (len(text[:cut + 1].encode("utf-8", "replace")) if cut >= 0 else 0)
+
     def status(self) -> dict:
         return {"running": self.running, "host": self.host, "error": self.error}
+
+
+def _kill_cloudflared(pid: int) -> bool:
+    """Ends process `pid` only if it really is a cloudflared."""
+    if not _is_cloudflared(pid):
+        return False
+    try:
+        if WINDOWS:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            os.kill(pid, 15)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("tunnel: couldn't stop cloudflared %s (%s)", pid, exc)
+        return False
 
 
 def _is_cloudflared(pid: int) -> bool:

@@ -357,3 +357,34 @@ def test_untrusted_page_text_is_stored_as_plain_data(tmp_path):
     system.call("crawl", {"seeds": [A]})
     hit = system.call("search", {"query": "delete_file"}).results[0]
     assert hit["url"] == A and "delete_file" in hit["snippet"] and "<img" not in hit["snippet"]
+
+
+def test_a_not_modified_seed_still_leads_to_its_known_links(tmp_path):
+    def home(request):
+        if request.headers.get("if-none-match") == '"h1"':
+            return httpx.Response(304)
+        return httpx.Response(200, text=page("Home", "Tax sale guide.", (("/deeds", "Tax deeds"),)),
+                              headers={"content-type": "text/html", "etag": '"h1"'})
+    web = FakeWeb({A: home, A + "deeds": page("Tax deeds in Georgia", "Deed transfers.")})
+    system, _ = os1(tmp_path, web)
+    assert system.call("crawl", {"seeds": [A], "max_pages": 1}).results[0]["pages_fetched"] == 1
+    assert web.hits(A + "deeds") == 0
+    rep = system.call("crawl", {"seeds": [A], "max_pages": 5}).results[0]
+    assert rep["pages_unchanged"] == 1 and web.hits(A + "deeds") == 1
+    assert system.store.by_url(A + "deeds")["status"] == "fetched"
+    system.close()
+
+
+def test_feeds_are_indexed_by_their_title_and_their_entries_are_followed(tmp_path):
+    feed = ("<?xml version='1.0' encoding='UTF-8'?><rss><channel><title>Auction news</title>"
+            "<item><title>March tax sale list</title><link>https://atl.example/march</link>"
+            "<description>Fulton parcels for March.</description></item></channel></rss>")
+    web = FakeWeb({A + "news.rss": (200, feed, {"content-type": "application/rss+xml"}),
+                   A + "march": page("March tax sale", "Parcel list.")})
+    system, _ = os1(tmp_path, web)
+    system.call("crawl", {"seeds": [A + "news.rss"], "max_pages": 5})
+    node = system.store.by_url(A + "news.rss")
+    assert node["title"] == "Auction news" and node["resource_type"] == "feed" and "<?xml" not in node["text"]
+    assert web.hits(A + "march") == 1
+    assert system.call("search", {"query": "march parcels"}).results[0]["url"] in (A + "news.rss", A + "march")
+    system.close()

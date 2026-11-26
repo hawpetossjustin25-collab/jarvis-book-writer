@@ -12,7 +12,7 @@ from typing import Callable, Iterable, Optional
 from jarvis_books.nexus.config import CrawlConfig
 from jarvis_books.nexus.dedup import content_hash, simhash, words
 from jarvis_books.nexus.fetch import Fetcher, FetchResult
-from jarvis_books.nexus.parse import ParsedPage, parse_html, parse_text, resource_type
+from jarvis_books.nexus.parse import Link, ParsedPage, parse_feed, parse_html, parse_text, resource_type
 from jarvis_books.nexus.store import GraphStore, PageRecord
 from jarvis_books.nexus.urls import host_of, in_domain, looks_binary, normalize, site_of
 
@@ -198,6 +198,10 @@ class Crawler:
             report.pages_unchanged += 1
             self.store.record_unchanged(rid, cfg.revisit_max_s)
             self.store.log_visit(rid, run_id, "not_modified", 304, result.elapsed_ms, 0, None)
+            known = [Link(e["url"], e["anchor"] or "", e["rel"], e["rel"] == "nofollow")
+                     for e in self.store.outgoing(rid, cfg.links_per_page) if e["rel"] in ("link", "nofollow", "next",
+                                                                                          "prev", "alternate")]
+            self._follow(run_id, rid, depth, known, terms, in_scope, report)
             return
         if not result.ok:
             self._failed(rid, run_id, result, report)
@@ -211,8 +215,13 @@ class Crawler:
         if ctype in ("page", "article"):
             page = parse_html(result.body, final, cfg.max_text_chars, cfg.links_per_page, robots_header)
         elif ctype in ("text", "data", "feed"):
-            page = parse_text(result.body.decode("utf-8", "replace"), cfg.max_text_chars)
-            page.resource_type = ctype
+            feed = parse_feed(result.body, final, cfg.max_text_chars, cfg.links_per_page) \
+                if ctype == "feed" or result.body.lstrip()[:1] == b"<" else None
+            if feed is not None:
+                page = feed
+            else:
+                page = parse_text(result.body.decode("utf-8", "replace"), cfg.max_text_chars)
+                page.resource_type = ctype
         else:
             page = ParsedPage(title=final.rsplit("/", 1)[-1][:200], resource_type=ctype)
         report.pages_fetched += 1
@@ -244,7 +253,12 @@ class Crawler:
             report.sample.append({"title": page.title, "url": final})
         if page.nofollow or duplicate:
             return
-        for link in page.links:
+        self._follow(run_id, rid, depth, page.links, terms, in_scope, report)
+
+    def _follow(self, run_id: int, rid: int, depth: int, links: list[Link], terms: set[str],
+                in_scope: Callable[[str], bool], report: CrawlReport) -> None:
+        cfg = self.config
+        for link in links:
             if looks_binary(link.url) or self.blocked(link.url):
                 continue
             score = link_relevance(terms, link.url, link.anchor)

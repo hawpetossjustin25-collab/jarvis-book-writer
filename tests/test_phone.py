@@ -416,6 +416,8 @@ def test_studio_answers_on_the_phone_with_the_same_jarvis(tmp_path, monkeypatch)
         s.set_setting("phone", "1")
         assert s.phone.running and wait_until(lambda: s.tunnel.host == HOST)
         assert told and f"https://{HOST}/#c=" in told[0]  # the new link is sent on Telegram
+        s._on_phone_url(HOST)  # the same link again (a restarted Jarvis kept it): no repeat message
+        assert len(told) == 1
         info = s.phone_info()
         assert info["link"] == f"https://{HOST}/#c={info['code']}" and s.library.get_meta("phone.url") == HOST
         out = s.tools.call("phone_link", {})
@@ -453,3 +455,92 @@ def test_jarvis_knows_when_to_hand_out_the_phone_link():
     said = {render(t, random.Random(i)).request for i, t in enumerate(mine * 3)}
     assert any("phone link" in s for s in said) and any("on my phone" in s for s in said)
     assert level_of("phone_link") == READ  # it only shows a link; nothing changes, no yes needed
+
+
+class HelloSession:
+    def __init__(self, ok=True):
+        self.ok, self.urls = ok, []
+
+    def get(self, url, timeout=None):
+        self.urls.append(url)
+        if not self.ok:
+            raise requests.ConnectionError("no route")
+        return type("R", (), {"status_code": 200, "json": lambda self: {"app": "jarvis"}})()
+
+
+@pytest.fixture
+def tracked(monkeypatch):
+    """Fake cloudflared processes the tunnel can recognise and stop on any platform."""
+    import jarvis_books.phone as phone_mod
+    launched = {}
+    real_launch = Tunnel._launch
+
+    def launch(self, port):
+        proc = real_launch(self, port)
+        launched[proc.pid] = proc
+        return proc
+
+    def kill(pid):
+        proc = launched.get(pid)
+        if proc is None or proc.poll() is not None:
+            return False
+        proc.terminate()
+        proc.wait(5)
+        return True
+    monkeypatch.setattr(Tunnel, "_launch", launch)
+    monkeypatch.setattr(phone_mod, "_is_cloudflared", lambda pid: pid in launched and launched[pid].poll() is None)
+    monkeypatch.setattr(phone_mod, "_kill_cloudflared", kill)
+    yield launched
+    for proc in launched.values():
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(5)
+
+
+def test_a_restarted_jarvis_keeps_the_same_link(tmp_path, tracked):
+    first = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, HOST))
+    first.start()
+    assert wait_until(lambda: first.host == HOST)
+    pid = first.pid
+    first.stop(keep=True)
+    assert tracked[pid].poll() is None and json.loads((tmp_path / "cloudflared.json").read_text())["host"] == HOST
+    seen, hello = [], HelloSession()
+    second = Tunnel(tmp_path, lambda: 8765, on_url=seen.append, command=["no-such-cloudflared"], session=hello)
+    second.start()
+    try:
+        assert wait_until(lambda: second.host == HOST) and seen == [HOST]
+        assert second.pid == pid and len(tracked) == 1 and hello.urls == [f"https://{HOST}/api/hello"]
+    finally:
+        second.stop()
+    assert tracked[pid].poll() is not None and not (tmp_path / "cloudflared.json").exists()
+    assert seen == [HOST, None] and second.host is None
+
+
+@pytest.mark.parametrize("port, reachable", [(9999, True), (8765, False)])
+def test_a_kept_link_on_another_port_or_unreachable_is_replaced(tmp_path, tracked, port, reachable):
+    first = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, HOST))
+    first.start()
+    assert wait_until(lambda: first.host == HOST)
+    old = first.pid
+    first.stop(keep=True)
+    other = "fresh-link-here.trycloudflare.com"
+    second = Tunnel(tmp_path, lambda: port, command=fake_cloudflared(tmp_path, other), session=HelloSession(reachable))
+    second.start()
+    try:
+        assert wait_until(lambda: second.host == other)
+        assert tracked[old].poll() is not None and second.pid != old
+        assert json.loads((tmp_path / "cloudflared.json").read_text()) == {"pid": second.pid, "port": port,
+                                                                           "host": other}
+    finally:
+        second.stop()
+
+
+def test_a_dead_kept_tunnel_is_started_fresh(tmp_path, tracked):
+    (tmp_path / "cloudflared.json").write_text(json.dumps({"pid": 999999, "port": 8765, "host": HOST}))
+    tunnel = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, "new-one.trycloudflare.com"),
+                    session=HelloSession())
+    tunnel.start()
+    try:
+        assert wait_until(lambda: tunnel.host == "new-one.trycloudflare.com") and len(tracked) == 1
+    finally:
+        tunnel.stop()

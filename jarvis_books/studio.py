@@ -364,8 +364,9 @@ class Studio:
                 "line": phone_line(self.phone.status(), self.tunnel.status(), phone_link(host, code))}
 
     def _on_phone_url(self, host) -> None:
+        before = self.library.get_meta(URL_META, "")
         self.library.set_meta(URL_META, host or "")
-        if host:
+        if host and host != before:
             log.info("phone: secure link is up")
             self.telegram.notify("Jarvis phone app link (open it on your phone, then Add to Home Screen): "
                                  f"{phone_link(host, self.phone.pair_code())}")
@@ -441,7 +442,8 @@ class Studio:
 
     def close(self) -> None:
         self.telegram.stop()
-        self._stop_phone()
+        self.tunnel.stop(keep=True)
+        self.phone.stop()
         self.research_clock.stop()
         self.lab_clock.stop()
         self.trading_clock.stop()

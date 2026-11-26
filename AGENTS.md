@@ -78,8 +78,11 @@ links, the researcher's interest detection, and Groq chat with Gemini taking ove
 `jarvis_books/phone.py` + `jarvis_books/phone_app/` (PWA). `PhoneServer` listens on 127.0.0.1:8765 and runs phone
 messages through `Studio.phone_assistant` (same tools, memory and yes/no gate; channel "phone"). `Tunnel` runs
 Cloudflare's free quick tunnel (cloudflared, downloaded to `JarvisBooks\bin`), so no router ports are opened. The
-link is `https://<random>.trycloudflare.com/#c=<8-digit one-time code>`; it changes when the tunnel restarts, and
-Jarvis then sends the new link on Telegram. Ask Jarvis "phone link" (tool `phone_link`) or see Settings. Only
+link is `https://<random>.trycloudflare.com/#c=<8-digit one-time code>`. cloudflared runs detached and outlives
+Jarvis (`JarvisBooks\bin\cloudflared.json` records pid, port, host): a restarted or reinstalled Jarvis on the same
+port takes it back after checking `/api/hello` through it, so the link and the home-screen app keep working. Turning
+the phone setting off ends it. The link only changes when cloudflared dies (e.g. a reboot); Jarvis then sends the
+new link on Telegram. Ask Jarvis "phone link" (tool `phone_link`) or see Settings. Only
 token hashes are stored (meta `phone.devices`). Tests: tests/test_phone.py (PHONE_AUTOSTART is off in tests).
 
 ## Unfinished
