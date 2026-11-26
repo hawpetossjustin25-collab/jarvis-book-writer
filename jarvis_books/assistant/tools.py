@@ -68,7 +68,7 @@ BOOK = {"type": "STRING", "description": "Book title (partial titles are fine). 
 TABS = ("jarvis", "chat", "library", "write", "listen", "settings", "war room", "publish", "workshop", "planner", "research", "game")
 SETTING_KEYS = ("voice", "edge_voice", "jarvis_voice", "author", "wake_word", "narration_speed", "auto_mute",
                 "dialogue_tags", "memory", "brain", "brain_auto", "full_control", "researcher", "research_pace",
-                "research_brain", "tool_brain", "rsi", "telegram", "phone")
+                "research_brain", "tool_brain", "rsi", "telegram", "phone", "nexus_api")
 SETTING_CHOICES = {"voice": GEMINI_VOICES, "jarvis_voice": GEMINI_VOICES, "edge_voice": EDGE_VOICES,
                    "brain": ("gemini", "groq", "local"), "research_brain": ("local", "groq", "gemini"),
                    "researcher": ("0", "1")}
@@ -981,7 +981,8 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, 
             if len(near) != 1:
                 raise ValueError(f"{key} must be one of: {', '.join(choices)}")
             return near[0]
-        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain", "rsi", "telegram", "phone"):
+        if key in ("wake_word", "auto_mute", "memory", "brain_auto", "full_control", "researcher", "tool_brain", "rsi", "telegram", "phone",
+                   "nexus_api"):
             if v.lower() in _ON:
                 return "1"
             if v.lower() in _OFF:

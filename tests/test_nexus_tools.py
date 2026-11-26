@@ -154,5 +154,9 @@ def test_studio_wires_nexus(tmp_path):
         client = NexusClient(f"http://127.0.0.1:{s.nexus_api.port}", s.nexus_api.tokens.owner_token())
         assert client.call("os2", "status", {}).ok
         client.close()
+        s.set_setting("nexus_api", "0")
+        assert not s.nexus_api.running
+        s.set_setting("nexus_api", "1")
+        assert s.nexus_api.running
     finally:
         s.close()

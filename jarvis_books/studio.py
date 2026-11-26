@@ -240,6 +240,8 @@ class Studio:
             self.telegram.start() if str(value) != "0" else self.telegram.stop()
         elif key == "phone":
             self._start_phone() if str(value) != "0" else self._stop_phone()
+        elif key == "nexus_api":
+            self.nexus_api.start() if str(value) != "0" else self.nexus_api.stop()
 
     # ---- lifecycle -------------------------------------------------------------------
     def start(self, probe: bool = True) -> None:
