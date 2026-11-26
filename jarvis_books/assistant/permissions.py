@@ -44,6 +44,9 @@ TOOL_LEVELS = MappingProxyType({
     "web_index_search": READ, "web_index_page": READ, "web_index_status": READ,
     "web_index_brief": READ, "web_index_facts": READ, "web_index_conflicts": READ,
     "web_index_improve": SAFE,
+    # NEXUS Collective: looking is free; running work, limits and workers need a yes; letting a new computer in is System
+    "collective_status": READ, "collective_task": READ, "collective_run": CHANGE, "collective_limits": CHANGE,
+    "collective_worker": CHANGE, "collective_join_code": SYSTEM,
     "phone_link": READ,
     # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
     "phone_setup": READ, "phone_status": READ, "phone_read_texts": READ, "phone_contacts": READ,

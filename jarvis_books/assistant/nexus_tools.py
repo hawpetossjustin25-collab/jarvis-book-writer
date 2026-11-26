@@ -66,12 +66,41 @@ NEXUS_DECLARATIONS = [
           "questions it was never tuned on. undo=true rolls the last kept change back.",
           {"what": {"type": "STRING", "enum": ["search", "crawl", "both"], "description": "what to improve"},
            "undo": {"type": "BOOLEAN", "description": "roll back the last kept change instead"}}),
+    _decl("collective_status", "NEXUS Collective: the computers sharing work with Jarvis (this laptop is one), "
+          "whether each is healthy, paused or busy, what hardware and AI runtimes each really has, the task queue "
+          "(queued, running, done, failed) and why this computer is waiting if it is."),
+    _decl("collective_task", "NEXUS Collective: one task's state, result, error and which computers tried it.",
+          {"task_id": S}, ["task_id"]),
+    _decl("collective_run", "NEXUS Collective: run a job on the best available computer in the Collective. "
+          "workload: llm.generate (a local model answers `text`), search.query (search the web index for `text`), "
+          "embed.text (meaning vectors for `texts`), data.digest (fingerprints and word counts of `texts`). "
+          "Waits up to `wait` seconds for the result.",
+          {"workload": {"type": "STRING", "enum": ["llm.generate", "search.query", "embed.text", "data.digest"]},
+           "text": S, "texts": {"type": "ARRAY", "items": S},
+           "model": {"type": "STRING", "description": "local model for llm.generate (optional)"},
+           "here_only": {"type": "BOOLEAN", "description": "keep it on this computer (private data)"},
+           "wait": {"type": "INTEGER", "description": "seconds to wait for the result, 0-600 (default 60)"}},
+          ["workload"]),
+    _decl("collective_limits", "NEXUS Collective: change how much of a computer the Collective may use: "
+          "max_cpu_percent, max_memory_gb, hours like 22:00-06:00, min_battery_percent, plugged_in_only, "
+          "max_tasks, gpu/npu/storage on or off, or enabled=false to pause. Default: this computer.",
+          {"worker_id": S, "max_cpu_percent": I, "max_memory_gb": {"type": "NUMBER"},
+           "hours": {"type": "ARRAY", "items": S}, "min_battery_percent": I, "plugged_in_only": B,
+           "max_tasks": I, "gpu": B, "npu": B, "storage": B, "enabled": B}),
+    _decl("collective_worker", "NEXUS Collective: pause, resume or remove (revoke) a computer in the Collective.",
+          {"worker_id": S, "action": {"type": "STRING", "enum": ["pause", "resume", "remove"]}},
+          ["worker_id", "action"]),
+    _decl("collective_join_code", "NEXUS Collective: make a one-time join code (good for 15 minutes) that lets "
+          "another computer of yours join the Collective as a worker.",
+          {"label": {"type": "STRING", "description": "a name for the computer that will join"}}),
 ]
-NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS)
+NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if not d["name"].startswith("collective_"))
+COLLECTIVE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("collective_"))
 NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
                "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
                "disagree", "source", "brief", "intel", "what do we know", "what does the web say", "improve",
-               "tune", "self-improv", "rsi", "roll back")
+               "tune", "self-improv", "rsi", "roll back", "collective", "worker", "cluster", "join code", "share work",
+               "other computer", "task queue", "limits")
 
 
 def _when(stamp: Optional[float]) -> Optional[str]:
@@ -86,6 +115,7 @@ class NexusTools:
 
     nexus = None
     _nexus_os2 = None
+    collective = None
 
     def _os1(self):
         if self.nexus is None:
@@ -260,3 +290,78 @@ class NexusTools:
         if not found:
             out["note"] = "no facts in the web index disagree between websites"
         return out
+
+    # ---- NEXUS Collective
+    def _coll(self, operation: str, payload: dict):
+        if self.collective is None:
+            raise NotFound("the NEXUS Collective isn't running here")
+        resp = self.collective.call(operation, payload)
+        if not resp.ok:
+            raise NotFound(resp.error_message) if resp.error_code == "not_found" else ValueError(resp.error_message)
+        return resp
+
+    def _my_worker(self) -> str:
+        mine = [w for w in self._coll("workers", {}).results if w["local"] and w["status"] != "revoked"]
+        if not mine:
+            raise NotFound("this computer hasn't joined the Collective yet (it joins when Jarvis starts)")
+        return mine[0]["id"]
+
+    def _t_collective_status(self) -> dict:
+        st = self._coll("status", {}).extra
+        workers = self._coll("workers", {}).results
+        return {"computers": [{"id": w["id"], "name": w["name"], "status": w["status"], "healthy": w["healthy"],
+                               "this_computer": w["local"], "cpu": w["cpu"], "threads": w["threads"],
+                               "memory_gb": w["memory_total_gb"], "offers_gb": w["memory_gb"], "gpus": w["gpus"],
+                               "npus": w["npus"], "runs": w["runtimes"], "models": w["models"][:8],
+                               "busy_percent": w["telemetry"].get("cpu_percent")} for w in workers],
+                "tasks": {k: v for k, v in st["tasks"].items() if v}, "this_computer": st["this_computer"]}
+
+    def _t_collective_task(self, task_id: str) -> dict:
+        t = self._coll("task", {"task_id": task_id}).results[0]
+        return {k: t[k] for k in ("id", "workload", "state", "attempts", "result", "error", "history")}
+
+    def _t_collective_run(self, workload: str, text: str = "", texts: Optional[list] = None, model: str = "",
+                          here_only: bool = False, wait: int = 60) -> dict:
+        texts = [str(t) for t in (texts or ([text] if text else []))]
+        if workload == "llm.generate":
+            payload = {"prompt": text or " ".join(texts)}
+            if model:
+                payload["model"] = model
+        elif workload == "search.query":
+            payload = {"query": text or " ".join(texts)}
+        else:
+            payload = {"texts" if workload == "embed.text" else "items": texts}
+        req = {"local_only": True} if here_only else {}
+        if model:
+            req["model"] = model
+        task = self._coll("submit", {"workload": workload, "payload": payload, "requirements": req}).results[0]
+        deadline = time.monotonic() + max(0, min(int(wait), 600))
+        while task["state"] not in ("completed", "failed", "cancelled", "expired") and time.monotonic() < deadline:
+            time.sleep(0.5)
+            task = self._coll("task", {"task_id": task["id"]}).results[0]
+        out = {"task_id": task["id"], "state": task["state"], "worker": task["worker_id"]}
+        if task["state"] == "completed":
+            out["result"] = task["result"]
+        elif task["error"]:
+            out["error"] = task["error"]
+        if task["state"] in ("queued", "assigned"):
+            why = self._coll("decisions", {"task_id": task["id"]}).results
+            if why and why[-1]["rejected"]:
+                out["why_waiting"] = why[-1]["rejected"]
+        return out
+
+    def _t_collective_limits(self, worker_id: str = "", **limits) -> dict:
+        wid = worker_id or self._my_worker()
+        if not limits:
+            raise ValueError("say which limit to change")
+        return {"worker_id": wid, "limits": self._coll("limits", {"worker_id": wid, "limits": limits}).results[0]}
+
+    def _t_collective_worker(self, worker_id: str, action: str) -> dict:
+        status = {"pause": "paused", "resume": "active", "remove": "revoked"}[action]
+        w = self._coll("set_status", {"worker_id": worker_id, "status": status}).results[0]
+        return {"worker_id": w["id"], "name": w["name"], "status": w["status"]}
+
+    def _t_collective_join_code(self, label: str = "") -> dict:
+        out = self._coll("join_code", {"label": label, "minutes": 15}).results[0]
+        return {"code": out["code"], "good_for_minutes": 15,
+                "note": "Give this code only to a computer you own; it works once."}

@@ -10,10 +10,10 @@ from typing import Any, Optional
 import jsonschema
 
 VERSION = "1"
-SYSTEMS = ("jarvis", "os1", "os2", "os3")
+SYSTEMS = ("jarvis", "os1", "os2", "os3", "collective")
 STATUSES = ("success", "error")
 ERROR_CODES = ("invalid_request", "unknown_operation", "not_found", "unsafe_url", "timeout", "unavailable",
-               "internal")
+               "internal", "unauthorized", "conflict")
 
 _ID = {"type": "string", "minLength": 1, "maxLength": 100}
 REQUEST_SCHEMA = {

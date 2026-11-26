@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from jarvis_books.nexus.collective import CollectiveError, Coordinator, ScoreWeights
+from jarvis_books.nexus.collective import CollectiveError, Coordinator
 from jarvis_books.nexus.resources import ContributionLimits, ResourceProvider, available_for_contribution
 from jarvis_books.nexus.worker import LocalLink, Worker, digest_handler
 

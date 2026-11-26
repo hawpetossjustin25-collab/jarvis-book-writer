@@ -42,6 +42,7 @@ from jarvis_books.game.trading import TradingClock
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.nexus.api import NexusHub, NexusServer, TokenBook, systems_for
+from jarvis_books.nexus.collective_os import CollectiveOS
 from jarvis_books.nexus.os1 import OS1
 from jarvis_books.nexus.os2 import OS2
 from jarvis_books.nexus.os3 import OS3, registry_from_toolbox
@@ -60,6 +61,7 @@ TOOL_BRAIN_AUTOBUILD = True  # tests turn this off so they don't spend minutes t
 LAB_AUTOSTART = True  # likewise for the Brain Lab's background rounds
 PHONE_AUTOSTART = True  # the phone app's server and secure link start with Jarvis
 NEXUS_API_AUTOSTART = True  # the NEXUS API listens on 127.0.0.1 only, behind bearer tokens
+COLLECTIVE_AUTOSTART = True  # this computer joins its own NEXUS Collective as a worker, within the owner's limits
 IDLE_S = 180  # the Brain Lab waits this long after the author's last message
 
 
@@ -163,7 +165,9 @@ class Studio:
         self.tools._nexus_os2 = self.war_tools._nexus_os2 = self.nexus_os2
         self.nexus_os3 = OS3(registry_from_toolbox(self.tools, self.nexus.store.db),
                              selector=lambda text: self.fast.route(text, self.tools.declarations(), level_of))
-        self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3))
+        self.nexus_collective = CollectiveOS(self.home, os1=self.nexus, ollama=self.local.client)
+        self.tools.collective = self.war_tools.collective = self.nexus_collective
+        self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3, self.nexus_collective))
         self.nexus_api = NexusServer(self.nexus_hub, TokenBook(self.home))
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
@@ -216,7 +220,7 @@ class Studio:
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
                 "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1",
-                "rsi": "1", "telegram": "1", "phone": "1", "nexus_api": "1"}
+                "rsi": "1", "telegram": "1", "phone": "1", "nexus_api": "1", "collective": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -243,6 +247,8 @@ class Studio:
             self._start_phone() if str(value) != "0" else self._stop_phone()
         elif key == "nexus_api":
             self.nexus_api.start() if str(value) != "0" else self.nexus_api.stop()
+        elif key == "collective":
+            self._start_worker() if str(value) != "0" else self.nexus_collective.stop_local_worker()
 
     # ---- lifecycle -------------------------------------------------------------------
     def start(self, probe: bool = True) -> None:
@@ -274,6 +280,8 @@ class Studio:
         if NEXUS_API_AUTOSTART and self.settings()["nexus_api"] != "0":
             self.nexus_api.start()
         threading.Thread(target=self._read_waiting_pages, name="jarvis-os2-catchup", daemon=True).start()
+        if COLLECTIVE_AUTOSTART and self.settings()["collective"] != "0":
+            threading.Thread(target=self._start_worker, name="jarvis-collective", daemon=True).start()
         if PHONE_AUTOSTART and self.settings()["phone"] != "0":
             self._start_phone()
         try:
@@ -480,10 +488,17 @@ class Studio:
             log.info("OS2 read %d saved pages", read)
         return read
 
+    def _start_worker(self) -> None:
+        try:
+            self.nexus_collective.start_local_worker()
+        except Exception:
+            log.exception("Collective worker start failed")
+
     def close(self) -> None:
         self._closing.set()
         self.nexus_api.stop()
         self.nexus_hub.close()
+        self.nexus_collective.close()
         self.nexus_os3.close()
         self.telegram.stop()
         self.tunnel.stop(keep=True)

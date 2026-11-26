@@ -26,6 +26,7 @@ def no_tool_brain_training(monkeypatch):
     monkeypatch.setattr("jarvis_books.studio.TOOL_BRAIN_AUTOBUILD", False)
     monkeypatch.setattr("jarvis_books.studio.LAB_AUTOSTART", False)
     monkeypatch.setattr("jarvis_books.studio.NEXUS_API_AUTOSTART", False)  # no local API port in tests
+    monkeypatch.setattr("jarvis_books.studio.COLLECTIVE_AUTOSTART", False)  # no background worker loop
     monkeypatch.setattr("jarvis_books.studio.PHONE_AUTOSTART", False)  # no phone server or cloudflared download
 
 

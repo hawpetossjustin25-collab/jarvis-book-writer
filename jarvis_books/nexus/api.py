@@ -445,7 +445,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 _HTTP = {"invalid_request": 400, "unknown_operation": 400, "unsafe_url": 400, "not_found": 404, "timeout": 504,
-         "unavailable": 503, "internal": 500}
+         "unavailable": 503, "internal": 500, "unauthorized": 403, "conflict": 409}
 
 
 def ws_frame(payload: bytes, opcode: int = 1, mask: bool = False) -> bytes:
@@ -494,7 +494,8 @@ def ws_read(stream, limit: int = MAX_BODY) -> tuple[Optional[int], bytes]:
 
 READ_ONLY = {"os1": {"search", "resource", "status", "history"},
              "os2": {"brief", "facts", "entity", "contradictions", "status"},
-             "os3": {"tools", "describe", "validate", "plan", "history"}}
+             "os3": {"tools", "describe", "validate", "plan", "history"},
+             "collective": {"status", "workers", "worker", "tasks", "task", "decisions", "events"}}
 
 
 def safe_to_repeat(destination: str, operation: str, payload: dict) -> bool:
@@ -563,7 +564,7 @@ class NexusClient:
 OS1_CHANGES = ("crawl", "revisit", "embed")  # these fetch from the web or write; readers may only look
 
 
-def systems_for(os1, os2, os3) -> dict[str, Callable[[NexusRequest, str], NexusResponse]]:
+def systems_for(os1, os2, os3, collective=None) -> dict[str, Callable[[NexusRequest, str], NexusResponse]]:
     """The hub's routing table: each system's own handler, with caller roles applied."""
     def door1(request: NexusRequest, role: str) -> NexusResponse:
         if request.operation in OS1_CHANGES and role == "reader":
@@ -571,5 +572,8 @@ def systems_for(os1, os2, os3) -> dict[str, Callable[[NexusRequest, str], NexusR
                            time.perf_counter())
         return os1.handle(request)
 
-    return {"os1": door1, "os2": lambda request, role: os2.handle(request),
-            "os3": lambda request, role: os3.handle(request, role)}
+    doors = {"os1": door1, "os2": lambda request, role: os2.handle(request),
+             "os3": lambda request, role: os3.handle(request, role)}
+    if collective is not None:
+        doors["collective"] = lambda request, role: collective.handle(request, role)
+    return doors
