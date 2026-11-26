@@ -165,6 +165,7 @@ class Studio:
         self.phone = PhoneServer(self.library, self.phone_assistant, self.gate)
         self.tunnel = Tunnel(self.home / "bin", lambda: self.phone.port, on_url=self._on_phone_url)
         self.tools.phone_info = self.war_tools.phone_info = self.phone_info
+        self.tools.phone_device = self.war_tools.phone_device = self.phone.device_link
         self.api_keys = ApiKeys(self.home)
         # The researcher thinks with a free model on this computer, so it never uses Gemini's daily requests.
         # Nobody waits on a research round, so Qwen gets room to read whole pages and write full notes.
@@ -368,8 +369,11 @@ class Studio:
         self.library.set_meta(URL_META, host or "")
         if host and host != before:
             log.info("phone: secure link is up")
-            self.telegram.notify("Jarvis phone app link (open it on your phone, then Add to Home Screen): "
-                                 f"{phone_link(host, self.phone.pair_code())}")
+            note = ("Jarvis phone app link (open it on your phone, then Add to Home Screen): "
+                    f"{phone_link(host, self.phone.pair_code())}")
+            if before and any(d.get("kind") == "agent" for d in self.phone.devices()):
+                note += f"\nSo I can keep using your Android, paste this into Termux: jarvis-link {host}"
+            self.telegram.notify(note)
 
     def remove_telegram(self) -> None:
         self.telegram.stop()

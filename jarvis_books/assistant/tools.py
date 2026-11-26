@@ -18,6 +18,8 @@ from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_W
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.nexus_tools import NEXUS_DECLARATIONS, NEXUS_WORDS, NexusTools
 from jarvis_books.assistant.phone_tools import PHONE_DECLARATIONS, PHONE_WORDS, PhoneTools
+from jarvis_books.assistant.phone_device_tools import (PHONE_DEVICE_DECLARATIONS, PHONE_DEVICE_WORDS,
+                                                       PhoneDeviceTools)
 from jarvis_books.assistant.research_tools import RESEARCH_DECLARATIONS, RESEARCH_WORDS, ResearchTools
 from jarvis_books.audio.narrator import EDGE_VOICES, GEMINI_VOICES
 from jarvis_books.audio.voices import AGES, ANOTHER, GEMINI_CATALOG, GENDERS, NARRATOR, another_edge, \
@@ -330,7 +332,7 @@ DECLARATIONS = [
           {"book": BOOK, "character": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + NEXUS_DECLARATIONS + PHONE_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + NEXUS_DECLARATIONS + PHONE_DECLARATIONS + PHONE_DEVICE_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -342,7 +344,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, PhoneTools):
+class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, PhoneTools, PhoneDeviceTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -460,6 +462,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, 
             **{d["name"]: RESEARCH_WORDS for d in RESEARCH_DECLARATIONS},
             **{d["name"]: NEXUS_WORDS + WEB_WORDS for d in NEXUS_DECLARATIONS},
             **{d["name"]: PHONE_WORDS for d in PHONE_DECLARATIONS},
+            **{d["name"]: PHONE_DEVICE_WORDS for d in PHONE_DEVICE_DECLARATIONS},
             **{d["name"]: GAME_WORDS for d in GAME_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available

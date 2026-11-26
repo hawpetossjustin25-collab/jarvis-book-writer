@@ -255,6 +255,9 @@ POOLS = {
     "repair": _list(["roof", "foundation", "HVAC", "kitchen", "plumbing", "electrical"]),
     "chat": _list(CHIT_CHAT),
     "jobid": _list(["a1b2c3d4e5f6", "9f8e7d6c5b4a", "3c5e7a9b1d2f", "job7", "12"]),
+    "phonenum": _list(["404-555-0134", "678 555 0192", "+14705550178", "7705550123", "(404) 555-0199"]),
+    "pin6": _list(["482913", "105377", "660241", "839150", "274608"]),
+    "app": _list(["youtube", "facebook", "messenger", "chrome", "gmail", "maps", "spotify", "camera"]),
     "money": _money(1000, 9000), "price": _money(50000, 400000), "budget": _money(10000, 100000),
 }
 

@@ -36,10 +36,15 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 import requests
 
+from jarvis_books.phone_device import DeviceLink
+
 log = logging.getLogger(__name__)
 WINDOWS = os.name == "nt"
 
 APP_DIR = Path(__file__).with_name("phone_app")
+AGENT_DIR = Path(__file__).with_name("phone_agent")
+AGENT_FILES = {"setup.sh": "text/plain; charset=utf-8", "jarvis_agent.py": "text/plain; charset=utf-8"}
+MAX_RESULT = 6 * 1024 * 1024
 PAGES_ORIGIN = "https://hawpetossjustin25-collab.github.io"
 PORT = 8765
 MAX_BODY = 64 * 1024
@@ -105,6 +110,7 @@ class PhoneServer:
         self._current: Optional[Turn] = None
         self._turn_thread: Optional[int] = None
         self._asked = None
+        self.device_link = DeviceLink()
         gate.subscribe(self._on_gate)
 
     # ---- running ----------------------------------------------------------------------------------------
@@ -158,7 +164,7 @@ class PhoneServer:
     def _save_devices(self, devices: list[dict]) -> None:
         self.library.set_meta(DEVICES, json.dumps(devices[-MAX_DEVICES:]))
 
-    def pair(self, code: str, name: str = "") -> Optional[str]:
+    def pair(self, code: str, name: str = "", kind: str = "app") -> Optional[str]:
         """A new device token for the right code (the code is then used up); None for a wrong one."""
         with self._lock:
             if not re.fullmatch(r"\d{8}", code or "") or not secrets.compare_digest(code, self.pair_code()):
@@ -170,6 +176,7 @@ class PhoneServer:
                 return None
             token = secrets.token_urlsafe(32)
             devices = self.devices() + [{"hash": _hash(token), "name": (name or "phone")[:40],
+                                         "kind": "agent" if kind == "agent" else "app",
                                          "added": self.clock(), "seen": self.clock()}]
             self._save_devices(devices)
             self.library.set_meta(PAIR, "")
@@ -262,7 +269,7 @@ class PhoneServer:
 
     def status(self) -> dict:
         return {"running": self.running, "port": self.port, "devices": len(self.devices()), "busy": self.busy,
-                "error": self.error}
+                "error": self.error, "helper": self.device_link.status()}
 
 
 def _handler_for(server: PhoneServer):
@@ -297,12 +304,12 @@ def _handler_for(server: PhoneServer):
         def _json(self, status: int, data: dict) -> None:
             self._send(status, json.dumps(data).encode(), "application/json", {"Cache-Control": "no-store"})
 
-        def _body(self) -> Optional[dict]:
+        def _body(self, limit: int = MAX_BODY) -> Optional[dict]:
             try:
                 size = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 size = -1
-            if size < 0 or size > MAX_BODY:
+            if size < 0 or size > limit:
                 self._json(413, {"error": "too big"})
                 return None
             try:
@@ -319,10 +326,11 @@ def _handler_for(server: PhoneServer):
             auth = self.headers.get("Authorization", "")
             return auth[7:].strip() if auth.startswith("Bearer ") else None
 
-        def _device(self) -> Optional[dict]:
+        def _device(self, kind: str = "app") -> Optional[dict]:
             device = server.device_for(self._token())
-            if device is None:
+            if device is None or device.get("kind", "app") != kind:
                 self._json(401, {"error": "not paired"})
+                return None
             return device
 
         # ---- methods ----
@@ -346,6 +354,16 @@ def _handler_for(server: PhoneServer):
                     token = self._token()
                     self._json(200, {"app": "jarvis", "version": 1, "busy": server.busy,
                                      "paired": server.device_for(token) is not None if token else False})
+                elif url.path == "/api/agent/next":
+                    if self._device("agent") is None:
+                        return
+                    try:
+                        wait = float(parse_qs(url.query).get("wait", ["25"])[0])
+                    except ValueError:
+                        wait = 25.0
+                    self._json(200, {"command": server.device_link.next(wait)})
+                elif url.path.startswith("/agent/"):
+                    self._agent_file(url.path[len("/agent/"):])
                 elif url.path == "/api/turn":
                     if self._device() is None:
                         return
@@ -366,12 +384,27 @@ def _handler_for(server: PhoneServer):
         def do_POST(self) -> None:
             path = urlsplit(self.path).path
             try:
-                data = self._body()
+                data = self._body(MAX_RESULT if path == "/api/agent/result" else MAX_BODY)
                 if data is None:
                     return
                 if path == "/api/pair":
-                    token = server.pair(str(data.get("code", "")).strip(), str(data.get("name", "")))
+                    token = server.pair(str(data.get("code", "")).strip(), str(data.get("name", "")),
+                                        str(data.get("kind", "app")))
                     self._json(200, {"token": token}) if token else self._json(403, {"error": "wrong code"})
+                    return
+                if path.startswith("/api/agent/"):
+                    if self._device("agent") is None:
+                        return
+                    if path == "/api/agent/hello":
+                        info = data.get("info")
+                        server.device_link.hello(info if isinstance(info, dict) else {})
+                        self._json(200, {"ok": True})
+                    elif path == "/api/agent/result":
+                        took = server.device_link.result(data.get("id"), bool(data.get("ok")), data.get("result"),
+                                                         str(data.get("error") or ""))
+                        self._json(200, {"ok": took}) if took else self._json(409, {"error": "unknown command"})
+                    else:
+                        self._json(404, {"error": "not found"})
                     return
                 if self._device() is None:
                     return
@@ -397,6 +430,14 @@ def _handler_for(server: PhoneServer):
                 self._json(409, {"error": "Jarvis is still answering the last message"})
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+        def _agent_file(self, name: str) -> None:
+            ctype = AGENT_FILES.get(name)
+            file = AGENT_DIR / name
+            if ctype is None or not file.is_file():
+                self._json(404, {"error": "not found"})
+                return
+            self._send(200, file.read_bytes(), ctype, {"Cache-Control": "no-cache"})
 
         def _static(self, path: str) -> None:
             name = "index.html" if path in ("", "/") else path.lstrip("/")

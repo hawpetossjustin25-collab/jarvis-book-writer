@@ -418,6 +418,13 @@ def test_studio_answers_on_the_phone_with_the_same_jarvis(tmp_path, monkeypatch)
         assert told and f"https://{HOST}/#c=" in told[0]  # the new link is sent on Telegram
         s._on_phone_url(HOST)  # the same link again (a restarted Jarvis kept it): no repeat message
         assert len(told) == 1
+        assert s.tools.phone_device is s.phone.device_link
+        s.phone.pair(s.phone.pair_code(), "Pixel 8", kind="agent")
+        s._on_phone_url("new-link-here.trycloudflare.com")  # laptop rebooted: the Android helper is told how to follow
+        assert told[-1].endswith("paste this into Termux: jarvis-link new-link-here.trycloudflare.com")
+        s._on_phone_url(HOST)
+        told.pop()
+        told.pop()
         info = s.phone_info()
         assert info["link"] == f"https://{HOST}/#c={info['code']}" and s.library.get_meta("phone.url") == HOST
         out = s.tools.call("phone_link", {})

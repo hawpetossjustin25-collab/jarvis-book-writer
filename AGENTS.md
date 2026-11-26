@@ -85,6 +85,15 @@ the phone setting off ends it. The link only changes when cloudflared dies (e.g.
 new link on Telegram. Ask Jarvis "phone link" (tool `phone_link`) or see Settings. Only
 token hashes are stored (meta `phone.devices`). Tests: tests/test_phone.py (PHONE_AUTOSTART is off in tests).
 
+## Android phone control
+
+`jarvis_books/phone_agent/` is a helper that runs in Termux on Justin's Android (stdlib Python). It pairs with
+the phone server as an `agent` device and long-polls `/api/agent/next` through the same Cloudflare link; the laptop
+side is `phone_device.py` (`DeviceLink`) and the tools are `assistant/phone_device_tools.py` (texts, calls,
+contacts, notifications, Termux terminal, open apps/links, read the screen, tap, type, keys/swipes). Screen control
+uses adb over Android's wireless debugging to the same phone. `phone_setup` gives the one-line Termux command.
+After a laptop reboot the link changes; Jarvis sends `jarvis-link <host>` on Telegram for Termux.
+
 ## Unfinished
 
 - NEXUS: OS1 (web observation, graph, search) is built and tested. Still to do: OS1 RSI (measured

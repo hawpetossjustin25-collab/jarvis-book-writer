@@ -43,6 +43,11 @@ TOOL_LEVELS = MappingProxyType({
     "github_search": READ, "github_read": READ,
     "web_index_search": READ, "web_index_page": READ, "web_index_status": READ,
     "phone_link": READ,
+    # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
+    "phone_setup": READ, "phone_status": READ, "phone_read_texts": READ, "phone_contacts": READ,
+    "phone_notifications": READ, "phone_look": READ, "phone_open": SAFE,
+    "phone_send_text": OUTSIDE, "phone_call": OUTSIDE, "phone_tap": CHANGE, "phone_type": CHANGE,
+    "phone_press": CHANGE, "phone_pair_debugging": CHANGE, "phone_terminal": SYSTEM,
     "web_index_explore": SAFE, "web_index_refresh": SAFE, "web_index_continue": SAFE,
     "write_file": SYSTEM, "edit_file": SYSTEM, "make_folder": SYSTEM, "move_path": SYSTEM,
     "delete_path": SYSTEM, "run_command": SYSTEM, "download_file": SYSTEM, "github_download": SYSTEM,

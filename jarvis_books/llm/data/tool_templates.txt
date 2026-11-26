@@ -351,3 +351,39 @@ phone_link | how do i put you on my phone
 phone_link | [i want|let me] use you on my phone
 phone_link | [what's|whats] the link for the [jarvis|] phone app
 phone_link | make you an app on my [phone|iphone|android]
+phone_setup | [how do i|help me] [let you|give you] control [of|] my phone
+phone_setup | set up [phone control|my android|termux] [for you|]
+phone_setup | i want you to [control|run|use] my phone
+phone_status | are you connected to my phone
+phone_status | [phone status|can you reach my phone]
+phone_send_text | [text|message] {to:name} [saying|that] {message:text}
+phone_send_text | send a text to {to:phonenum} [saying|that says] {message:text}
+phone_send_text | sms {to:name}: {message:text}
+phone_read_texts | [read|show] me my [texts|text messages|messages]
+phone_read_texts | [any|do i have] new texts
+phone_read_texts | read my last {limit:n} texts
+phone_call | call {to:name} [on my phone|]
+phone_call | [call|dial] {to:phonenum}
+phone_call | [phone|ring] {to:name} for me
+phone_contacts | [what's|whats] {query:name}['s|] number
+phone_contacts | find {query:name} in my contacts
+phone_notifications | [what|any] notifications on my phone
+phone_notifications | [read|show] my phone notifications
+phone_terminal | [run|do] {command:command} [on my phone|in termux]
+phone_terminal | in the phone terminal run {command:command}
+phone_open | open {target:app} on my phone
+phone_open | [launch|start] {target:app} [on the phone|on my phone]
+phone_open | open {target:url} on my phone
+phone_look | what's on my phone screen
+phone_look | [look at|check] my phone [screen|]
+phone_tap | tap {text:app} on my phone
+phone_tap | [press|hit] the {text:app} button on the phone
+phone_tap | tap my phone at {x:xy} {y:xy}
+phone_type | type {text:text} on my phone
+phone_type | on the phone type {text:text}
+phone_press | [press|hit] [the|] home [button|] on my phone | {"key": "home"}
+phone_press | go back on my phone | {"key": "back"}
+phone_press | scroll down on my phone | {"key": "swipe_up"}
+phone_press | turn the phone volume up | {"key": "volume_up"}
+phone_pair_debugging | pair wireless debugging port {pair_port:big} code {code:pin6}
+phone_pair_debugging | [connect|pair] [to|] my phone's debugging on port {pair_port:big} with code {code:pin6}
