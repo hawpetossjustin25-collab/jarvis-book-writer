@@ -73,3 +73,30 @@ Computers you own share work with Jarvis. Everything is in `collective.db` (SQLi
 
 Jarvis tools: `collective_status`, `collective_task` (read), `collective_run`, `collective_limits`,
 `collective_worker` (Change, need a yes) and `collective_join_code` (System).
+
+## Model Hub and DeepRAM (Deep Doc 2, phase 2)
+
+- `deepram.py`: `DeepRAM.plan` adds a model's real weights (file size), its context cache (layers x key/value heads
+  x head size x tokens, read from the model's own metadata), runtime overhead and scratch space, and keeps a safety
+  margin (1.5 GB or 10% of RAM). It refuses a load that would not fit, finds the longest context that does, and never
+  counts another computer's memory as local RAM.
+- `modelhub.py`: `ModelHub` (`models.db`) records every installed model from Ollama (digest checksum, parameters,
+  compression, context, license, capabilities), checks disk space and memory from the registry manifest before a
+  download, lets Ollama resume and verify the download, runs a first-answer test and a speed benchmark, and routes a
+  request to the best model that fits right now (quality or speed, with the reason each other model was skipped).
+- Jarvis tools: `model_hub`, `model_plan`, `model_route` (read) and `model_install` (Outside world, needs a yes).
+
+## Release Center (platform-wide improvement and four-month releases)
+
+- `releases.py`: `ReleaseCenter` (`releases.db`). The running version is the commit the installer writes to
+  `app\version.json` (or the git checkout). Major cycles of about four months (1.0, 1.1, 1.2, 2.0); improvements go
+  proposed -> building -> testing -> tested -> approved -> released, with author and approver. "Tested" needs a
+  passing full test run and no comparison measuring worse; only Justin approves, never his own change; staged and
+  stable releases need him. A release is "packaged" until the running commit is seen, then "deployed". Urgent and
+  security fixes skip the cycle as patch releases. Public notes leave out keys, paths and addresses. Rollbacks
+  are recorded with their reason. The journal and experiment results can't be edited or deleted (SQLite triggers),
+  and a new idea like a rejected one is refused until it says what is different.
+- Studio feeds it at start: the running commit, every self-upgrade (with its test result) and every search
+  self-improvement round.
+- Jarvis tools: `release_center` (read), `release_propose` (Change) and `release_decide` (approve, reject, defer,
+  move, open a cycle, record a rollback; always asks Justin, even with Full control on).
