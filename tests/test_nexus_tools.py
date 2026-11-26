@@ -6,6 +6,7 @@ from jarvis_books.assistant.nexus_tools import NEXUS_TOOLS, UNTRUSTED
 from jarvis_books.assistant.permissions import NEEDS_YES, TOOL_LEVELS
 from jarvis_books.jobs import JobManager
 from jarvis_books.memory import StoryIndex
+from jarvis_books.nexus.contracts import NexusRequest
 from jarvis_books.nexus.os1 import OS1
 from jarvis_books.studio import Studio
 from jarvis_books.writer import BookWriter
@@ -144,5 +145,14 @@ def test_studio_wires_nexus(tmp_path):
         assert s.tools.nexus is s.nexus is s.war_tools.nexus
         assert (tmp_path / "home" / "nexus.db").exists()
         assert s.tools.call("web_index_status", {})["pages"] == 0
+        assert s.tools._nexus_os2 is s.nexus_os2 and s.nexus_os2.os1 is s.nexus
+        assert "web_index_brief" in s.nexus_os3.registry.names() and not s.nexus_api.running
+        status = s.nexus_hub.route(NexusRequest("jarvis", "os3", "execute", {"name": "web_index_status"}))
+        assert status.ok and status.results[0]["status"] == "success"
+        assert s.nexus_api.start() is True
+        from jarvis_books.nexus.api import NexusClient
+        client = NexusClient(f"http://127.0.0.1:{s.nexus_api.port}", s.nexus_api.tokens.owner_token())
+        assert client.call("os2", "status", {}).ok
+        client.close()
     finally:
         s.close()

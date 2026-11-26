@@ -1,7 +1,9 @@
-# NEXUS: Jarvis's web observation (OS1) and intelligence (OS2) systems
+# NEXUS: Jarvis's web observation (OS1), intelligence (OS2) and tool (OS3) systems, and the NEXUS API
 
 OS1 explores the web within set limits and saves what it finds as a persistent, searchable graph. OS2 reads the
-saved pages and turns them into sourced facts, entities and relations. Both talk through the same contracts.
+saved pages and turns them into sourced facts, entities and relations. OS3 is the strict registry and execution
+pipeline for Jarvis's tools. All three talk through the same contracts, and the NEXUS API serves them on this
+computer only.
 
 ## Modules
 
@@ -18,7 +20,10 @@ saved pages and turns them into sourced facts, entities and relations. Both talk
 | `search.py` | BM25 (FTS5, porter stemming), meaning search (Gemini embeddings, or offline hashed vectors), rank fusion with link rank, phrase / `-word` / `site:` / `type:` syntax, spelling expansion, dedup, cache and history |
 | `intel.py` | OS2's offline readers: sentences, entities (names, organisations, places, dates, amounts, percents, emails), claims stated plainly by a sentence (`X was founded in 1998`, `the population of X is N`, `X's tax rate was 4.2%`, `X is a ...`), value normalization, page category and an extractive summary |
 | `os2.py` | `OS2`: reads pages into `intel_*` tables (migration 2 of `nexus.db`; re-read only when a page's hash changes) and judges every (subject, fact): **verified** = 2+ different websites agree and none disagrees, **unverified** = one website, **conflicting** = websites give different values for a one-value fact (founded, population, price...), **missing** = nothing found. Names appearing together are relations labelled **inference**. Operations: `analyze`, `brief`, `facts`, `entity`, `contradictions`, `status` |
-| `os1.py` | `OS1`: the single entry point. `handle(request)` validates each operation's payload: `search`, `crawl`, `revisit`, `resource`, `status`, `history`, `embed` |
+| `os1.py` | `OS1`: the single entry point. `handle(request)` validates each operation's payload: `search`, `crawl`, `revisit`, `resource`, `status`, `history`, `embed`, `improve`, `rsi` |
+| `rsi.py` | OS1 self-improvement. Search: the index writes its own exam (each page's title, and its rarest words, should find that page), split by URL hash into a tuning half and a sealed half. Challenger `RankWeights` (BM25 column weights, word/meaning fusion, link rank, title boost) must beat the champion on both halves without losing recall or getting 1.5x slower. Each round first re-checks the champion against the settings it replaced and rolls back if it regressed. Crawl: concurrency is tried on real crawls and kept only for 10%+ more pages a minute without more failures. Per-host delay and robots.txt are never tuned. History is in `rsi_versions` (migration 4): champion, retired, rejected, trial, rolled_back |
+| `os3.py` | `ToolSpec` (id `jarvis.<name>@<version>`, strict JSON Schema arguments, output schema, permission level, timeout, retries, availability), `ToolRegistry` (unique names, recorded in `os3_tools`, keyword discovery) and `OS3`: validate, check the caller's role, check availability, run with a timeout, retry lookups only, verify the result, audit to `os3_executions` with secrets redacted. A call only counts as `success` when the tool returned a valid result; errors are `failed`, gated tools are `waiting_for_approval`. `plan` picks a tool and arguments with the quick tool brain without running it. `registry_from_toolbox` registers every Jarvis tool to run through `ToolBox.call`, so the yes/no gate still asks |
+| `api.py` | `NexusHub` routes contract requests to OS1/OS2/OS3 with each request's `timeout_ms`, checks every reply against the contract, publishes request/response events and keeps per-system health. `NexusServer` serves it on `127.0.0.1:8770` (local host names only): `POST /v1/request`, `GET /v1/events` (Server-Sent Events), `GET /v1/ws` (WebSocket), `GET /v1/health`. Bearer tokens with roles (`reader`: look only; `operator`: also safe tools and crawls; `owner`: everything, through the gate), stored as SHA-256 hashes in `nexus_api.json`. Jarvis's own owner token is in `nexus_api.key`. Rate limit per token. `NexusClient` retries timeouts, busy systems, rate limits and dropped connections with backoff |
 
 ## Safety
 
@@ -33,11 +38,12 @@ saved pages and turns them into sourced facts, entities and relations. Both talk
 `web_index_explore`, `web_index_continue` and `web_index_refresh` run as background jobs (level *safe*).
 `web_index_search`, `web_index_page` and `web_index_status` are *read*-level tools. A crawl job ends with OS2
 reading the new pages. `web_index_brief`, `web_index_facts` and `web_index_conflicts` (*read*) return OS2's
-sourced, labelled facts; Jarvis is told never to present an unverified fact as certain. The code is in
+sourced, labelled facts; Jarvis is told never to present an unverified fact as certain. `web_index_improve`
+(*safe*) runs a self-improvement round or undoes the last kept change, and every crawl job ends with one. The code is in
 `jarvis_books/assistant/nexus_tools.py`.
 
 ## Tests
 
-The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py`, `tests/test_nexus_os2.py` and
-`tests/test_nexus_tools.py`. They make real
+The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py`, `tests/test_nexus_os2.py`,
+`tests/test_nexus_os3.py`, `tests/test_nexus_api.py`, `tests/test_nexus_rsi.py` and `tests/test_nexus_tools.py`. They make real
 `httpx` requests to an in-process fake web (`tests/nexus_site.py`), so they run offline.

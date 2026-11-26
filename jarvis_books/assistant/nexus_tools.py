@@ -1,6 +1,7 @@
 """Jarvis's tools for NEXUS OS1, his own searchable map of the web (mixed into the ToolBox)."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional
 
@@ -60,15 +61,24 @@ NEXUS_DECLARATIONS = [
           ["subject"]),
     _decl("web_index_conflicts", "NEXUS OS2: facts where websites in your web index disagree (e.g. two founding "
           "years or two prices), each value with its sources."),
+    _decl("web_index_improve", "NEXUS OS1 self-improvement: Jarvis tests new search-ranking weights (and crawl "
+          "speed) against questions made from his own web index and keeps a change only if it measures better on "
+          "questions it was never tuned on. undo=true rolls the last kept change back.",
+          {"what": {"type": "STRING", "enum": ["search", "crawl", "both"], "description": "what to improve"},
+           "undo": {"type": "BOOLEAN", "description": "roll back the last kept change instead"}}),
 ]
 NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS)
 NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
                "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
-               "disagree", "source", "brief", "intel", "what do we know", "what does the web say")
+               "disagree", "source", "brief", "intel", "what do we know", "what does the web say", "improve",
+               "tune", "self-improv", "rsi", "roll back")
 
 
 def _when(stamp: Optional[float]) -> Optional[str]:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(stamp)) if stamp else None
+
+
+log = logging.getLogger(__name__)
 
 
 class NexusTools:
@@ -108,6 +118,7 @@ class NexusTools:
                                               "sample")}
             if report.get("pages_fetched"):
                 out["facts_found"] = self._read_new_pages(report["pages_fetched"] + 50)
+                out["self_improvement"] = self._tune_after_crawl(os1)
             return out
         job = self.jobs.submit("nexus", title, run)
         return {"started": True, "job_id": job.id,
@@ -220,6 +231,28 @@ class NexusTools:
             payload["predicate"] = fact.strip().lower()
         verdicts = self._os2_call("facts", payload).results
         return {"subject": subject, "facts": [self._verdict(v) for v in verdicts], "note": UNTRUSTED}
+
+    @staticmethod
+    def _tune_after_crawl(os1) -> dict:
+        """Every crawl is a chance to measure: judge the crawl-speed trial and try better search ranking."""
+        out = {}
+        for kind, run in (("crawl", os1.improver.improve_crawl), ("search", os1.improver.improve_search)):
+            try:
+                out[kind] = run()["status"]
+            except Exception as exc:  # tuning never spoils a finished crawl
+                log.exception("nexus self-improvement (%s) failed", kind)
+                out[kind] = f"error: {type(exc).__name__}"
+        return out
+
+    def _t_web_index_improve(self, what: str = "both", undo: bool = False) -> dict:
+        os1 = self._os1()
+        if undo:
+            kinds = ("search", "crawl") if what == "both" else (what,)
+            return {"undone": [os1.improver.rollback(k) for k in kinds]}
+        resp = os1.call("improve", {"target": what if what in ("search", "crawl", "both") else "both"})
+        if not resp.ok:
+            raise ValueError(resp.error_message)
+        return {"results": resp.results, "now_using": os1.improver.status()}
 
     def _t_web_index_conflicts(self) -> dict:
         found = self._os2_call("contradictions", {"limit": 20}).results

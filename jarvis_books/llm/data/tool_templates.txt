@@ -399,3 +399,7 @@ phone_press | scroll down on my phone | {"key": "swipe_up"}
 phone_press | turn the phone volume up | {"key": "volume_up"}
 phone_pair_debugging | pair wireless debugging port {pair_port:big} code {code:pin6}
 phone_pair_debugging | [connect|pair] [to|] my phone's debugging on port {pair_port:big} with code {code:pin6}
+web_index_improve | [improve|tune|upgrade] your [web|] search [ranking|results|]
+web_index_improve | make your web index search better
+web_index_improve | run [a|] self[-| ]improvement [round|] on [the|your] web index
+web_index_improve | [undo|roll back] the last [search|web index] improvement | {"undo": true}

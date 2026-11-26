@@ -13,7 +13,7 @@ from jarvis_books.computer.files import Computer
 from jarvis_books.computer.terminal import Terminal
 from jarvis_books.computer.web import Web
 from jarvis_books.assistant import Assistant, ToolBox
-from jarvis_books.assistant.permissions import PermissionGate
+from jarvis_books.assistant.permissions import PermissionGate, level_of
 from jarvis_books.audio import Narrator
 from jarvis_books.audio.script import VoiceDirector
 from jarvis_books.audio.export import export_audiobook
@@ -41,7 +41,10 @@ from jarvis_books.game import Game
 from jarvis_books.game.trading import TradingClock
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
+from jarvis_books.nexus.api import NexusHub, NexusServer, TokenBook, systems_for
 from jarvis_books.nexus.os1 import OS1
+from jarvis_books.nexus.os2 import OS2
+from jarvis_books.nexus.os3 import OS3, registry_from_toolbox
 from jarvis_books.nexus.search import EngineEmbedder
 from jarvis_books.research import RESEARCH_MODEL, RESEARCH_TIME_S, ResearchClock, Researcher
 from jarvis_books.storage.capacity import CapacityMonitor
@@ -56,6 +59,7 @@ log = logging.getLogger(__name__)
 TOOL_BRAIN_AUTOBUILD = True  # tests turn this off so they don't spend minutes training
 LAB_AUTOSTART = True  # likewise for the Brain Lab's background rounds
 PHONE_AUTOSTART = True  # the phone app's server and secure link start with Jarvis
+NEXUS_API_AUTOSTART = True  # the NEXUS API listens on 127.0.0.1 only, behind bearer tokens
 IDLE_S = 180  # the Brain Lab waits this long after the author's last message
 
 
@@ -155,6 +159,12 @@ class Studio:
         self.nexus = OS1(self.home, embedder=EngineEmbedder(self.engine) if self.engine is not None else None,
                          seed_search=self._nexus_seeds)
         self.tools.nexus = self.war_tools.nexus = self.nexus
+        self.nexus_os2 = OS2(self.nexus)
+        self.tools._nexus_os2 = self.war_tools._nexus_os2 = self.nexus_os2
+        self.nexus_os3 = OS3(registry_from_toolbox(self.tools, self.nexus.store.db),
+                             selector=lambda text: self.fast.route(text, self.tools.declarations(), level_of))
+        self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3))
+        self.nexus_api = NexusServer(self.nexus_hub, TokenBook(self.home))
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
         self.voice_notes = VoiceNotes(self._look if self.engine is not None else None, self._groq_key,
@@ -205,7 +215,7 @@ class Studio:
                 "wake_word": "1", "narration_speed": "1.0",
                 "auto_mute": "1", "dialogue_tags": "3", "memory": "1", "brain": "gemini", "brain_auto": "1",
                 "full_control": "0", "researcher": "1", "research_pace": "10", "research_brain": "local", "tool_brain": "1",
-                "rsi": "1", "telegram": "1", "phone": "1"}
+                "rsi": "1", "telegram": "1", "phone": "1", "nexus_api": "1"}
 
     def _look(self, system: str, parts: list[dict]) -> str:
         """Gemini looks at an image (LFM3 can't see, so this never falls back to it)."""
@@ -258,6 +268,8 @@ class Studio:
         self.trading_clock.start()
         if self.settings()["telegram"] != "0":
             self.telegram.start()
+        if NEXUS_API_AUTOSTART and self.settings()["nexus_api"] != "0":
+            self.nexus_api.start()
         if PHONE_AUTOSTART and self.settings()["phone"] != "0":
             self._start_phone()
         try:
@@ -445,6 +457,9 @@ class Studio:
         return [r["url"] for r in self.web.search(topic, count)["results"]][:count]
 
     def close(self) -> None:
+        self.nexus_api.stop()
+        self.nexus_hub.close()
+        self.nexus_os3.close()
         self.telegram.stop()
         self.tunnel.stop(keep=True)
         self.phone.stop()

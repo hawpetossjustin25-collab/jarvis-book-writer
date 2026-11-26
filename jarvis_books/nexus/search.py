@@ -23,6 +23,38 @@ _WORD = re.compile(r"\w+", re.UNICODE)
 RRF_K = 60
 
 
+@dataclass(frozen=True)
+class RankWeights:
+    """How search mixes its signals. OS1's self-improvement tunes these and keeps a set only when it measures
+    better on the index's own known-item questions."""
+    title_col: float = 10.0  # BM25 weight of the title, description, text and address columns
+    description_col: float = 4.0
+    text_col: float = 1.0
+    url_col: float = 2.0
+    words: float = 1.0  # how much the word match counts against the meaning match in the fusion
+    meaning: float = 1.0
+    rrf_k: float = RRF_K
+    link_rank: float = 0.5
+    title_hits: float = 0.4
+    relevance: float = 0.2
+
+    LIMITS = {"title_col": (0.5, 30.0), "description_col": (0.0, 20.0), "text_col": (0.1, 10.0),
+              "url_col": (0.0, 20.0), "words": (0.1, 3.0), "meaning": (0.0, 3.0), "rrf_k": (1.0, 200.0),
+              "link_rank": (0.0, 3.0), "title_hits": (0.0, 3.0), "relevance": (0.0, 3.0)}
+
+    def to_dict(self) -> dict:
+        return {k: getattr(self, k) for k in self.LIMITS}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RankWeights":
+        """Unknown keys are ignored and every value is clamped to its safe range."""
+        clean = {}
+        for key, (lo, hi) in cls.LIMITS.items():
+            if key in data:
+                clean[key] = round(min(hi, max(lo, float(data[key]))), 4)
+        return cls(**clean)
+
+
 class Embedder(Protocol):
     model: str
 
@@ -74,6 +106,7 @@ def _edits1(word: str) -> set[str]:
 class SearchEngine:
     def __init__(self, store: GraphStore, embedder: Optional[Embedder] = None, cache_ttl_s: float = 900.0):
         self.store, self.embedder, self.cache_ttl_s = store, embedder, cache_ttl_s
+        self.weights = RankWeights()
         self.cache_hits = self.cache_misses = 0
 
     # ---- query expansion
@@ -115,14 +148,16 @@ class SearchEngine:
 
     # ---- the search
     def search(self, raw: str, max_results: int = 10, site: Optional[str] = None,
-               resource_type: Optional[str] = None, use_cache: bool = True) -> dict:
+               resource_type: Optional[str] = None, use_cache: bool = True, record: bool = True) -> dict:
         started = time.perf_counter()
         q = parse_query(raw)
         site = (site or q.site or "").lower().lstrip(".") or None
         kind = (resource_type or q.resource_type or "").lower() or None
         max_results = max(1, min(int(max_results), 100))
         filters = {"site": site, "type": kind, "max_results": max_results}
-        key = hashlib.sha256(json.dumps([raw.strip().lower(), filters], sort_keys=True).encode()).hexdigest()
+        w = self.weights
+        key = hashlib.sha256(json.dumps([raw.strip().lower(), filters, w.to_dict()], sort_keys=True)
+                             .encode()).hexdigest()
         if use_cache:
             hit = self.store.cached(key, self.cache_ttl_s)
             if hit is not None:
@@ -136,23 +171,26 @@ class SearchEngine:
         semantic = self._semantic(q.text) if q.text else []
         banned = set(self._lexical(" OR ".join(_quote(x) for x in q.excluded), 100_000)) if q.excluded else set()
         scores: dict[int, float] = {}
-        for ranked in (lexical, semantic):
+        for ranked, weight in ((lexical, w.words), (semantic, w.meaning)):
             for pos, rid in enumerate(r for r in ranked if r not in banned):
-                scores[rid] = scores.get(rid, 0.0) + 1.0 / (RRF_K + pos + 1)
+                scores[rid] = scores.get(rid, 0.0) + weight / (w.rrf_k + pos + 1)
         boost = ParsedQuery(q.terms + [fix.split(" -> ")[1] for fix in fixes], q.phrases)
         results = self._assemble(scores, boost, site, kind, max_results, set(lexical))
         out = {"query": raw, "expanded": expr, "spelling": fixes, "results": results,
                "matched": len(scores), "semantic": bool(semantic)}
-        self.store.cache(key, out)
         elapsed = (time.perf_counter() - started) * 1000
-        self.store.log_search(raw, filters, len(results), elapsed, False)
+        if record:  # self-improvement's test questions aren't the author's searches
+            self.store.cache(key, out)
+            self.store.log_search(raw, filters, len(results), elapsed, False)
         return {**out, "cached": False, "elapsed_ms": round(elapsed, 2)}
 
     def _lexical(self, expr: str, limit: int = 300) -> list[int]:
+        w = self.weights
         try:
             rows = self.store.db.query(
                 "SELECT rowid FROM resource_fts WHERE resource_fts MATCH ? "
-                "ORDER BY bm25(resource_fts, 10.0, 4.0, 1.0, 2.0) LIMIT ?", (expr, limit))
+                "ORDER BY bm25(resource_fts, ?, ?, ?, ?) LIMIT ?",
+                (expr, w.title_col, w.description_col, w.text_col, w.url_col, limit))
         except Exception as exc:  # sqlite3.OperationalError for an expression FTS5 can't parse
             log.warning("nexus search: bad query expression %r (%s)", expr, exc)
             return []
@@ -199,7 +237,9 @@ class SearchEngine:
                 continue
             title = (row["title"] or "").lower()
             title_hits = sum(1 for w in set(words) if w in title) / max(1, len(set(words)))
-            score = base * (1.0 + 0.5 * row["rank"] + 0.4 * title_hits + 0.2 * row["relevance"])
+            w = self.weights
+            score = base * (1.0 + w.link_rank * row["rank"] + w.title_hits * title_hits +
+                            w.relevance * row["relevance"])
             ranked.append((score, row))
         ranked.sort(key=lambda x: -x[0])
         results, hashes, sims = [], set(), []

@@ -210,6 +210,49 @@ CREATE TABLE intel_relations (
 CREATE INDEX idx_rel_b ON intel_relations(b);
 CREATE INDEX idx_rel_res ON intel_relations(resource_id);
 """,
+    3: """
+CREATE TABLE os3_tools (
+    tool_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    level TEXT NOT NULL,
+    description TEXT NOT NULL,
+    input_schema TEXT NOT NULL,
+    timeout_s REAL NOT NULL,
+    retries INTEGER NOT NULL,
+    registered_at REAL NOT NULL
+);
+CREATE INDEX idx_os3_name ON os3_tools(name);
+CREATE TABLE os3_executions (
+    id INTEGER PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
+    tool_id TEXT NOT NULL,
+    caller TEXT NOT NULL,
+    role TEXT NOT NULL,
+    args TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    elapsed_ms REAL NOT NULL DEFAULT 0,
+    started_at REAL NOT NULL
+);
+CREATE INDEX idx_os3_exec_time ON os3_executions(started_at);
+""",
+    4: """
+CREATE TABLE rsi_versions (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    params TEXT NOT NULL,
+    metrics TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    parent INTEGER,
+    created_at REAL NOT NULL,
+    decided_at REAL
+);
+CREATE INDEX idx_rsi_kind ON rsi_versions(kind, status);
+""",
 }
 
 SEARCHABLE = ("fetched",)  # statuses whose pages appear in search results

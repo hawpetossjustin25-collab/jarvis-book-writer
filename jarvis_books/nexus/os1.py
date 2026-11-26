@@ -12,6 +12,7 @@ from jarvis_books.nexus.contracts import ContractError, NexusRequest, NexusRespo
     validate_payload
 from jarvis_books.nexus.crawler import Crawler, Progress
 from jarvis_books.nexus.fetch import Fetcher
+from jarvis_books.nexus.rsi import Improver
 from jarvis_books.nexus.search import Embedder, HashedEmbedder, SearchEngine, embed_pending
 from jarvis_books.nexus.store import GraphStore
 from jarvis_books.nexus.urls import normalize
@@ -40,6 +41,15 @@ PAYLOADS = {
         "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     "embed": {"type": "object", "additionalProperties": False, "properties": {
         "limit": {"type": "integer", "minimum": 1, "maximum": 100_000}}},
+    "improve": {"type": "object", "additionalProperties": False, "properties": {
+        "target": {"enum": ["search", "crawl", "both"]},
+        "rounds": {"type": "integer", "minimum": 1, "maximum": 20},
+        "candidates": {"type": "integer", "minimum": 1, "maximum": 30},
+        "seed": {"type": "integer"}}},
+    "rsi": {"type": "object", "required": ["action"], "additionalProperties": False, "properties": {
+        "action": {"enum": ["status", "history", "rollback"]},
+        "kind": {"enum": ["search", "crawl"]},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
 }
 
 
@@ -58,6 +68,8 @@ class OS1:
         self.seed_search = seed_search
         self.search_engine = SearchEngine(self.store, embedder, self.config.cache_ttl_s)
         self._crawl_lock = threading.Lock()
+        self.improver = Improver(self)
+        self.improver.apply()  # the tuned ranking and crawl settings that won their tests
 
     def close(self) -> None:
         self.store.close()
@@ -176,6 +188,25 @@ class OS1:
             "SELECT id, started_at, finished_at, status, topic, seeds, stats FROM crawl_runs ORDER BY id DESC "
             "LIMIT ?", (limit,))]
         return [{"searches": self.store.search_history(limit), "crawls": runs}], {}
+
+    def _op_improve(self, p: dict, stop, progress) -> tuple[list, dict]:
+        target = p.get("target", "both")
+        out = []
+        if target in ("search", "both"):
+            out.append(self.improver.improve_search(p.get("rounds", 1), p.get("candidates", 6), p.get("seed")))
+        if target in ("crawl", "both"):
+            out.append(self.improver.improve_crawl())
+        return out, {}
+
+    def _op_rsi(self, p: dict, stop, progress) -> tuple[list, dict]:
+        action = p["action"]
+        if action == "status":
+            return [self.improver.status()], {}
+        if action == "history":
+            return self.improver.history(p.get("kind"), p.get("limit", 20)), {}
+        if "kind" not in p:
+            raise ValueError("say which to roll back: search or crawl")
+        return [self.improver.rollback(p["kind"])], {}
 
     def _op_embed(self, p: dict, stop, progress) -> tuple[list, dict]:
         return [], {"vectors_added": self._embed(p.get("limit", 1000))}
