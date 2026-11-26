@@ -125,12 +125,27 @@ class NexusHub:
 
 
 class TokenBook:
-    """Bearer tokens and their roles. Only SHA-256 hashes are stored; the owner token lives in a private file."""
+    """Bearer tokens and their roles. Only SHA-256 hashes are stored; the owner token lives in a private file.
+    The file is shared with other programs on this account (a check script, a second Jarvis), so it is read again
+    whenever it changed on disk."""
 
     def __init__(self, home: Path):
         self.path = Path(home) / "nexus_api.json"
         self._lock = threading.Lock()
+        self._stamp = self._file_stamp()
         self._data = self._load()
+
+    def _file_stamp(self) -> Optional[tuple]:
+        try:
+            st = self.path.stat()
+            return st.st_mtime_ns, st.st_size
+        except OSError:
+            return None
+
+    def _refresh(self) -> None:
+        stamp = self._file_stamp()
+        if stamp != self._stamp:
+            self._stamp, self._data = stamp, self._load()
 
     def _load(self) -> dict:
         try:
@@ -150,6 +165,7 @@ class TokenBook:
             os.chmod(self.path, 0o600)
         except OSError:
             pass
+        self._stamp = self._file_stamp()
 
     @staticmethod
     def _hash(token: str) -> str:
@@ -160,6 +176,7 @@ class TokenBook:
             raise ValueError(f"role must be one of {', '.join(ROLES)}")
         token = "nx_" + secrets.token_urlsafe(32)
         with self._lock:
+            self._refresh()
             self._data["tokens"][self._hash(token)] = {"role": role, "label": label[:60], "created": time.time()}
             self._save()
         return token
@@ -186,6 +203,7 @@ class TokenBook:
             return None
         digest = self._hash(token)
         with self._lock:
+            self._refresh()
             for known, info in self._data["tokens"].items():
                 if hmac.compare_digest(known, digest):
                     return info["role"]
@@ -193,6 +211,7 @@ class TokenBook:
 
     def revoke(self, token: str) -> bool:
         with self._lock:
+            self._refresh()
             gone = self._data["tokens"].pop(self._hash(token), None) is not None
             if gone:
                 self._save()

@@ -88,6 +88,22 @@ def test_tokens_are_stored_hashed_and_owner_token_is_reused(nexus, tmp_path):
     assert owner not in stored and TokenBook(tmp_path).role_of(owner) == "owner"
 
 
+def test_a_token_made_by_another_program_works_on_the_running_server(nexus, tmp_path):
+    server, tokens, _ = nexus
+    assert tokens.role_of("nx_unknown") is None  # the server has read the file once already
+    outside = TokenBook(tmp_path)  # e.g. a check script on the same account, while Jarvis runs
+    reader = outside.issue("reader", "script")
+    url = f"http://127.0.0.1:{server.port}/v1/request"
+    body = NexusRequest("jarvis", "os1", "status", {}).to_json()
+    r = httpx.post(url, content=body, headers={"Authorization": f"Bearer {reader}"}, trust_env=False)
+    assert r.status_code == 200 and r.json()["status"] == "success"
+    keep = tokens.issue("operator", "kept")  # the server's own save keeps the outside token
+    assert outside.role_of(keep) == "operator" and tokens.role_of(reader) == "reader"
+    assert outside.revoke(reader)
+    r = httpx.post(url, content=body, headers={"Authorization": f"Bearer {reader}"}, trust_env=False)
+    assert r.status_code == 401
+
+
 def test_only_local_host_names_are_served(nexus):
     server, tokens, _ = nexus
     r = httpx.post(f"http://127.0.0.1:{server.port}/v1/request", content="{}",
