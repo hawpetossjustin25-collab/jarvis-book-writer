@@ -47,3 +47,29 @@ sourced, labelled facts; Jarvis is told never to present an unverified fact as c
 The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py`, `tests/test_nexus_os2.py`,
 `tests/test_nexus_os3.py`, `tests/test_nexus_api.py`, `tests/test_nexus_rsi.py` and `tests/test_nexus_tools.py`. They make real
 `httpx` requests to an in-process fake web (`tests/nexus_site.py`), so they run offline.
+
+## Collective (Deep Doc 2, phase 1)
+
+Computers you own share work with Jarvis. Everything is in `collective.db` (SQLite, migrations in
+`collective.py`), so a restarted Jarvis carries on where it stopped.
+
+- `resources.py`: `ResourceProvider` (`detect_cpu/memory/gpu/npu/storage/network`, battery, temperature, CPU load)
+  reports each device at four levels: detected, working in the OS, usable by an AI runtime (CUDA, DirectML, ONNX NPU
+  providers, Ollama), and available under the owner's `ContributionLimits` (CPU %, memory, GPU/NPU/storage on or off,
+  hours, bandwidth, battery, plugged-in only, temperature, max tasks). Limits are checked before every task.
+- `collective.py`: `Coordinator`. One-time join codes (hashed, 15 minutes), short-lived worker credentials (hashed,
+  refresh, revoke), heartbeats, a durable task queue with states created/queued/assigned/accepted/running/completed/
+  failed/cancelled/expired, idempotency keys, priorities, deadlines, retries with attempt history, leases that send
+  work from a vanished worker back to the queue, output-schema checks, and an event log. `Scheduler` filters out
+  workers that can't run a task (runtime, memory, model, hours, battery, heat, local-only, deadline) and ranks the rest
+  from measured history: speed, reliability, load, memory, network and cost. Every placement is saved with its
+  scores and the reasons each worker was turned down (`decisions`).
+- `worker.py`: `Worker` runtime: heartbeat, limits, claim, validate input, run with timeout and cancellation, deliver
+  the measured result. Workloads: `llm.generate` (Ollama), `search.query` (OS1), `embed.text`, `data.digest`.
+  Distribution is task-level only; splitting one model across computers is not enabled.
+- `collective_os.py`: the `collective` door on the NEXUS contract and API. Readers may only look; joining codes,
+  limits and worker status are owner-only; workers authenticate every call with `worker_token`. This computer joins
+  its own Collective at startup (setting `collective`).
+
+Jarvis tools: `collective_status`, `collective_task` (read), `collective_run`, `collective_limits`,
+`collective_worker` (Change, need a yes) and `collective_join_code` (System).

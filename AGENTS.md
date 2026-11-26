@@ -35,7 +35,8 @@ jarvis_books/
   computer/     files, terminal, web.py (search, read pages, downloads, GitHub), desktop control, OCR,
                 taxliens.py (DeKalb, Fulton, Maricopa, Hennepin), online_sales.py, deal_scan.py
   nexus/        NEXUS OS1 (web explorer + searchable page graph, nexus.db, self-improvement), OS2 (sourced
-                facts), OS3 (tool registry) and the local NEXUS API, see jarvis_books/nexus/README.md
+                facts), OS3 (tool registry), the local NEXUS API and the Collective (coordinator,
+                task queue, scheduler, workers; collective.db), see jarvis_books/nexus/README.md
   research.py   24/7 background researcher (topics, interest detection, sourced findings, ResearchClock)
   upgrade.py    self-upgrade: edits a copy, runs the full test suite, retries until it passes
   writer/ craft/ memory/ storage/ audio/ voice/ publish/ export/ ui/   books, memory, narration, UI tabs
