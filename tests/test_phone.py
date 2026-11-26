@@ -551,3 +551,67 @@ def test_a_dead_kept_tunnel_is_started_fresh(tmp_path, tracked):
         assert wait_until(lambda: tunnel.host == "new-one.trycloudflare.com") and len(tracked) == 1
     finally:
         tunnel.stop()
+
+
+def _kept(tmp_path):
+    first = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, HOST))
+    first.start()
+    assert wait_until(lambda: first.host == HOST)
+    first.stop(keep=True)
+    return first.pid
+
+
+@pytest.mark.parametrize("check, reachable", [(None, False), (False, True)])
+def test_a_busy_laptop_does_not_cost_the_kept_link(tmp_path, tracked, monkeypatch, check, reachable):
+    """The process check timing out (None), or saying no while the link still answers, keeps the same link."""
+    import jarvis_books.phone as phone_mod
+    pid = _kept(tmp_path)
+    hello = HelloSession()
+    second = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, "other-link.trycloudflare.com"),
+                    session=hello, check_s=0.02)
+    second.start()
+    try:
+        assert wait_until(lambda: second.host == HOST)
+        monkeypatch.setattr(phone_mod, "_is_cloudflared", lambda p: check)
+        hello.ok = reachable
+        time.sleep(0.5)
+        assert second.host == HOST and second.pid == pid and len(tracked) == 1
+    finally:
+        second.stop(keep=True)
+        tracked[pid].kill()
+
+
+def test_a_kept_link_that_really_died_is_replaced_without_strays(tmp_path, tracked, monkeypatch):
+    import jarvis_books.phone as phone_mod
+    pid = _kept(tmp_path)
+    hello = HelloSession()
+    second = Tunnel(tmp_path, lambda: 8765, command=fake_cloudflared(tmp_path, "other-link.trycloudflare.com"),
+                    session=hello, check_s=0.02, restart_s=0.01)
+    second.start()
+    try:
+        assert wait_until(lambda: second.host == HOST)
+        tracked[pid].kill()
+        tracked[pid].wait(5)
+        hello.ok = False
+        assert wait_until(lambda: second.host == "other-link.trycloudflare.com")
+        assert second.pid != pid and len(tracked) == 2
+    finally:
+        second.stop()
+
+
+def test_process_check_failures_mean_unknown_not_gone(monkeypatch):
+    import subprocess as sp
+    import jarvis_books.phone as phone_mod
+
+    def slow(*a, **k):
+        raise sp.TimeoutExpired("tasklist", 30)
+    monkeypatch.setattr(phone_mod, "WINDOWS", True)
+    monkeypatch.setattr(phone_mod.subprocess, "run", slow)
+    assert phone_mod._is_cloudflared(4321) is None
+    assert phone_mod._kill_cloudflared(4321) is False  # can't tell what it is: never kill it
+    monkeypatch.setattr(phone_mod.subprocess, "run",
+                        lambda *a, **k: type("R", (), {"stdout": "INFO: No tasks are running"})())
+    assert phone_mod._is_cloudflared(4321) is False
+    monkeypatch.setattr(phone_mod.subprocess, "run",
+                        lambda *a, **k: type("R", (), {"stdout": '"cloudflared.exe","4321","Console"'})())
+    assert phone_mod._is_cloudflared(4321) is True

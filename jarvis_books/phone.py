@@ -567,7 +567,7 @@ class Tunnel:
         if not isinstance(pid, int) or not isinstance(host, str) or not TUNNEL_RE.fullmatch(f"https://{host}"):
             self.state_file.unlink(missing_ok=True)
             return None
-        if not _is_cloudflared(pid):
+        if _is_cloudflared(pid) is False:
             self.state_file.unlink(missing_ok=True)
             return None
         if state.get("port") == port and self._reaches_us(host):
@@ -642,8 +642,14 @@ class Tunnel:
                     return subprocess.Popen(cmd, creationflags=detached, **kwargs)
             return subprocess.Popen(cmd, start_new_session=True, **kwargs)
 
-    def _alive(self, proc: Optional[subprocess.Popen], pid: int) -> bool:
-        return proc.poll() is None if proc is not None else _is_cloudflared(pid)
+    def _alive(self, proc: Optional[subprocess.Popen], pid: int, host: Optional[str]) -> bool:
+        """A kept tunnel only counts as gone when Windows says so and the link no longer reaches Jarvis; a busy
+        laptop can make the process check itself time out, which must not cost Justin his link."""
+        if proc is not None:
+            return proc.poll() is None
+        if _is_cloudflared(pid) is not False:
+            return True
+        return bool(host) and self._reaches_us(host)
 
     def _run(self, stop: threading.Event) -> None:
         backoff = self.restart_s
@@ -670,7 +676,7 @@ class Tunnel:
                     self.error = None
                     self._set(host)
                 seen = 0
-                while not stop.is_set() and self._alive(proc, pid):
+                while not stop.is_set() and self._alive(proc, pid, self.host):
                     if self.host is None:
                         found, seen = self._read_host(seen)
                         if found:
@@ -681,6 +687,8 @@ class Tunnel:
                 if stop.is_set():
                     break
                 code = proc.returncode if proc is not None else "gone"
+                if proc is None:
+                    _kill_cloudflared(pid)  # never leave a stray one running behind a new link
                 self.error = f"the secure link stopped (code {code})"
                 with self._lock:
                     self._proc, self.pid = None, None
@@ -714,7 +722,7 @@ class Tunnel:
 
 def _kill_cloudflared(pid: int) -> bool:
     """Ends process `pid` only if it really is a cloudflared."""
-    if not _is_cloudflared(pid):
+    if not _is_cloudflared(pid):  # not one, or couldn't tell: leave it alone
         return False
     try:
         if WINDOWS:
@@ -728,17 +736,22 @@ def _kill_cloudflared(pid: int) -> bool:
         return False
 
 
-def _is_cloudflared(pid: int) -> bool:
+def _is_cloudflared(pid: int) -> Optional[bool]:
+    """Whether `pid` is a running cloudflared; None when the check itself failed (e.g. it timed out)."""
     if pid <= 0 or pid == os.getpid():
+        return False
+    if not WINDOWS and not Path(f"/proc/{pid}").exists():
         return False
     try:
         if WINDOWS:
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True,
-                                 text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+                                 text=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
             return "cloudflared" in out.lower()
         return "cloudflared" in Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").lower()
+    except FileNotFoundError:
+        return None if WINDOWS else False  # no tasklist: can't tell; no /proc entry: it exited
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
 
 
 def phone_line(server: dict, tunnel: dict, link: Optional[str]) -> str:
