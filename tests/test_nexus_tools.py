@@ -1,3 +1,4 @@
+import time
 import pytest
 
 from fakes import FakeGemini
@@ -158,5 +159,28 @@ def test_studio_wires_nexus(tmp_path):
         assert not s.nexus_api.running
         s.set_setting("nexus_api", "1")
         assert s.nexus_api.running
+    finally:
+        s.close()
+
+
+def test_studio_reads_pages_saved_before_os2_in_the_background(tmp_path):
+    from conftest import hardware
+    from nexus_site import FAST
+    from test_nexus_os2 import A, B, C, G, web
+    from jarvis_books.nexus.os1 import OS1
+    old = OS1(tmp_path / "home", FAST, fetcher_factory=web().factory())
+    assert old.call("crawl", {"seeds": [A, B, C, G], "max_pages": 10, "max_depth": 0}).ok
+    old.close()
+    s = Studio(home=tmp_path / "home", mirror=tmp_path / "mirror", client=FakeGemini(),
+               engine_kwargs={"hardware_probe": hardware, "sleep": lambda s: None})
+    try:
+        assert s.nexus_os2.call("status", {}).results[0]["pages_waiting"] == 4
+        s.start(probe=False)
+        deadline = time.time() + 20
+        while s.nexus_os2.call("status", {}).results[0]["pages_waiting"] and time.time() < deadline:
+            time.sleep(0.05)
+        status = s.nexus_os2.call("status", {}).results[0]
+        assert status["pages_waiting"] == 0 and status["pages_read"] == 4 and status["facts"] >= 5
+        assert s._read_waiting_pages() == 0  # nothing left: one cheap check, no loop
     finally:
         s.close()

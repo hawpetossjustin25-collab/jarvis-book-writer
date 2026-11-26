@@ -207,6 +207,7 @@ class Studio:
         self.tools.game = self.war_tools.game = self.game
         self.trading_clock = TradingClock(self.game)
         self.ready = threading.Event()
+        self._closing = threading.Event()
         self.start_error: Optional[str] = None
         self.library.subscribe(self._on_change)
 
@@ -272,6 +273,7 @@ class Studio:
             self.telegram.start()
         if NEXUS_API_AUTOSTART and self.settings()["nexus_api"] != "0":
             self.nexus_api.start()
+        threading.Thread(target=self._read_waiting_pages, name="jarvis-os2-catchup", daemon=True).start()
         if PHONE_AUTOSTART and self.settings()["phone"] != "0":
             self._start_phone()
         try:
@@ -458,7 +460,28 @@ class Studio:
         """Starting pages for a topic-only web exploration: the live web search's top results."""
         return [r["url"] for r in self.web.search(topic, count)["results"]][:count]
 
+    def _read_waiting_pages(self, batch: int = 25) -> int:
+        """OS2 reads saved pages it hasn't read yet (saved before OS2 existed, or by a stopped crawl), a batch at a
+        time in the background, so facts and contradictions cover the whole index."""
+        read = 0
+        while not self._closing.is_set():
+            try:
+                resp = self.nexus_os2.call("analyze", {"limit": batch})
+            except Exception:
+                log.exception("OS2 catch-up failed")
+                break
+            if not resp.ok:
+                log.warning("OS2 catch-up: %s", resp.error_message)
+                break
+            read += resp.extra.get("pages_read", 0)
+            if not resp.extra.get("pages_waiting") or not resp.extra.get("pages_read"):
+                break
+        if read:
+            log.info("OS2 read %d saved pages", read)
+        return read
+
     def close(self) -> None:
+        self._closing.set()
         self.nexus_api.stop()
         self.nexus_hub.close()
         self.nexus_os3.close()
