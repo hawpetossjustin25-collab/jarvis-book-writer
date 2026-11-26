@@ -24,7 +24,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
-from jarvis_books.nexus.search import RankWeights, SearchEngine
+from jarvis_books.nexus.search import RankWeights, SearchEngine, parse_query
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +88,30 @@ def build_exam(store, max_pages: int = 80) -> list[Question]:
 
 def clean_title(title: str) -> str:
     return re.split(r"\s+[|\-–—]\s+", title.strip())[0].strip()
+
+
+class QueryVectors:
+    """The exam's question vectors, fetched once per improvement run in batches. Every candidate asks the same
+    questions, so asking Gemini again for each would cost thousands of calls and the free quota. A question whose
+    vector couldn't be fetched has no meaning search for any candidate, so the comparison stays fair."""
+
+    def __init__(self, embedder, questions: list[Question], batch: int = 64):
+        self.model = embedder.model
+        self.floor = getattr(embedder, "floor", 0.3)
+        self.vectors: dict[str, list[float]] = {}
+        texts = list(dict.fromkeys(t for t in (parse_query(q.query).text for q in questions) if t))
+        for i in range(0, len(texts), batch):
+            part = texts[i:i + batch]
+            try:
+                self.vectors.update(zip(part, embedder.embed(part, "RETRIEVAL_QUERY")))
+            except Exception as exc:
+                log.info("rsi: %d question vectors unavailable (%s)", len(part), type(exc).__name__)
+
+    def embed(self, texts: list[str], task: str = "RETRIEVAL_QUERY") -> list[list[float]]:
+        missing = [t for t in texts if t not in self.vectors]
+        if task != "RETRIEVAL_QUERY" or missing:
+            raise LookupError(f"no stored vector for {len(missing) or len(texts)} text(s)")
+        return [self.vectors[t] for t in texts]
 
 
 def evaluate(store, weights: RankWeights, questions: list[Question], embedder=None) -> Score:
@@ -216,6 +240,8 @@ class Improver:
             return {"kind": "search", "status": "not_enough_data", "questions": len(exam),
                     "needed": 2 * self.min_questions}
         embedder = self.os1.search_engine.embedder
+        if embedder is not None:
+            embedder = QueryVectors(embedder, exam)
         row = self._champion("search")
         champ = RankWeights.from_dict(json.loads(row["params"])) if row else RankWeights()
         champ_id = row["id"] if row else None

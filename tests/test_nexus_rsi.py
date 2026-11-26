@@ -6,7 +6,7 @@ import pytest
 from jarvis_books.nexus import rsi
 from jarvis_books.nexus.os1 import OS1
 from jarvis_books.nexus.rsi import Improver, Question, Score, build_exam, candidates, clean_title, evaluate
-from jarvis_books.nexus.search import RankWeights
+from jarvis_books.nexus.search import HashedEmbedder, RankWeights
 from nexus_site import FAST, FakeWeb, page
 
 HUB = "https://wiki.example/"
@@ -222,3 +222,45 @@ def test_rsi_contract_operations(os1):
     both = os1.call("improve", {"target": "both", "seed": 2})
     assert both.ok and [r["kind"] for r in both.results] == ["search", "crawl"]
     assert isinstance(os1.call("rsi", {"action": "history"}).results, list)
+
+
+class CountingEmbedder(HashedEmbedder):
+    def __init__(self):
+        super().__init__()
+        self.calls = {}
+
+    def embed(self, texts, task=""):
+        self.calls[task] = self.calls.get(task, 0) + 1
+        return super().embed(texts, task)
+
+
+def test_a_round_fetches_each_question_vector_once(tmp_path):
+    emb = CountingEmbedder()
+    o = OS1(tmp_path, FAST.with_(max_pages=100, max_depth=2), embedder=emb,
+            fetcher_factory=FakeWeb(site()).factory())
+    try:
+        assert o.call("crawl", {"seeds": [HUB]}).ok and o.call("embed", {}).ok
+        assert o.search_engine.embedder is emb
+        emb.calls.clear()
+        out = o.improver.improve_search(rounds=2, per_round=6, seed=5)
+        assert out["candidates_tried"] == 12
+        exam = build_exam(o.store)
+        assert len(exam) > 64
+        assert emb.calls == {"RETRIEVAL_QUERY": -(-len(exam) // 64)}  # batches of 64 once, not one per search
+    finally:
+        o.close()
+
+
+def test_question_vectors_that_could_not_be_fetched_mean_no_meaning_search():
+    class Down(HashedEmbedder):
+        def embed(self, texts, task=""):
+            raise ConnectionError("offline")
+
+    qv = rsi.QueryVectors(Down(), [Question("alpha beta", "https://x/1", "title", False)])
+    assert qv.model == HashedEmbedder.model and qv.floor == HashedEmbedder.floor
+    with pytest.raises(LookupError):
+        qv.embed(["alpha beta"], "RETRIEVAL_QUERY")
+    ok = rsi.QueryVectors(HashedEmbedder(), [Question("alpha beta", "https://x/1", "title", False)])
+    assert ok.embed(["alpha beta"], "RETRIEVAL_QUERY") == HashedEmbedder().embed(["alpha beta"])
+    with pytest.raises(LookupError):
+        ok.embed(["something else"], "RETRIEVAL_QUERY")
