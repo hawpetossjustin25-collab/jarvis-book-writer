@@ -419,6 +419,7 @@ def test_studio_answers_on_the_phone_with_the_same_jarvis(tmp_path, monkeypatch)
         s._on_phone_url(HOST)  # the same link again (a restarted Jarvis kept it): no repeat message
         assert len(told) == 1
         assert s.tools.phone_device is s.phone.device_link
+        assert s.phone.voice is s.voice_notes is s.telegram.voice  # phone replies use the Settings voice
         s.phone.pair(s.phone.pair_code(), "Pixel 8", kind="agent")
         s._on_phone_url("new-link-here.trycloudflare.com")  # laptop rebooted: the Android helper is told how to follow
         assert told[-1].endswith("paste this into Termux: jarvis-link new-link-here.trycloudflare.com")
@@ -615,3 +616,49 @@ def test_process_check_failures_mean_unknown_not_gone(monkeypatch):
     monkeypatch.setattr(phone_mod.subprocess, "run",
                         lambda *a, **k: type("R", (), {"stdout": '"cloudflared.exe","4321","Console"'})())
     assert phone_mod._is_cloudflared(4321) is True
+
+
+# ---- reading replies aloud ---------------------------------------------------------------------------------
+class FakeVoice:
+    def __init__(self, fail=False):
+        self.fail, self.said = fail, []
+
+    def speak(self, text, opus=True):
+        self.said.append((text, opus))
+        if self.fail:
+            raise RuntimeError("the voice made no sound")
+        return b"ID3" + text.encode(), "audio/mpeg"
+
+
+def test_a_finished_reply_comes_back_as_audio_in_jarvis_voice_once(make):
+    voice = FakeVoice()
+    hold = threading.Event()
+    srv, _ = make(FakeAssistant("Hi Justin.", hold=hold), voice=voice)
+    auth = paired(srv)
+    turn = requests.post(url(srv, "/api/send"), json={"text": "hi"}, headers=auth, timeout=5).json()["turn"]
+    early = requests.post(url(srv, "/api/speech"), json={"turn": turn}, headers=auth, timeout=5)
+    assert early.status_code == 409 and voice.said == []  # nothing is read before the answer is finished
+    hold.set()
+    finish(srv, auth, turn)
+    for _ in range(2):
+        r = requests.post(url(srv, "/api/speech"), json={"turn": turn}, headers=auth, timeout=5)
+        assert r.status_code == 200 and r.content == b"ID3Hi Justin."
+        assert r.headers["Content-Type"] == "audio/mpeg" and r.headers["Cache-Control"] == "no-store"
+    assert voice.said == [("Hi Justin.", False)]  # made once, as MP3 for phones
+    assert requests.post(url(srv, "/api/speech"), json={"turn": "nope"}, headers=auth, timeout=5).status_code == 404
+
+
+def test_speech_needs_a_paired_phone_and_says_when_the_voice_is_out(make):
+    srv, _ = make(FakeAssistant("Hi."), voice=FakeVoice(fail=True))
+    auth = paired(srv)
+    turn = srv.send("hi").id
+    finish(srv, auth, turn)
+    assert requests.post(url(srv, "/api/speech"), json={"turn": turn}, timeout=5).status_code == 401
+    out = requests.post(url(srv, "/api/speech"), json={"turn": turn}, headers=auth, timeout=5)
+    assert out.status_code == 503 and "unavailable" in out.json()["error"]  # the app then uses the phone's voice
+    bare, _ = make(FakeAssistant("Hi."))
+    auth = paired(bare)
+    turn = bare.send("hi").id
+    finish(bare, auth, turn)
+    assert requests.post(url(bare, "/api/speech"), json={"turn": turn}, headers=auth, timeout=5).status_code == 503
+

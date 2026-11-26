@@ -103,15 +103,16 @@ class VoiceNotes:
             raise HearingError("Groq sent back an answer I couldn't read") from None
 
     # ---- speaking ---------------------------------------------------------------------------------------
-    def speak(self, text: str) -> tuple[bytes, str]:
-        """(audio, mime) of the reply read aloud: an Opus voice note, or an MP3 when FFmpeg can't make one."""
+    def speak(self, text: str, opus: bool = True) -> tuple[bytes, str]:
+        """(audio, mime) of the reply read aloud: an Opus voice note, or an MP3 when FFmpeg can't make one or when
+        `opus` is False (phone browsers, iPhones included, all play MP3)."""
         words = speakable(text)
         if not words:
             raise ValueError("nothing to say")
         mp3 = self.synth(words, self.edge_voice())
         if not mp3:
             raise RuntimeError("the voice made no sound")
-        ffmpeg = self.ffmpeg()
+        ffmpeg = self.ffmpeg() if opus else None
         if ffmpeg:
             try:
                 proc = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1",

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://*.trycloudflare.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; manifest-src 'self'; connect-src 'self' https://*.trycloudflare.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0b1220">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -22,6 +22,7 @@
   <img src="icon-192.png" alt="" class="logo">
   <h1>Jarvis</h1>
   <span id="state" class="state">connecting</span>
+  <button id="handsFree" class="icon" type="button" aria-pressed="false" title="Talk without tapping" hidden>Hands-free</button>
   <button id="speak" class="icon" type="button" aria-pressed="false" title="Read replies aloud">Voice off</button>
 </header>
 

@@ -130,6 +130,13 @@ def test_reply_becomes_an_opus_voice_note():
     assert asked == [("Hi Justin.", "en-US-AndrewNeural")]
 
 
+def test_phone_replies_skip_opus_so_every_phone_can_play_them():
+    ran = []
+    assert notes(ffmpeg=lambda: ran.append(1) or "/usr/bin/ffmpeg").speak("Hello.", opus=False) == (b"ID3mp3",
+                                                                                                    "audio/mpeg")
+    assert ran == []  # FFmpeg isn't even looked up
+
+
 def test_without_ffmpeg_the_reply_goes_as_mp3():
     assert notes(ffmpeg=lambda: None).speak("Hello.") == (b"ID3mp3", "audio/mpeg")
     assert notes(ffmpeg=lambda: "/no/such/ffmpeg").speak("Hello.") == (b"ID3mp3", "audio/mpeg")

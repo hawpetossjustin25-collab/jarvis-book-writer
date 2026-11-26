@@ -38,3 +38,4 @@ footer { display: flex; gap: 8px; align-items: flex-end; padding: 8px 10px calc(
          background: var(--panel); border-top: 1px solid #1f2d47; position: sticky; bottom: 0; }
 footer textarea { resize: none; max-height: 140px; }
 #mic.listening { background: var(--danger); color: #fff; }
+#mic.speaking { background: var(--accent); color: #04121f; }

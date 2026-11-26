@@ -1,6 +1,6 @@
 'use strict';
 // Keeps the app's own files on the phone so it opens instantly and offline. Messages to Jarvis are never cached.
-const CACHE = 'jarvis-phone-v1';
+const CACHE = 'jarvis-phone-v2';
 const SHELL = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (event) => {

@@ -85,6 +85,13 @@ the phone setting off ends it. The link only changes when cloudflared dies (e.g.
 new link on Telegram. Ask Jarvis "phone link" (tool `phone_link`) or see Settings. Only
 token hashes are stored (meta `phone.devices`). Tests: tests/test_phone.py (PHONE_AUTOSTART is off in tests).
 
+Hands-free (the header button) works like the desktop's live voice: the app listens with the phone's speech
+recognition, sends what was said, plays the reply from `POST /api/speech` (MP3 in the Settings Edge voice, made once
+per turn by `Studio.voice_notes`; the phone's own voice if that fails) and listens again. Spoken yes/no answers an
+open gate question; "stop listening" ends it. It only listens while the app is on screen (browsers stop the
+microphone when hidden or locked), and it doesn't listen while Jarvis talks, so tap Interrupt to cut him off.
+Browser tests: tests/test_phone_voice.py (Playwright, fake microphone and speaker).
+
 ## Android phone control
 
 `jarvis_books/phone_agent/` is a helper that runs in Termux on Justin's Android (stdlib Python). It pairs with

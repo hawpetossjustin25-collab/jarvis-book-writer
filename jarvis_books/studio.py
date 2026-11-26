@@ -157,12 +157,12 @@ class Studio:
         self.tools.nexus = self.war_tools.nexus = self.nexus
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
+        self.voice_notes = VoiceNotes(self._look if self.engine is not None else None, self._groq_key,
+                                      lambda: self.settings()["edge_voice"])
         self.telegram = TelegramBridge(self.library, self.telegram_assistant, self.gate,
-                                       lambda: load_bot_key(self.home), planner=self.planner,
-                                       voice=VoiceNotes(self._look if self.engine is not None else None,
-                                                        self._groq_key, lambda: self.settings()["edge_voice"]))
+                                       lambda: load_bot_key(self.home), planner=self.planner, voice=self.voice_notes)
         self.tools.planner = self.war_tools.planner = self.planner
-        self.phone = PhoneServer(self.library, self.phone_assistant, self.gate)
+        self.phone = PhoneServer(self.library, self.phone_assistant, self.gate, voice=self.voice_notes)
         self.tunnel = Tunnel(self.home / "bin", lambda: self.phone.port, on_url=self._on_phone_url)
         self.tools.phone_info = self.war_tools.phone_info = self.phone_info
         self.tools.phone_device = self.war_tools.phone_device = self.phone.device_link

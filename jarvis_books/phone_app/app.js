@@ -13,6 +13,7 @@ const store = {
 };
 let busy = false;
 let chatLog = [];
+let handsFree = false;  // Jarvis listens, answers out loud, then listens again, until it's switched off
 
 function base() {
   if (HOST_RE.test(location.host)) return location.origin;  // the app is being served by Jarvis itself
@@ -25,6 +26,14 @@ class ApiError extends Error {
 }
 
 async function api(path, body, timeoutMs = 40000) {
+  const resp = await request(path, body, timeoutMs);
+  let data = {};
+  try { data = await resp.json(); } catch (e) { /* not JSON: tunnel error page */ }
+  if (!resp.ok) throw new ApiError(resp.status, data.error || ('error ' + resp.status));
+  return data;
+}
+
+async function request(path, body, timeoutMs) {
   const root = base();
   if (!root) throw new ApiError(0, 'not connected');
   const headers = {};
@@ -42,10 +51,7 @@ async function api(path, body, timeoutMs = 40000) {
   } finally {
     clearTimeout(timer);
   }
-  let data = {};
-  try { data = await resp.json(); } catch (e) { /* not JSON: tunnel error page */ }
-  if (!resp.ok) throw new ApiError(resp.status, data.error || ('error ' + resp.status));
-  return data;
+  return resp;
 }
 
 // ---- links and setup -------------------------------------------------------------------------------------
@@ -158,25 +164,37 @@ function remember(who, text) {
   store.set('chat', JSON.stringify(chatLog));
 }
 
+let openAsk = null;  // {ask, row}: the Yes/No question waiting for an answer, by tap or by voice
+
+async function answerAsk(yes) {
+  if (!openAsk || busy) return;
+  const {ask, row} = openAsk;
+  openAsk = null;
+  row.remove();
+  stopListening();
+  const label = yes ? 'Yes' : 'No';
+  bubble('me', label);
+  remember('me', label);
+  try {
+    const r = await api('/api/answer', {request: ask.id, yes});
+    await follow(r.turn);
+  } catch (e) {
+    bubble('him', e.status === 409 ? 'That question is already closed.' : e.message);
+    listenSoon();
+  }
+}
+
 function askButtons(li, ask) {
+  if (openAsk) openAsk.row.remove();
   const row = document.createElement('div');
   row.className = 'ask';
+  openAsk = {ask, row};
   for (const [label, yes] of [['Yes', true], ['No', false]]) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = label;
     if (!yes) b.className = 'no';
-    b.onclick = async () => {
-      row.remove();
-      bubble('me', label);
-      remember('me', label);
-      try {
-        const r = await api('/api/answer', {request: ask.id, yes});
-        await follow(r.turn);
-      } catch (e) {
-        bubble('him', e.status === 409 ? 'That question is already closed.' : e.message);
-      }
-    };
+    b.onclick = () => answerAsk(yes);
     row.append(b);
   }
   li.append(row);
@@ -206,8 +224,8 @@ async function follow(turn) {
       if (r.done) {
         remember('him', r.text);
         if (r.ask) askButtons(li, r.ask);
-        speak(r.text);
         setState('online', 'ok');
+        await speak(r.text, turn);
         return;
       }
     }
@@ -218,12 +236,14 @@ async function follow(turn) {
   } finally {
     busy = false;
     $('send').disabled = false;
+    listenSoon();
   }
 }
 
 async function send(text) {
   text = (text || '').trim();
   if (!text || busy) return;
+  stopListening();
   $('text').value = '';
   grow();
   bubble('me', text);
@@ -236,6 +256,7 @@ async function send(text) {
     bubble('him', e.status === 409 ? "I'm still answering your last message." : e.message +
       '. Check that the laptop is on with Jarvis open.');
     setState('offline', 'bad');
+    listenSoon();
   }
 }
 
@@ -246,47 +267,181 @@ function grow() {
 }
 
 // ---- voice -----------------------------------------------------------------------------------------------
+// Replies are read in Jarvis's own Settings voice, made on the laptop; the phone's built-in voice is the backup.
+// Hands-free works like the desktop's live voice: listen, send, read the answer aloud, then listen again. Phones
+// only let a web app listen while it is open on the screen, so it pauses when the app is hidden.
+const YES_RE = /^(yes|yeah|yep|yup|sure|ok(ay)?|go ahead|do it|please do)\b/i;
+const NO_RE = /^(no|nope|nah|don'?t|do not|cancel)\b/i;
+const OFF_RE = /^(stop listening|hands[- ]?free off|turn off hands[- ]?free|goodbye|bye)\b/i;
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const player = new Audio();
+let talking = null;  // ends the reply being read aloud
+let rec = null;
+let quietEnds = 0;  // listens in a row that ended quickly without words, to back off
+let wakeLock = null;
+
 function speakable(text) {
-  return text.replace(URL_RE, 'link').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
+  return text.replace(/```[\s\S]*?(```|$)/g, ' ').replace(URL_RE, 'the link').replace(/[*_`#>|~]/g, '')
+    .replace(/\s+/g, ' ').trim();
 }
 
-function speak(text) {
-  if (store.get('speak') !== '1' || !('speechSynthesis' in window) || !text) return;
+function setMic() {
+  const mic = $('mic');
+  mic.classList.toggle('speaking', !!talking);
+  mic.classList.toggle('listening', !talking && !!rec);
+  mic.textContent = talking ? 'Interrupt' : rec ? 'Stop' : 'Talk';
+}
+
+function finishTalking() {
+  if (!talking) return;
+  const done = talking;
+  talking = null;
+  player.pause();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  setMic();
+  done();
+}
+
+function phoneVoice(words) {
+  if (!('speechSynthesis' in window)) { finishTalking(); return; }
+  const mine = talking;
+  const say = new SpeechSynthesisUtterance(words.slice(0, 3000));
+  say.onend = say.onerror = () => { if (talking === mine) finishTalking(); };
   speechSynthesis.cancel();
-  speechSynthesis.speak(new SpeechSynthesisUtterance(speakable(text).slice(0, 3000)));
+  speechSynthesis.speak(say);
+  setTimeout(() => { if (talking === mine) finishTalking(); }, 8000 + words.length * 90);  // onend can go missing
 }
 
-function setupVoice() {
+async function speak(text, turn) {
+  if (!text || !(handsFree || store.get('speak') === '1')) return;
+  const words = speakable(text);
+  if (!words) return;
+  finishTalking();
+  const over = new Promise((ok) => { talking = ok; });
+  setMic();
+  let src = null;
+  try {
+    const resp = await request('/api/speech', {turn}, 60000);
+    if (!resp.ok) throw new ApiError(resp.status, 'no voice');
+    const blob = await resp.blob();
+    if (!talking) return;  // interrupted while the voice was being made
+    src = URL.createObjectURL(blob);
+    player.src = src;
+    player.onended = player.onerror = finishTalking;
+    await player.play();
+  } catch (e) {
+    if (talking) phoneVoice(words);
+  }
+  await over;
+  if (src) URL.revokeObjectURL(src);
+}
+
+function listenSoon(delay = 300) {
+  if (handsFree) setTimeout(listen, delay);
+}
+
+function listen() {
+  if (handsFree && !busy && !rec && !talking && !document.hidden) startRec();
+}
+
+function startRec() {
+  const r = new Recognition();
+  rec = r;
+  r.lang = navigator.language || 'en-US';
+  r.interimResults = true;
+  r.continuous = false;
+  let got = false;
+  const began = Date.now();
+  r.onresult = (ev) => {
+    const said = Array.from(ev.results).map((x) => x[0].transcript).join('');
+    $('text').value = said;
+    grow();
+    if (!got && ev.results[ev.results.length - 1].isFinal) {
+      got = true;
+      heard(said.trim());
+    }
+  };
+  r.onerror = (ev) => {
+    if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(ev.error)) {
+      setHandsFree(false);
+      banner("Jarvis can't hear you: allow the microphone for this app in the phone's settings, then try again.");
+    }
+  };
+  r.onend = () => {
+    if (rec === r) rec = null;
+    setMic();
+    if (got) { quietEnds = 0; return; }
+    quietEnds = Date.now() - began < 2000 ? quietEnds + 1 : 0;
+    listenSoon(Math.min(300 * 2 ** quietEnds, 5000));
+  };
+  try { r.start(); } catch (e) { rec = null; }
+  setMic();
+}
+
+function stopListening() {
+  if (rec) rec.abort();
+}
+
+function heard(said) {
+  const clear = () => { $('text').value = ''; grow(); };
+  if (!said) { listenSoon(); return; }
+  if (handsFree && OFF_RE.test(said)) { clear(); setHandsFree(false); return; }
+  if (openAsk && YES_RE.test(said)) { clear(); answerAsk(true); return; }
+  if (openAsk && NO_RE.test(said)) { clear(); answerAsk(false); return; }
+  send(said);
+}
+
+function keepAwake() {
+  if (!handsFree || !('wakeLock' in navigator) || wakeLock) return;
+  navigator.wakeLock.request('screen').then((lock) => {
+    wakeLock = lock;
+    lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+  }).catch(() => {});
+}
+
+function setHandsFree(on) {
+  handsFree = on;
+  $('handsFree').setAttribute('aria-pressed', String(on));
+  $('handsFree').textContent = on ? 'Hands-free on' : 'Hands-free';
+  if (on) {
+    quietEnds = 0;
+    keepAwake();
+    listenSoon(0);
+  } else {
+    stopListening();
+    finishTalking();
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  }
+  setMic();
+}
+
+function showVoiceButton() {
   const on = store.get('speak') === '1';
   $('speak').setAttribute('aria-pressed', String(on));
   $('speak').textContent = on ? 'Voice on' : 'Voice off';
+}
+
+function setupVoice() {
+  showVoiceButton();
   $('speak').onclick = () => {
     store.set('speak', store.get('speak') === '1' ? '0' : '1');
-    if (store.get('speak') !== '1' && 'speechSynthesis' in window) speechSynthesis.cancel();
-    setupVoice();
+    if (store.get('speak') !== '1' && !handsFree) finishTalking();
+    showVoiceButton();
   };
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) return;
-  const mic = $('mic');
-  mic.hidden = false;
-  let rec = null;
-  mic.onclick = () => {
-    if (rec) { rec.stop(); return; }
-    rec = new Recognition();
-    rec.lang = navigator.language || 'en-US';
-    rec.interimResults = true;
-    rec.onresult = (ev) => {
-      const said = Array.from(ev.results).map((r) => r[0].transcript).join('');
-      $('text').value = said;
-      grow();
-      if (ev.results[ev.results.length - 1].isFinal) send(said);
-    };
-    rec.onend = () => { rec = null; mic.classList.remove('listening'); mic.textContent = 'Talk'; };
-    rec.onerror = rec.onend;
-    mic.classList.add('listening');
-    mic.textContent = 'Stop';
-    rec.start();
+  $('mic').hidden = false;
+  $('handsFree').hidden = false;
+  $('mic').onclick = () => {
+    if (talking) { finishTalking(); return; }  // interrupt Jarvis; hands-free then listens again
+    if (rec) { if (handsFree) setHandsFree(false); else rec.stop(); return; }
+    if (handsFree) listen(); else startRec();
   };
+  $('handsFree').onclick = () => setHandsFree(!handsFree);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { stopListening(); return; }
+    keepAwake();
+    listenSoon();
+  });
 }
 
 // ---- install hint ----------------------------------------------------------------------------------------

@@ -6,7 +6,8 @@ Two parts run inside Jarvis:
   JSON API. A phone pairs once with an 8-digit code and gets a long random token. Only the token's hash is saved.
   Each message is one "turn" that runs through the same Assistant, tools, memory and yes/no gate as everywhere
   else. The phone long-polls the turn to show the reply while it is written, and answers gate questions with
-  Yes/No.
+  Yes/No. A finished reply can also be fetched as audio in Jarvis's Settings voice, which the app's hands-free
+  mode plays before it listens again.
 * `Tunnel` runs Cloudflare's free quick tunnel (cloudflared). It connects outward and gives the server a public
   https://<random>.trycloudflare.com address, so nothing on the router is opened. The address changes when the
   tunnel restarts; Jarvis then shows and sends (on Telegram) the new link.
@@ -59,8 +60,17 @@ STATIC = {"index.html": "text/html; charset=utf-8", "app.js": "text/javascript; 
           "style.css": "text/css; charset=utf-8", "sw.js": "text/javascript; charset=utf-8",
           "manifest.webmanifest": "application/manifest+json", "icon-192.png": "image/png",
           "icon-512.png": "image/png"}
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; "
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
+       "manifest-src 'self'; "
        "connect-src 'self' https://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+class NotReady(Exception):
+    """The turn is still being answered, so there is nothing to read aloud yet."""
+
+
+class NoVoice(Exception):
+    """Jarvis's voice couldn't read the reply; the app falls back to the phone's own voice."""
 
 
 class Busy(Exception):
@@ -87,6 +97,7 @@ class Turn:
     version: int = 0
     ask: Optional[dict] = None
     started: float = field(default_factory=time.time)
+    audio: Optional[tuple[bytes, str]] = None
 
     def view(self) -> dict:
         return {"id": self.id, "text": self.reply, "done": self.done, "version": self.version, "ask": self.ask}
@@ -97,8 +108,8 @@ class PhoneServer:
 
     def __init__(self, library, assistant, gate, port: int = PORT, host: str = "127.0.0.1",
                  clock: Callable[[], float] = time.time, turn_wait_s: float = TURN_WAIT_S,
-                 allowed_origins: tuple[str, ...] = (PAGES_ORIGIN,), app_dir: Path = APP_DIR):
-        self.library, self.assistant, self.gate = library, assistant, gate
+                 allowed_origins: tuple[str, ...] = (PAGES_ORIGIN,), app_dir: Path = APP_DIR, voice=None):
+        self.library, self.assistant, self.gate, self.voice = library, assistant, gate, voice
         self.wanted_port, self.host, self.clock = port, host, clock
         self.turn_wait_s, self.allowed_origins, self.app_dir = turn_wait_s, allowed_origins, app_dir
         self.port: Optional[int] = None
@@ -263,6 +274,28 @@ class PhoneServer:
             return None
         return self.send("yes" if yes else "no", decided=outcome)
 
+    def speech(self, turn_id: str) -> Optional[tuple[bytes, str]]:
+        """(audio, mime) of a finished reply in Jarvis's voice, made once per turn; None for an unknown turn."""
+        with self._lock:
+            turn = self._turns.get(turn_id)
+            if turn is None:
+                return None
+            if not turn.done:
+                raise NotReady()
+            if turn.audio is not None:
+                return turn.audio
+            text = turn.reply
+        if self.voice is None:
+            raise NoVoice("Jarvis's voice isn't set up")
+        try:
+            audio = self.voice.speak(text, opus=False)
+        except Exception as exc:
+            log.info("phone: couldn't read the reply aloud (%s)", type(exc).__name__)
+            raise NoVoice(str(exc) or type(exc).__name__) from None
+        with self._lock:
+            turn.audio = audio
+        return audio
+
     def _on_gate(self, event: str, info: dict) -> None:
         if event == "asking" and self._turn_thread == threading.get_ident():
             self._asked = info.get("request")
@@ -422,6 +455,19 @@ def _handler_for(server: PhoneServer):
                         return
                     turn = server.answer(rid, bool(data.get("yes")))
                     self._json(200, {"turn": turn.id}) if turn else self._json(409, {"error": "already closed"})
+                elif path == "/api/speech":
+                    try:
+                        audio = server.speech(str(data.get("turn", "")))
+                    except NotReady:
+                        self._json(409, {"error": "Jarvis is still answering"})
+                        return
+                    except NoVoice:
+                        self._json(503, {"error": "Jarvis's voice is unavailable"})
+                        return
+                    if audio is None:
+                        self._json(404, {"error": "unknown turn"})
+                    else:
+                        self._send(200, audio[0], audio[1], {"Cache-Control": "no-store"})
                 elif path == "/api/unpair":
                     self._json(200, {"unpaired": server.unpair(self._token() or "")})
                 else:
