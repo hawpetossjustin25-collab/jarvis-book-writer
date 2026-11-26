@@ -1,6 +1,7 @@
 """Jarvis's hands on an Android phone: the laptop's command queue, the Termux helper and the tools, end to end."""
 import importlib.util
 import json
+import sys
 import threading
 import time
 import urllib.request
@@ -273,10 +274,10 @@ def test_risky_phone_tools_wait_for_a_yes():
 
 
 def test_the_real_runner_reports_failures_instead_of_raising():
-    code, out, raw = agent.run(["python3", "-c", "print('hi')"], 10)
+    code, out, raw = agent.run([sys.executable, "-c", "print('hi')"], 10)
     assert (code, out, raw.strip()) == (0, "hi", b"hi")
     assert agent.run(["no-such-program-jarvis"], 5)[0] == 127
-    assert agent.run(["python3", "-c", "import time; time.sleep(5)"], 0.2)[0] == 124
+    assert agent.run([sys.executable, "-c", "import time; time.sleep(5)"], 0.2)[0] == 124
 
 
 class FlakyLink:
