@@ -492,31 +492,54 @@ def ws_read(stream, limit: int = MAX_BODY) -> tuple[Optional[int], bytes]:
             return first_op, message
 
 
-class NexusClient:
-    """Calls the NEXUS API over REST with a retry policy: timeouts, busy (503), rate limits (429) and dropped
-    connections are retried with backoff; anything else is answered at once."""
+READ_ONLY = {"os1": {"search", "resource", "status", "history"},
+             "os2": {"brief", "facts", "entity", "contradictions", "status"},
+             "os3": {"tools", "describe", "validate", "plan", "history"}}
 
-    RETRY_CODES = ("timeout", "unavailable")
+
+def safe_to_repeat(destination: str, operation: str, payload: dict) -> bool:
+    """Only look-only requests may be sent twice: a crawl, an improvement round or a tool run that timed out may
+    still be running on the server, and sending it again would start a second one."""
+    if destination == "os1" and operation == "rsi":
+        return payload.get("action") in ("status", "history")
+    return operation in READ_ONLY.get(destination, ())
+
+
+class NexusClient:
+    """Calls the NEXUS API over REST with a retry policy. Busy (503), rate limits (429) and refused connections
+    never reached the work, so they are retried with backoff. A reply that didn't come back in time (timed out on
+    the server, or the connection dropped mid-request) is retried only for look-only requests. The HTTP wait
+    follows the request's own timeout_ms."""
+
+    MARGIN_S = 15.0
 
     def __init__(self, base_url: str, token: str, retries: int = 2, backoff_s: float = 0.5,
                  client: Optional[httpx.Client] = None, sleep=time.sleep):
         self.base_url, self.token, self.retries, self.backoff_s, self.sleep = base_url.rstrip("/"), token, \
             retries, backoff_s, sleep
-        self.http = client or httpx.Client(timeout=120, trust_env=False)
+        self.http = client or httpx.Client(timeout=DEFAULT_TIMEOUT_MS / 1000 + self.MARGIN_S, trust_env=False)
 
     def call(self, destination: str, operation: str, payload: dict, timeout_ms: Optional[int] = None,
              correlation_id: Optional[str] = None) -> NexusResponse:
         request = NexusRequest("jarvis", destination, operation, payload, correlation_id=correlation_id,
                                timeout_ms=timeout_ms)
+        repeatable = safe_to_repeat(destination, operation, payload)
+        wait_s = (timeout_ms or DEFAULT_TIMEOUT_MS) / 1000 + self.MARGIN_S
         last: Optional[Exception] = None
         for attempt in range(self.retries + 1):
             if attempt:
                 self.sleep(self.backoff_s * (2 ** (attempt - 1)))
             try:
-                r = self.http.post(f"{self.base_url}/v1/request", content=request.to_json(),
+                r = self.http.post(f"{self.base_url}/v1/request", content=request.to_json(), timeout=wait_s,
                                    headers={"Authorization": f"Bearer {self.token}",
                                             "Content-Type": "application/json"})
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last = exc
+                continue
             except httpx.TransportError as exc:
+                if not repeatable:
+                    raise ConnectionError(f"no reply from the NEXUS API for {destination} {operation}; it may "
+                                          f"still be running there, so it was not sent again: {exc}") from exc
                 last = exc
                 continue
             if r.status_code == 429:
@@ -525,7 +548,8 @@ class NexusClient:
             if r.status_code == 401:
                 raise PermissionError("the NEXUS API refused the token")
             response = NexusResponse.from_dict(r.json())
-            if response.ok or response.error_code not in self.RETRY_CODES or attempt == self.retries:
+            retry = response.error_code == "unavailable" or (response.error_code == "timeout" and repeatable)
+            if response.ok or not retry or attempt == self.retries:
                 return response
         raise ConnectionError(f"NEXUS API unreachable after {self.retries + 1} tries: {last}")
 

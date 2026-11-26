@@ -68,6 +68,7 @@ class OS1:
         self.seed_search = seed_search
         self.search_engine = SearchEngine(self.store, embedder, self.config.cache_ttl_s)
         self._crawl_lock = threading.Lock()
+        self._improve_lock = threading.Lock()
         self.improver = Improver(self)
         self.improver.apply()  # the tuned ranking and crawl settings that won their tests
 
@@ -190,13 +191,18 @@ class OS1:
         return [{"searches": self.store.search_history(limit), "crawls": runs}], {}
 
     def _op_improve(self, p: dict, stop, progress) -> tuple[list, dict]:
-        target = p.get("target", "both")
-        out = []
-        if target in ("search", "both"):
-            out.append(self.improver.improve_search(p.get("rounds", 1), p.get("candidates", 6), p.get("seed")))
-        if target in ("crawl", "both"):
-            out.append(self.improver.improve_crawl())
-        return out, {}
+        if not self._improve_lock.acquire(blocking=False):
+            raise ContractError("a self-improvement round is already running; wait for it", "unavailable")
+        try:
+            target = p.get("target", "both")
+            out = []
+            if target in ("search", "both"):
+                out.append(self.improver.improve_search(p.get("rounds", 1), p.get("candidates", 6), p.get("seed")))
+            if target in ("crawl", "both"):
+                out.append(self.improver.improve_crawl())
+            return out, {}
+        finally:
+            self._improve_lock.release()
 
     def _op_rsi(self, p: dict, stop, progress) -> tuple[list, dict]:
         action = p["action"]

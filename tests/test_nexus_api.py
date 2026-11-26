@@ -2,6 +2,7 @@ import json
 import socket
 import threading
 import time
+from typing import Optional
 
 import httpx
 import pytest
@@ -262,3 +263,75 @@ def test_client_against_the_real_server(nexus):
     client = NexusClient(f"http://127.0.0.1:{server.port}", tokens.owner_token())
     assert client.call("os2", "status", {}).ok and client.health()["status"] == "ok"
     client.close()
+
+
+def _reply(body: dict, status: str = "success", code: Optional[str] = None, http: int = 200) -> httpx.Response:
+    return httpx.Response(http, json={
+        "version": "1", "request_id": body["request_id"], "status": status, "source": body["destination"],
+        "operation": body["operation"], "results": [] if code else [{"ok": 1}],
+        "error": {"code": code, "message": "x"} if code else None,
+        "metadata": {"execution_time_ms": 1, "result_count": 0 if code else 1}})
+
+
+def test_client_never_resends_work_that_may_still_be_running():
+    sent = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        sent.append((body["operation"], request.extensions["timeout"]["read"]))
+        raise httpx.ReadTimeout("slow", request=request)
+
+    client = NexusClient("http://127.0.0.1:1", "t", retries=2, client=httpx.Client(
+        transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    with pytest.raises(ConnectionError, match="not sent again"):
+        client.call("os1", "improve", {"target": "search"}, timeout_ms=600_000)
+    assert sent == [("improve", 615.0)]  # one try, and the wait followed the request's own timeout
+    sent.clear()
+    with pytest.raises(ConnectionError, match="after 3 tries"):
+        client.call("os1", "search", {"query": "x"})
+    assert [op for op, _ in sent] == ["search"] * 3 and sent[0][1] == 45.0
+
+
+def test_client_retries_server_timeouts_only_for_look_only_requests():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body["operation"] + ":" + body["payload"].get("action", ""))
+        return _reply(body, "error", "timeout")
+
+    client = NexusClient("http://127.0.0.1:1", "t", retries=2, client=httpx.Client(
+        transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    assert client.call("os1", "crawl", {"resume": True}).error_code == "timeout" and calls == ["crawl:"]
+    calls.clear()
+    assert client.call("os1", "rsi", {"action": "rollback", "kind": "search"}).error_code == "timeout"
+    assert calls == ["rsi:rollback"]
+    calls.clear()
+    assert client.call("os1", "rsi", {"action": "status"}).error_code == "timeout"
+    assert calls == ["rsi:status"] * 3
+
+
+def test_only_one_improvement_round_runs_at_a_time(tmp_path):
+    from jarvis_books.nexus.os1 import OS1
+    one = OS1(tmp_path)
+    try:
+        started, release = threading.Event(), threading.Event()
+
+        def slow(*a):
+            started.set()
+            release.wait(5)
+            return {"status": "not_enough_data"}
+
+        one.improver.improve_search = slow
+        first = []
+        t = threading.Thread(target=lambda: first.append(one.call("improve", {"target": "search"})))
+        t.start()
+        assert started.wait(5)
+        busy = one.call("improve", {"target": "search"})
+        assert not busy.ok and busy.error_code == "unavailable" and "already running" in busy.error_message
+        release.set()
+        t.join(5)
+        assert first[0].ok and one.call("improve", {"target": "search"}).ok
+    finally:
+        release.set()
+        one.close()
