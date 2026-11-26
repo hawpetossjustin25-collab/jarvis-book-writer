@@ -47,6 +47,7 @@ TOOL_LEVELS = MappingProxyType({
     # NEXUS Collective: looking is free; running work, limits and workers need a yes; letting a new computer in is System
     "collective_status": READ, "collective_task": READ, "collective_run": CHANGE, "collective_limits": CHANGE,
     "collective_worker": CHANGE, "collective_join_code": SYSTEM,
+    "model_hub": READ, "model_plan": READ, "model_route": READ, "model_install": OUTSIDE,
     "phone_link": READ,
     # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
     "phone_setup": READ, "phone_status": READ, "phone_read_texts": READ, "phone_contacts": READ,

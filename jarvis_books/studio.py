@@ -43,6 +43,7 @@ from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.nexus.api import NexusHub, NexusServer, TokenBook, systems_for
 from jarvis_books.nexus.collective_os import CollectiveOS
+from jarvis_books.nexus.modelhub import ModelHub
 from jarvis_books.nexus.os1 import OS1
 from jarvis_books.nexus.os2 import OS2
 from jarvis_books.nexus.os3 import OS3, registry_from_toolbox
@@ -167,6 +168,8 @@ class Studio:
                              selector=lambda text: self.fast.route(text, self.tools.declarations(), level_of))
         self.nexus_collective = CollectiveOS(self.home, os1=self.nexus, ollama=self.local.client)
         self.tools.collective = self.war_tools.collective = self.nexus_collective
+        self.nexus_models = ModelHub(self.home, self.local.client)
+        self.tools.models = self.war_tools.models = self.nexus_models
         self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3, self.nexus_collective))
         self.nexus_api = NexusServer(self.nexus_hub, TokenBook(self.home))
         self.planner = Planner(self.db)
@@ -499,6 +502,7 @@ class Studio:
         self.nexus_api.stop()
         self.nexus_hub.close()
         self.nexus_collective.close()
+        self.nexus_models.close()
         self.nexus_os3.close()
         self.telegram.stop()
         self.tunnel.stop(keep=True)

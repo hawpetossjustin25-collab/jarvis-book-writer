@@ -145,3 +145,24 @@ def test_names_map_to_sources_and_manifests():
     assert manifest_url("qwen3:4b").endswith("/library/qwen3/manifests/4b")
     assert manifest_url("someone/model").endswith("/someone/model/manifests/latest")
     assert manifest_url("hf.co/a/b:Q4") is None
+
+
+def test_jarvis_model_tools_read_freely_and_installs_wait_for_a_yes(tmp_path):
+    from jarvis_books.assistant.nexus_tools import MODEL_TOOLS, NexusTools
+    from jarvis_books.assistant.permissions import NEEDS_YES, OUTSIDE, TOOL_LEVELS
+    from jarvis_books.errors import NotFound
+    assert set(MODEL_TOOLS) == {"model_hub", "model_plan", "model_route", "model_install"}
+    assert TOOL_LEVELS["model_install"] == OUTSIDE
+    assert not any(TOOL_LEVELS[t] in NEEDS_YES for t in MODEL_TOOLS if t != "model_install")
+    tools = NexusTools()
+    with pytest.raises(NotFound):
+        tools._t_model_hub()
+    client = FakeOllama(installed=("qwen3:4b",))
+    tools.models = hub(tmp_path, client, manifest=Manifest(size=int(0.9 * GB)))
+    assert tools._t_model_hub()["models"][0]["name"] == "qwen3:4b"
+    assert tools._t_model_plan("qwen3:4b", 8192)["fits"]
+    assert tools._t_model_route(4096)["model"] == "qwen3:4b"
+    out = tools._t_model_install(" nomic-embed-text:latest ")
+    assert out["state"] == "installed"
+    assert tools._t_model_route(1024, capability="embedding")["model"] == "nomic-embed-text:latest"
+    tools.models.close()

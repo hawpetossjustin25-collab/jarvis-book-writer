@@ -167,5 +167,6 @@ def test_studio_wires_the_collective_into_jarvis(tmp_path):
 def _check_studio(studio):
     assert "collective" in studio.nexus_hub.systems
     assert studio.tools.collective is studio.nexus_collective
+    assert studio.tools.models is studio.nexus_models and studio.war_tools.models is studio.nexus_models
     assert studio.settings()["collective"] == "1"
     assert studio.nexus_hub.route(NexusRequest("jarvis", "collective", "status", {})).ok

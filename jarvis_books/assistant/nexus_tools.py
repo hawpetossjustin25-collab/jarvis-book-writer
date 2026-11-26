@@ -93,14 +93,33 @@ NEXUS_DECLARATIONS = [
     _decl("collective_join_code", "NEXUS Collective: make a one-time join code (good for 15 minutes) that lets "
           "another computer of yours join the Collective as a worker.",
           {"label": {"type": "STRING", "description": "a name for the computer that will join"}}),
+    _decl("model_hub", "NEXUS Model Hub: the AI models on this computer, what each really is (parameters, "
+          "compression, context, license, checksum), whether it passed its first-answer test, its measured speed, "
+          "and recent installs."),
+    _decl("model_plan", "NEXUS DeepRAM: how much memory a model needs with a given context (weights, context "
+          "cache, overhead, safety margin), whether it fits right now, and the longest context that would.",
+          {"model": S, "context": {"type": "INTEGER", "description": "tokens of context (default 4096)"}},
+          ["model"]),
+    _decl("model_route", "NEXUS Model Hub: which installed model fits a request right now and why the others "
+          "don't. prefer=quality picks the biggest that fits, prefer=speed the fastest measured.",
+          {"context": I, "capability": {"type": "STRING", "enum": ["completion", "embedding", "tools", "vision"]},
+           "prefer": {"type": "STRING", "enum": ["quality", "speed"]},
+           "min_tokens_per_second": {"type": "NUMBER"}}),
+    _decl("model_install", "NEXUS Model Hub: download a model through Ollama (e.g. qwen3:1.7b), after checking "
+          "disk space and that it can fit in memory, then test its first answer and measure its speed.",
+          {"model": S, "context": {"type": "INTEGER", "description": "context it must fit with (default 4096)"}},
+          ["model"]),
 ]
-NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if not d["name"].startswith("collective_"))
+GROUPS = ("collective_", "model_")
+NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if not d["name"].startswith(GROUPS))
 COLLECTIVE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("collective_"))
+MODEL_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("model_"))
 NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
                "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
                "disagree", "source", "brief", "intel", "what do we know", "what does the web say", "improve",
                "tune", "self-improv", "rsi", "roll back", "collective", "worker", "cluster", "join code", "share work",
-               "other computer", "task queue", "limits")
+               "other computer", "task queue", "limits", "model hub", "install model",
+               "download model", "which model", "fits in memory", "deepram", "memory plan", "benchmark")
 
 
 def _when(stamp: Optional[float]) -> Optional[str]:
@@ -116,6 +135,7 @@ class NexusTools:
     nexus = None
     _nexus_os2 = None
     collective = None
+    models = None
 
     def _os1(self):
         if self.nexus is None:
@@ -365,3 +385,29 @@ class NexusTools:
         out = self._coll("join_code", {"label": label, "minutes": 15}).results[0]
         return {"code": out["code"], "good_for_minutes": 15,
                 "note": "Give this code only to a computer you own; it works once."}
+
+    # ---- NEXUS Model Hub and DeepRAM
+    def _hub(self):
+        if self.models is None:
+            raise NotFound("the NEXUS Model Hub isn't running here")
+        return self.models
+
+    def _t_model_hub(self) -> dict:
+        hub = self._hub()
+        models = hub.sync()
+        return {"models": models, "installs": [{k: i[k] for k in ("name", "state", "progress", "message")}
+                                               for i in hub.installs(5)]}
+
+    def _t_model_plan(self, model: str, context: int = 4096) -> dict:
+        hub = self._hub()
+        hub.sync()
+        return hub.plan(model, int(context))
+
+    def _t_model_route(self, context: int = 4096, capability: str = "completion", prefer: str = "quality",
+                       min_tokens_per_second: Optional[float] = None) -> dict:
+        hub = self._hub()
+        hub.sync()
+        return hub.route(int(context), capability, prefer, min_tokens_per_second)
+
+    def _t_model_install(self, model: str, context: int = 4096) -> dict:
+        return self._hub().install(model.strip(), int(context))
