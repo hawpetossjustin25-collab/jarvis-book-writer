@@ -323,6 +323,7 @@ def test_tunnel_waits_for_the_server_and_says_why(tmp_path):
         tunnel.stop()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a POSIX shell script as the fake cloudflared")
 def test_a_leftover_cloudflared_from_a_killed_jarvis_is_stopped(tmp_path):
     import subprocess
     fake = tmp_path / "cloudflared"
@@ -342,6 +343,22 @@ def test_a_leftover_cloudflared_from_a_killed_jarvis_is_stopped(tmp_path):
     finally:
         for proc in (old, other):
             proc.kill()
+
+
+def test_leftover_cleanup_on_windows_uses_taskkill_only_for_cloudflared(tmp_path, monkeypatch):
+    import jarvis_books.phone as phone
+    calls = []
+    monkeypatch.setattr(phone, "WINDOWS", True)
+    monkeypatch.setattr(phone.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or
+                        type("R", (), {"stdout": '"cloudflared.exe","4242","Console"' if "tasklist" in cmd
+                                       and "PID eq 4242" in cmd else 'INFO: No tasks'})())
+    tunnel = Tunnel(tmp_path, lambda: None, command=["unused"])
+    (tmp_path / "cloudflared.pid").write_text("4343")
+    tunnel._end_leftover()
+    assert all("taskkill" not in c for c in calls)
+    (tmp_path / "cloudflared.pid").write_text("4242")
+    tunnel._end_leftover()
+    assert calls[-1] == ["taskkill", "/PID", "4242", "/F"] and not (tmp_path / "cloudflared.pid").exists()
 
 
 class FakeDownload:

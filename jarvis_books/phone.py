@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import requests
 
 log = logging.getLogger(__name__)
+WINDOWS = os.name == "nt"
 
 APP_DIR = Path(__file__).with_name("phone_app")
 PAGES_ORIGIN = "https://hawpetossjustin25-collab.github.io"
@@ -487,7 +488,7 @@ class Tunnel:
         if not _is_cloudflared(pid):
             return
         try:
-            if os.name == "nt":
+            if WINDOWS:
                 subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             else:
@@ -579,7 +580,7 @@ def _is_cloudflared(pid: int) -> bool:
     if pid <= 0 or pid == os.getpid():
         return False
     try:
-        if os.name == "nt":
+        if WINDOWS:
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True,
                                  text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
             return "cloudflared" in out.lower()
