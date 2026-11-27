@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
-from jarvis_books.nexus.contracts import VERSION, ContractError, NexusRequest, NexusResponse, failure
+from jarvis_books.nexus.contracts import VERSION, ContractError, NexusRequest, NexusResponse, failure, success
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ PORT = 8770
 MAX_BODY = 1_000_000
 DEFAULT_TIMEOUT_MS = 30_000
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-ROLES = ("reader", "operator", "owner")
+ROLES = ("reader", "operator", "owner", "game")
+GAME_SYSTEMS = ("brain", "telegram")  # all a game's token may reach
 
 
 class NexusHub:
@@ -87,6 +88,8 @@ class NexusHub:
             raw = request if isinstance(request, dict) else {}
             bogus = NexusRequest("jarvis", "jarvis", "invalid", {}, str(raw.get("request_id") or "invalid")[:100])
             return failure(bogus, "jarvis", exc.code, str(exc), started)
+        if role == "game" and request.destination not in GAME_SYSTEMS:
+            return failure(request, "jarvis", "unauthorized", "a game may only use the brain and Telegram", started)
         target = self.systems.get(request.destination)
         if target is None:
             return failure(request, "jarvis", "unavailable", f"{request.destination} isn't running here", started)
@@ -193,6 +196,23 @@ class TokenBook:
         except OSError:
             pass
         token = self.issue("owner", "jarvis")
+        key.write_text(token, encoding="utf-8")
+        try:
+            os.chmod(key, 0o600)
+        except OSError:
+            pass
+        return token
+
+    def app_token(self, name: str, role: str) -> str:
+        """A token for a program on this computer (Worldcraft, the games), kept in nexus_<name>.key."""
+        key = self.path.with_name(f"nexus_{name}.key")
+        try:
+            token = key.read_text(encoding="utf-8").strip()
+            if self.role_of(token) == role:
+                return token
+        except OSError:
+            pass
+        token = self.issue(role, name)
         key.write_text(token, encoding="utf-8")
         try:
             os.chmod(key, 0o600)
@@ -677,7 +697,9 @@ def ws_read(stream, limit: int = MAX_BODY) -> tuple[Optional[int], bytes]:
 READ_ONLY = {"os1": {"search", "resource", "status", "history"},
              "os2": {"brief", "facts", "entity", "contradictions", "status"},
              "os3": {"tools", "describe", "validate", "plan", "history"},
-             "collective": {"status", "workers", "worker", "tasks", "task", "decisions", "events"}}
+             "collective": {"status", "workers", "worker", "tasks", "task", "decisions", "events"},
+             "brain": {"status"},
+             "telegram": {"status", "inbox"}}
 
 
 def safe_to_repeat(destination: str, operation: str, payload: dict) -> bool:
@@ -746,7 +768,91 @@ class NexusClient:
 OS1_CHANGES = ("crawl", "revisit", "embed")  # these fetch from the web or write; readers may only look
 
 
-def systems_for(os1, os2, os3, collective=None) -> dict[str, Callable[[NexusRequest, str], NexusResponse]]:
+BRAIN_PURPOSES = ("research", "game_design", "dialogue", "story", "summary", "chat")
+
+
+def brain_door(brain) -> Callable[[NexusRequest, str], NexusResponse]:
+    """Jarvis's brain for other programs on this computer (Worldcraft and the games it makes): the same Gemini,
+    Groq, extra keys with their automatic key switcher, and local model, in the same order. A reader may only ask
+    for the status. The answer says which brain wrote it, so callers can label AI-made text."""
+    from jarvis_books.llm.errors import LLMError
+    from jarvis_books.llm.models import LLMRequest
+
+    def handle(request: NexusRequest, role: str) -> NexusResponse:
+        started = time.perf_counter()
+        p = request.payload
+        if request.operation == "status":
+            return success(request, "brain", [brain.status()], started)
+        if request.operation != "generate":
+            return failure(request, "brain", "unknown_operation", f"brain has no {request.operation}", started)
+        if role == "reader":
+            return failure(request, "brain", "unauthorized", "a reader may not use the brain", started)
+        prompt, system = p.get("prompt"), p.get("system", "")
+        purpose, limit = p.get("purpose", "chat"), p.get("max_tokens", 800)
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20000:
+            return failure(request, "brain", "invalid_request", "prompt must be 1 to 20,000 characters", started)
+        if not isinstance(system, str) or len(system) > 8000:
+            return failure(request, "brain", "invalid_request", "system must be up to 8,000 characters", started)
+        if purpose not in BRAIN_PURPOSES:
+            return failure(request, "brain", "invalid_request", f"purpose must be one of {BRAIN_PURPOSES}", started)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 16 <= limit <= 4000:
+            return failure(request, "brain", "invalid_request", "max_tokens must be 16 to 4000", started)
+        try:
+            resp = brain.generate(LLMRequest(role="chat", system=system, instruction=prompt, max_output_tokens=limit,
+                                             purpose="nexus:" + purpose))
+        except LLMError as exc:
+            return failure(request, "brain", "unavailable", str(exc), started)
+        return success(request, "brain", [{"text": resp.text, "model": resp.model, "ai_made": True,
+                                           "brain": getattr(brain, "current", None)}], started)
+    return handle
+
+
+def telegram_door(relay) -> Callable[[NexusRequest, str], NexusResponse]:
+    """Jarvis's Telegram bot for Worldcraft and the games: send the owner a message, read what he sent back.
+    Games may only use the "game" inbox and plain messages; Worldcraft (operator) may add its approval buttons."""
+    from jarvis_books.telegram_relay import CHANNELS, MAX_TEXT
+
+    who_reads = {channel: who for who, channel in CHANNELS.items()}
+
+    def handle(request: NexusRequest, role: str) -> NexusResponse:
+        started = time.perf_counter()
+        p, op = request.payload, request.operation
+        if op == "status":
+            return success(request, "telegram", [{"connected": relay.connected()}], started)
+        if role == "reader":
+            return failure(request, "telegram", "unauthorized", "a reader may not use Telegram", started)
+        if op == "inbox":
+            channel, after = p.get("channel", "game"), p.get("after", 0)
+            if channel not in who_reads or (role == "game" and channel != "game"):
+                return failure(request, "telegram", "unauthorized" if channel in who_reads else "invalid_request",
+                               f"no access to the {channel!r} inbox", started)
+            if not isinstance(after, int) or isinstance(after, bool) or after < 0:
+                return failure(request, "telegram", "invalid_request", "after must be a whole number", started)
+            return success(request, "telegram", relay.take(channel, after), started)
+        if op != "send":
+            return failure(request, "telegram", "unknown_operation", f"telegram has no {op}", started)
+        text, source, buttons = p.get("text"), p.get("source", ""), p.get("buttons")
+        channel = "game" if role == "game" else p.get("channel", "worldcraft")
+        if channel not in who_reads:
+            return failure(request, "telegram", "invalid_request", f"no {channel!r} Jarvis", started)
+        if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
+            return failure(request, "telegram", "invalid_request", f"text must be 1 to {MAX_TEXT} characters", started)
+        if not isinstance(source, str) or len(source) > 40:
+            return failure(request, "telegram", "invalid_request", "source must be up to 40 characters", started)
+        if buttons is not None:
+            ok = role != "game" and isinstance(buttons, list) and all(
+                isinstance(row, list) and all(isinstance(b, dict) and set(b) == {"text", "callback_data"}
+                                              and str(b["callback_data"]).startswith("wc:") for b in row)
+                for row in buttons)
+            if not ok:
+                return failure(request, "telegram", "invalid_request", "buttons must be Worldcraft wc: buttons", started)
+        if not relay.send(text, who_reads[channel], source, buttons):
+            return failure(request, "telegram", "unavailable", "Jarvis's Telegram is off or not paired", started)
+        return success(request, "telegram", [{"sent": True}], started)
+    return handle
+
+
+def systems_for(os1, os2, os3, collective=None, brain=None, telegram=None) -> dict[str, Callable[[NexusRequest, str], NexusResponse]]:
     """The hub's routing table: each system's own handler, with caller roles applied."""
     def door1(request: NexusRequest, role: str) -> NexusResponse:
         if request.operation in OS1_CHANGES and role == "reader":
@@ -758,4 +864,8 @@ def systems_for(os1, os2, os3, collective=None) -> dict[str, Callable[[NexusRequ
              "os3": lambda request, role: os3.handle(request, role)}
     if collective is not None:
         doors["collective"] = lambda request, role: collective.handle(request, role)
+    if brain is not None:
+        doors["brain"] = brain_door(brain)
+    if telegram is not None:
+        doors["telegram"] = telegram_door(telegram)
     return doors

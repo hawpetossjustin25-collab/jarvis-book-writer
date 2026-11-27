@@ -37,6 +37,7 @@ THINKING = "Jarvis is thinking..."
 OWNER, OFFSET, PAIR, PAIR_MISSES = "telegram.owner", "telegram.offset", "telegram.pair", "telegram.pair_misses"
 _PAIR_RE = re.compile(r"(?:/start\s+)?(\d{8})")
 _BUTTON_RE = re.compile(r"gate:(\d+):(yes|no)")
+from jarvis_books.telegram_relay import CHANNELS as RELAY_CHANNELS, NAMES as RELAY_NAMES  # noqa: E402
 
 
 class TelegramError(Exception):
@@ -180,8 +181,9 @@ class TelegramBridge:
 
     def __init__(self, library, assistant, gate, load_key: Callable[[], Optional[str]], planner=None,
                  api_factory: Callable[[str], TelegramAPI] = TelegramAPI, clock: Callable[[], float] = time.time,
-                 edit_every_s: float = EDIT_EVERY_S, poll_s: int = POLL_S, voice=None):
+                 edit_every_s: float = EDIT_EVERY_S, poll_s: int = POLL_S, voice=None, relay=None):
         self.library, self.assistant, self.gate, self.voice = library, assistant, gate, voice
+        self.relay = relay  # TelegramRelay: "game ..." and "wc ..." messages go to the games and Worldcraft
         self.load_key, self.api_factory, self.clock = load_key, api_factory, clock
         self.edit_every_s, self.poll_s = edit_every_s, poll_s
         self.bot_name: Optional[str] = None
@@ -315,6 +317,20 @@ class TelegramBridge:
             what = f"\"{short}\"" if text else "a voice note"
             api.send_message(chat_id, f"I was closed when you sent {what}. Send it again if you still want it.")
             return
+        if text and self.relay is not None:
+            who, text = self.relay.route(text, (msg.get("reply_to_message") or {}).get("message_id"))
+            if who == "switch":
+                api.send_message(chat_id, f"Now talking to {RELAY_NAMES[text]}. Say \"switch to book Jarvis\" to come back.")
+                return
+            if who == "ask":
+                api.send_message(chat_id, f"You're talking to {RELAY_NAMES[text]}. The others: "
+                                 + ", ".join(n for k, n in RELAY_NAMES.items() if k != text) + ".")
+                return
+            if who != "book":
+                self.relay.put(RELAY_CHANNELS[who], owner, chat_id, text=text, date=msg.get("date"))
+                later = "" if self.relay.listening(who) else " He isn't running right now, so he gets it when he starts."
+                api.send_message(chat_id, f"Sent to {RELAY_NAMES[who]}.{later}")
+                return
         if text:
             self.turn(api, chat_id, text)
         else:
@@ -405,7 +421,8 @@ class TelegramBridge:
             self._turn_thread = None
         asked = self._asked
         buttons = buttons_for(asked.id) if asked is not None and self.gate.pending is asked else None
-        self._deliver(api, chat_id, placeholder, reply or "(done)", buttons, shown["text"])
+        label = f"[{RELAY_NAMES['book']}] " if self.relay is not None and self.relay.in_use() else ""
+        self._deliver(api, chat_id, placeholder, label + (reply or "(done)"), buttons, shown["text"])
         return reply
 
     def _deliver(self, api, chat_id, placeholder, reply, buttons, shown) -> None:
@@ -431,12 +448,17 @@ class TelegramBridge:
         if owner is None or sender != owner or chat_id not in (None, owner):
             api.answer_button(query.get("id", ""), "This Jarvis is private.")
             return
-        match = _BUTTON_RE.fullmatch(query.get("data") or "")
+        data = query.get("data") or ""
         if msg.get("message_id") is not None:
             try:
                 api.clear_buttons(owner, msg["message_id"])
             except TelegramError:
                 pass
+        if data.startswith("wc:") and self.relay is not None:
+            self.relay.put(RELAY_CHANNELS["creator"], owner, owner, callback=data)
+            api.answer_button(query.get("id", ""), f"Sent to {RELAY_NAMES['creator']}")
+            return
+        match = _BUTTON_RE.fullmatch(data)
         if not match:
             api.answer_button(query.get("id", ""))
             return
@@ -459,15 +481,19 @@ class TelegramBridge:
 
     def notify(self, text: str) -> bool:
         """Send the paired owner a message from Jarvis. False when Telegram is off, unpaired or unreachable."""
+        return self.send_owner(text) is not None
+
+    def send_owner(self, text: str, buttons: Optional[dict] = None) -> Optional[int]:
+        """Send the paired owner a message; its Telegram message id, or None when it couldn't be sent."""
         owner, key = self.owner(), self.load_key()
         if not self.running or owner is None or not key:
-            return False
+            return None
         try:
-            self.api_factory(key).send_message(owner, text)
-            return True
+            sent = self.api_factory(key).send_message(owner, text, buttons) or {}
+            return int(sent.get("message_id") or 0)
         except TelegramError as exc:
             log.warning("telegram: message not sent (%s)", exc.status)
-            return False
+            return None
 
 
 def telegram_line(status: dict) -> str:

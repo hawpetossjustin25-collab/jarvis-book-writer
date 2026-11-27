@@ -24,6 +24,8 @@ from jarvis_books.phone import PhoneServer, Tunnel, URL_META, phone_line, phone_
 from jarvis_books.telegram import TelegramBridge, forget_bot_key, load_bot_key, save_bot_key
 from jarvis_books.voice.notes import VoiceNotes
 from jarvis_books.llm.brain import GEMINI, Brain
+from jarvis_books.telegram_relay import TelegramRelay
+from jarvis_books.llm.keypool import KeyPool, PoolEngine
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
     GroqSearch, load_groq_key, save_groq_key
 from jarvis_books.llm.engine import AdaptiveLLMEngine
@@ -96,7 +98,9 @@ class Studio:
             self.local.model, self.local.label = lab_model, LABELS.get(lab_model, lab_model)
         # Gemini and LFM3 behind one generate(); the index and narrator use Gemini-only embeddings and speech.
         self.groq = GroqEngine(self._groq_key, GROQ_CHAT)
-        self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq)
+        self.keypool = KeyPool(self.home)
+        self.pool = PoolEngine(self.keypool)
+        self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq, pool=self.pool)
         self.index = StoryIndex(self.library, self.engine)
         self.context = ContextBuilder(self.library, self.index)
         self.writer = BookWriter(self.library, self.brain, self.index, self.context)
@@ -176,14 +180,21 @@ class Studio:
         self.tools.models = self.war_tools.models = self.nexus_models
         self.releases = ReleaseCenter(self.home)
         self.tools.releases = self.war_tools.releases = self.releases
-        self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3, self.nexus_collective))
-        self.nexus_api = NexusServer(self.nexus_hub, TokenBook(self.home))
+        self.telegram_relay = TelegramRelay(self.home)
+        self.nexus_hub = NexusHub(systems_for(self.nexus, self.nexus_os2, self.nexus_os3, self.nexus_collective,
+                                              brain=self.brain, telegram=self.telegram_relay))
+        self.nexus_tokens = TokenBook(self.home)
+        self.nexus_api = NexusServer(self.nexus_hub, self.nexus_tokens)
+        for app, role in (("worldcraft", "operator"), ("game", "game")):  # Worldcraft and its games read these
+            self.nexus_tokens.app_token(app, role)
         self.planner = Planner(self.db)
         self.reminder_clock = ReminderClock(self.planner)
         self.voice_notes = VoiceNotes(self._look if self.engine is not None else None, self._groq_key,
                                       lambda: self.settings()["edge_voice"])
         self.telegram = TelegramBridge(self.library, self.telegram_assistant, self.gate,
-                                       lambda: load_bot_key(self.home), planner=self.planner, voice=self.voice_notes)
+                                       lambda: load_bot_key(self.home), planner=self.planner, voice=self.voice_notes,
+                                       relay=self.telegram_relay)
+        self.telegram_relay.bridge = self.telegram
         self.tools.planner = self.war_tools.planner = self.planner
         self.phone = PhoneServer(self.library, self.phone_assistant, self.gate, voice=self.voice_notes)
         self.tunnel = Tunnel(self.home / "bin", lambda: self.phone.port, on_url=self._on_phone_url)
@@ -384,6 +395,17 @@ class Studio:
 
     def _groq_key(self) -> Optional[str]:
         return load_groq_key(self.home)
+
+    def add_llm_key(self, provider: str, key: str, label: str = "", account: str = "",
+                    daily_limit: Optional[int] = None) -> dict:
+        """Save an extra API key and test it straight away (a failed test keeps the key, marked refused)."""
+        entry = self.keypool.add(provider, key, label=label, account=account, daily_limit=daily_limit)
+        try:
+            return self.keypool.check(entry["id"])
+        except LLMError as exc:
+            if exc.kind == "unavailable":
+                self.keypool.note_failure(self.keypool.entries()[-1], exc)
+            return {**self.keypool.public(self.keypool.entries()[-1]), "problem": str(exc)}
 
     def set_groq_key(self, key: str) -> None:
         save_groq_key(key, self.home)
