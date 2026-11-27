@@ -24,6 +24,7 @@ from jarvis_books.audio.voices import GEMINI_CATALOG, NARRATOR, describe_voice, 
 from jarvis_books.craft import GENRES
 from jarvis_books.errors import JarvisError
 from jarvis_books.lifecycle import relaunch
+from jarvis_books.llm.keypool import PROVIDERS
 from jarvis_books.llm.local import LABEL
 from jarvis_books.studio import Studio
 from jarvis_books.telegram import telegram_line
@@ -1606,6 +1607,28 @@ class MainWindow(QMainWindow):
         grow.addWidget(self.groq_edit, 1)
         grow.addWidget(save_groq)
         form.addRow("Groq key (free backup)", grow)
+        self.extra_service = QComboBox()
+        for pid, info in PROVIDERS.items():
+            self.extra_service.addItem(info["label"], pid)
+        self.extra_key = QLineEdit()
+        self.extra_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.extra_key.setPlaceholderText("API key (saved encrypted on this laptop, never shown again)")
+        self.extra_account = QLineEdit()
+        self.extra_account.setPlaceholderText("account (keys on one account share its limit)")
+        add_extra = QPushButton("Add key")
+        add_extra.clicked.connect(self._add_extra_key)
+        erow = QHBoxLayout()
+        for wid, stretch in ((self.extra_service, 0), (self.extra_key, 2), (self.extra_account, 1), (add_extra, 0)):
+            erow.addWidget(wid, stretch)
+        form.addRow("Extra brains (automatic key switcher)", erow)
+        self.extra_list = QListWidget()
+        self.extra_list.setMaximumHeight(110)
+        remove_extra = QPushButton("Remove selected key")
+        remove_extra.clicked.connect(self._remove_extra_key)
+        xrow = QVBoxLayout()
+        xrow.addWidget(self.extra_list)
+        xrow.addWidget(remove_extra)
+        form.addRow("Saved extra keys", xrow)
         self.telegram_edit = QLineEdit()
         self.telegram_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.telegram_edit.setPlaceholderText("Bot key from @BotFather in Telegram (saved encrypted on this laptop)")
@@ -1843,6 +1866,36 @@ class MainWindow(QMainWindow):
         run_async(lambda: self.studio.set_api_key(key), lambda _: self._on_started(None),
                   lambda e: QMessageBox.warning(self, "Gemini key", f"That key did not work: {e}"))
 
+    def _refresh_extra_keys(self) -> None:
+        self.extra_list.clear()
+        for k in self.studio.keypool.listing():
+            left = f", {k['left']} left today" if k["left"] is not None else ""
+            item = QListWidgetItem(f"{k['service']} · {k['account']} · {k['key']} · {k['model']} · {k['status']}{left}")
+            item.setData(Qt.ItemDataRole.UserRole, k["id"])
+            self.extra_list.addItem(item)
+
+    def _add_extra_key(self) -> None:
+        key = self.extra_key.text().strip()
+        if not key:
+            return
+        self.extra_key.clear()
+        try:
+            out = self.studio.add_llm_key(self.extra_service.currentData(), key, account=self.extra_account.text())
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Extra key", f"Could not save the key: {exc}")
+            return
+        note = f" It didn't pass its test: {out['problem']}" if out.get("problem") else f" Model: {out['model']}."
+        self.statusBar().showMessage(f"{out['service']} key saved.{note}", 10000)
+        self._refresh_extra_keys()
+        self._refresh_brain()
+        self._refresh_extra_keys()
+
+    def _remove_extra_key(self) -> None:
+        item = self.extra_list.currentItem()
+        if item is not None and self.studio.keypool.remove(item.data(Qt.ItemDataRole.UserRole)):
+            self._refresh_extra_keys()
+            self._refresh_brain()
+
     def _save_groq_key(self) -> None:
         key = self.groq_edit.text().strip()
         if not key:
@@ -1887,7 +1940,7 @@ class MainWindow(QMainWindow):
         else:
             local = lfm.get("problem") or f"{LABEL} is not ready"
         now = st["answering_now"] or st["first_choice"]
-        self.brain_state.setText(f"Answering now: {now}. Gemini: {st['gemini']}. Groq: {st['groq']}. {local}. "
+        self.brain_state.setText(f"Answering now: {now}. Gemini: {st['gemini']}. Groq: {st['groq']}. Extra keys: {st['extra_keys']}. {local}. "
                                  f"Voice chat and "
                                  f"audiobook voices always use Gemini.")
         self.brain_download.setVisible(not lfm.get("ready"))

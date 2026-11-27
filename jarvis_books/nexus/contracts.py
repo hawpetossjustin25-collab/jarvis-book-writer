@@ -10,7 +10,7 @@ from typing import Any, Optional
 import jsonschema
 
 VERSION = "1"
-SYSTEMS = ("jarvis", "os1", "os2", "os3", "collective")
+SYSTEMS = ("jarvis", "os1", "os2", "os3", "collective", "brain", "telegram")
 STATUSES = ("success", "error")
 ERROR_CODES = ("invalid_request", "unknown_operation", "not_found", "unsafe_url", "timeout", "unavailable",
                "internal", "unauthorized", "conflict")

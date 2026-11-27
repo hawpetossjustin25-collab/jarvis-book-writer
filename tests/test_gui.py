@@ -773,3 +773,23 @@ def test_settings_connects_a_telegram_bot(window, qapp):
     code = studio.telegram.status()["pair_code"]
     assert code in win.telegram_state.text() and "@jarvis_test_bot" in win.telegram_state.text()
     assert KEY not in win.telegram_state.text()
+
+
+def test_settings_adds_tests_and_removes_extra_keys(window, qapp):
+    win, studio, book = window
+    from test_keypool import Net, Resp
+    net = Net()
+    studio.keypool.session = net
+    secret = "sk-or-" + "q" * 40
+    net.models[secret] = Resp(200, {"data": [{"id": "google/gemma-4-31b-it:free"}]})
+    net.key_info[secret] = {"free_model_daily_requests": {"used": 1, "limit": 1000, "remaining": 999}}
+    win.extra_service.setCurrentIndex(win.extra_service.findData("openrouter"))
+    win.extra_key.setText(secret)
+    win._add_extra_key()
+    assert win.extra_key.text() == "" and win.extra_list.count() == 1
+    row = win.extra_list.item(0).text()
+    assert "OpenRouter" in row and "gemma-4-31b-it:free" in row and "999 left today" in row and secret not in row
+    assert "Extra keys: 1 of 1 keys ready" in win.brain_state.text()
+    win.extra_list.setCurrentRow(0)
+    win._remove_extra_key()
+    assert win.extra_list.count() == 0 and studio.keypool.entries() == []
