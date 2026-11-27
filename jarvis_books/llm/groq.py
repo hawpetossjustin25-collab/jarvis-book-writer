@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -37,6 +38,53 @@ INPUT_TOKENS = 5500  # leaves room for the answer inside the free plan's 8,000 t
 OUTPUT_TOKENS = 2000
 MAX_TOOLS = 128
 TOOL_SHARE = 0.35
+
+
+def _duration(text: str) -> Optional[float]:
+    """Groq's reset times look like 2m59.56s, 7.66s, 1h2m or 450ms."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    parts = re.findall(r"(\d+(?:\.\d+)?)(ms|h|m|s)", text)
+    if not parts or "".join(n + u for n, u in parts) != text:
+        return None
+    scale = {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}
+    return sum(float(n) * scale[u] for n, u in parts)
+
+
+def _int(value) -> Optional[int]:
+    try:
+        return int(float(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def read_limits(headers) -> dict:
+    """What an OpenAI-style service says is left. Groq always sends x-ratelimit-* (requests per day, tokens per
+    minute); OpenRouter sends X-RateLimit-* with a reset time in epoch milliseconds. Missing values stay missing."""
+    h = {str(k).lower(): v for k, v in dict(headers).items()}
+    out: dict = {}
+    for name, key in (("remaining_requests", "x-ratelimit-remaining-requests"),
+                      ("limit_requests", "x-ratelimit-limit-requests"),
+                      ("remaining_tokens", "x-ratelimit-remaining-tokens"), ("limit_tokens", "x-ratelimit-limit-tokens")):
+        if _int(h.get(key)) is not None:
+            out[name] = _int(h.get(key))
+    for name, key in (("reset_requests_s", "x-ratelimit-reset-requests"), ("reset_tokens_s", "x-ratelimit-reset-tokens")):
+        d = _duration(str(h.get(key, "")))
+        if d is not None:
+            out[name] = d
+    if "remaining_requests" not in out and _int(h.get("x-ratelimit-remaining")) is not None:
+        out["remaining_requests"] = _int(h.get("x-ratelimit-remaining"))
+        if _int(h.get("x-ratelimit-limit")) is not None:
+            out["limit_requests"] = _int(h.get("x-ratelimit-limit"))
+        reset = _int(h.get("x-ratelimit-reset"))
+        if reset and reset > 10 ** 11:
+            out["reset_at"] = reset / 1000.0
+    return out
 
 
 def key_path(root: Path) -> Path:
@@ -106,8 +154,11 @@ class GroqEngine:
 
     def __init__(self, key: Callable[[], Optional[str]], model: str = CHAT_MODEL,
                  session: Optional[requests.Session] = None, timeout_s: float = 120.0,
-                 input_tokens: int = INPUT_TOKENS, output_tokens: int = OUTPUT_TOKENS, base_url: str = GROQ_URL):
+                 input_tokens: int = INPUT_TOKENS, output_tokens: int = OUTPUT_TOKENS, base_url: str = GROQ_URL,
+                 label: str = LABEL):
         self.key = key
+        self.label = label
+        self.limits: dict = {}  # what the service said is left after the last answer (see read_limits)
         self.model = model
         self.session = session or requests.Session()
         self.timeout_s = timeout_s
@@ -147,7 +198,7 @@ class GroqEngine:
                              memory_budget_tokens=int(self.input_tokens * 0.3), history_turns=8,
                              words_per_call=max(200, int(out / 1.35 * 0.6)), scene_words=max(200, int(out / 1.35 * 0.5)),
                              concurrency=1, tts_workers=1, embed_batch=1, max_retries=1, adaptive=True,
-                             reason=f"{LABEL} free plan")
+                             reason=f"{self.label} free plan")
 
     # ---- requests ---------------------------------------------------------------------------
     def build(self, request: LLMRequest) -> dict:
@@ -194,7 +245,8 @@ class GroqEngine:
             resp = self.session.post(self.base_url + "/chat/completions", json=payload, timeout=self.timeout_s,
                                      headers={"Authorization": f"Bearer {key}"})
         except requests.RequestException as exc:
-            raise LLMError(f"{LABEL} could not be reached ({type(exc).__name__})", kind="network") from exc
+            raise LLMError(f"{self.label} could not be reached ({type(exc).__name__})", kind="network") from exc
+        self.limits = read_limits(getattr(resp, "headers", None) or {})
         if resp.status_code == 200:
             return resp.json()
         try:
@@ -203,16 +255,16 @@ class GroqEngine:
             detail = resp.text[:200]
         status = resp.status_code
         if status in (401, 403):
-            raise LLMError(f"{LABEL} refused the key ({status})", kind="unavailable", status=status)
+            raise LLMError(f"{self.label} refused the key ({status})", kind="unavailable", status=status)
         if status == 429:
             retry = resp.headers.get("retry-after")
-            raise LLMError(f"{LABEL}'s free limit is used up for now: {detail}", kind="rate", status=status,
+            raise LLMError(f"{self.label}'s free limit is used up for now: {detail}", kind="rate", status=status,
                            retry_after_s=float(retry) if retry and retry.replace(".", "", 1).isdigit() else None)
         if status == 413:
-            raise LLMError(f"the request is too big for {LABEL}'s free plan", kind="too_big", status=status)
+            raise LLMError(f"the request is too big for {self.label}'s free plan", kind="too_big", status=status)
         if status >= 500:
-            raise LLMError(f"{LABEL} is having trouble ({status})", kind="overload", status=status)
-        raise LLMError(f"{LABEL} could not use the request ({status}): {detail}", kind="bad_request", status=status)
+            raise LLMError(f"{self.label} is having trouble ({status})", kind="overload", status=status)
+        raise LLMError(f"{self.label} could not use the request ({status}): {detail}", kind="bad_request", status=status)
 
     def generate(self, request: LLMRequest) -> LLMResponse:
         key = self._key()
@@ -264,7 +316,7 @@ class GroqEngine:
                 usage = body.get("usage") or {}
                 parts = ([{"text": text}] if text else []) + [{"functionCall": c} for c in calls]
                 self.problem = ""
-                return LLMResponse(text=text, model=f"{LABEL} ({self.model})", data=data, function_calls=calls,
+                return LLMResponse(text=text, model=f"{self.label} ({self.model})", data=data, function_calls=calls,
                                    content={"role": "model", "parts": parts}, finish_reason=choice.get("finish_reason"),
                                    prompt_tokens=usage.get("prompt_tokens"), output_tokens=usage.get("completion_tokens"),
                                    latency_s=latency, attempts=attempt)

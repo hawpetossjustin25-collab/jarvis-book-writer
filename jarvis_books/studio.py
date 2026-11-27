@@ -24,6 +24,7 @@ from jarvis_books.phone import PhoneServer, Tunnel, URL_META, phone_line, phone_
 from jarvis_books.telegram import TelegramBridge, forget_bot_key, load_bot_key, save_bot_key
 from jarvis_books.voice.notes import VoiceNotes
 from jarvis_books.llm.brain import GEMINI, Brain
+from jarvis_books.llm.keypool import KeyPool, PoolEngine
 from jarvis_books.llm.groq import CHAT_MODEL as GROQ_CHAT, RESEARCH_MODEL as GROQ_RESEARCH, GroqEngine, \
     GroqSearch, load_groq_key, save_groq_key
 from jarvis_books.llm.engine import AdaptiveLLMEngine
@@ -93,7 +94,9 @@ class Studio:
             self.local.model, self.local.label = lab_model, LABELS.get(lab_model, lab_model)
         # Gemini and LFM3 behind one generate(); the index and narrator use Gemini-only embeddings and speech.
         self.groq = GroqEngine(self._groq_key, GROQ_CHAT)
-        self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq)
+        self.keypool = KeyPool(self.home)
+        self.pool = PoolEngine(self.keypool)
+        self.brain = Brain(self.engine, self.local, self.settings, groq=self.groq, pool=self.pool)
         self.index = StoryIndex(self.library, self.engine)
         self.context = ContextBuilder(self.library, self.index)
         self.writer = BookWriter(self.library, self.brain, self.index, self.context)

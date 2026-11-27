@@ -19,10 +19,11 @@ from jarvis_books.llm.models import LLMRequest, LLMResponse, RuntimeConfig
 
 log = logging.getLogger(__name__)
 
-GEMINI, GROQ, LOCAL = "gemini", "groq", "local"
-NAMES = {GEMINI: "Gemini", GROQ: "Groq", LOCAL: LABEL}
+GEMINI, GROQ, LOCAL, POOL = "gemini", "groq", "local", "pool"
+NAMES = {GEMINI: "Gemini", GROQ: "Groq", LOCAL: LABEL, POOL: "Extra keys"}
 # Who stands in, in order, when the first choice can't answer.
-BACKUPS = {GEMINI: (GROQ, LOCAL), GROQ: (GEMINI, LOCAL), LOCAL: (GEMINI, GROQ)}
+BACKUPS = {GEMINI: (GROQ, POOL, LOCAL), GROQ: (GEMINI, POOL, LOCAL), LOCAL: (GEMINI, GROQ, POOL),
+           POOL: (GEMINI, GROQ, LOCAL)}
 # Our own bad request or a blocked answer is not the brain's fault; everything else may switch.
 NO_SWITCH = ("invalid",)
 # A refusal is about one request (Gemini's filter blocked that passage), so another brain answers it but nobody rests.
@@ -31,10 +32,11 @@ NO_REST = ("safety",)
 
 class Brain:
     def __init__(self, gemini, local, settings: Callable[[], dict], clock: Callable[[], float] = time.time,
-                 cooldown_s: float = 120.0, groq=None):
+                 cooldown_s: float = 120.0, groq=None, pool=None):
         self.gemini = gemini  # AdaptiveLLMEngine or None (no key)
         self.local = local  # LocalEngine
         self.groq = groq  # GroqEngine (free cloud backup) or None
+        self.pool = pool  # PoolEngine: the extra API keys with their own key switcher, or None
         self.settings = settings
         self.clock = clock
         self.cooldown_s = cooldown_s
@@ -46,7 +48,7 @@ class Brain:
     # ---- choice ----------------------------------------------------------------------
     def primary(self) -> str:
         choice = self.settings().get("brain")
-        return choice if choice in (LOCAL, GROQ) else GEMINI
+        return choice if choice in (LOCAL, GROQ, POOL) else GEMINI
 
     def automatic(self) -> bool:
         return self.settings().get("brain_auto", "1") == "1"
@@ -58,17 +60,20 @@ class Brain:
     def _has_groq(self) -> bool:
         return self.groq is not None and self.groq.available
 
+    def _has_pool(self) -> bool:
+        return self.pool is not None and self.pool.available
+
     def order(self) -> list[str]:
         first = self.primary()
         if not self.automatic():
             return [first]
-        chain = [first] + [b for b in BACKUPS[first] if b != GROQ or self._has_groq()]
+        chain = [first] + [b for b in BACKUPS[first] if (b != GROQ or self._has_groq()) and (b != POOL or self._has_pool())]
         now = self.clock()
         down = [b for b in chain if self._down.get(b, (0, ""))[0] > now]
         return [b for b in chain if b not in down] + down  # resting brains are the last resort
 
     def _engine(self, which: str):
-        engine = {GEMINI: self.gemini, GROQ: self.groq, LOCAL: self.local}[which]
+        engine = {GEMINI: self.gemini, GROQ: self.groq, LOCAL: self.local, POOL: self.pool}[which]
         if engine is None:
             raise LLMError("no Gemini key is set" if which == GEMINI else f"{NAMES[which]} is not set up",
                            kind="unavailable")
@@ -76,7 +81,7 @@ class Brain:
 
     def ready(self) -> bool:
         ok = {GEMINI: self.gemini is not None and getattr(self.gemini, "_config", None) is not None,
-              GROQ: self._has_groq(), LOCAL: self.local is not None and self.local.available}
+              GROQ: self._has_groq(), LOCAL: self.local is not None and self.local.available, POOL: self._has_pool()}
         return any(ok.values()) if self.automatic() else ok[self.primary()]
 
     # ---- the engine API -------------------------------------------------------------------
@@ -113,7 +118,7 @@ class Brain:
     def _for(which: str, request: LLMRequest) -> LLMRequest:
         """LFM3 reads a small context and Groq's free plan takes small requests, so they get the shorter tool
         list when the caller gave one."""
-        if which in (LOCAL, GROQ) and request.local_tools is not None:
+        if which in (LOCAL, GROQ, POOL) and request.local_tools is not None:
             return replace(request, tools=request.local_tools)
         return request
 
@@ -139,7 +144,9 @@ class Brain:
                     "resting: " + self._down[GEMINI][1] if self._down.get(GEMINI, (0, ""))[0] > now else "ready"),
                 "lfm3": self.local.status() if self.local is not None else None,
                 "groq": "no key" if not self._has_groq() else (
-                    "resting: " + self._down[GROQ][1] if self._down.get(GROQ, (0, ""))[0] > now else "ready")}
+                    "resting: " + self._down[GROQ][1] if self._down.get(GROQ, (0, ""))[0] > now else "ready"),
+                "extra_keys": "no extra keys" if not self._has_pool() else (
+                    "resting: " + self._down[POOL][1] if self._down.get(POOL, (0, ""))[0] > now else self.pool.status())}
 
     def __getattr__(self, name: str):
         # embed, tts, live_model, profile... are Gemini-only and go straight to it.
