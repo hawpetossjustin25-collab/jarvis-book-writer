@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -253,6 +253,13 @@ CREATE TABLE rsi_versions (
 );
 CREATE INDEX idx_rsi_kind ON rsi_versions(kind, status);
 """,
+    5: """
+ALTER TABLE resources ADD COLUMN published REAL;
+ALTER TABLE resources ADD COLUMN author TEXT NOT NULL DEFAULT '';
+ALTER TABLE resources ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';
+CREATE INDEX idx_res_published ON resources(published);
+CREATE INDEX idx_res_lang ON resources(lang);
+""",
 }
 
 SEARCHABLE = ("fetched",)  # statuses whose pages appear in search results
@@ -274,6 +281,9 @@ class PageRecord:
     last_modified: Optional[str]
     trust: dict
     status: str = "fetched"
+    published: Optional[float] = None
+    author: str = ""
+    meta: dict = field(default_factory=dict)
 
 
 class GraphStore:
@@ -454,11 +464,11 @@ class GraphStore:
             "lang=?, content_hash=?, simhash=?, band0=?, band1=?, band2=?, band3=?, duplicate_of=?, trust=?, "
             "status=?, etag=?, last_modified=?, last_visited=?, visit_count=visit_count+1, "
             "last_changed=CASE WHEN ? THEN ? ELSE COALESCE(last_changed, ?) END, change_count=change_count+?, "
-            "revisit_s=?, next_visit=?, error=NULL WHERE id=?",
+            "revisit_s=?, next_visit=?, published=?, author=?, meta=?, error=NULL WHERE id=?",
             (page.final_url, page.http_status, page.title, page.description, page.text, page.resource_type,
              page.lang, page.content_hash, to_signed(page.simhash), *b, duplicate_of, json.dumps(page.trust),
              page.status, page.etag, page.last_modified, now, changed or first, now, now, int(changed), interval,
-             now + interval, rid))
+             now + interval, page.published, page.author, json.dumps(page.meta, default=str), rid))
         return changed
 
     def record_unchanged(self, rid: int, revisit_max: float) -> None:
@@ -593,10 +603,77 @@ class GraphStore:
             "database_mb": round(self.db.size_bytes() / 1e6, 2),
         }
 
+    def source(self, source: str) -> Optional[dict]:
+        """One source (a site such as example.com, or one of its host names): what the index holds from it."""
+        where = "(site=? OR domain=?)"
+        row = self.db.query_one(
+            f"SELECT COUNT(*) AS pages, SUM(status='fetched' AND duplicate_of IS NULL) AS searchable, "
+            f"SUM(status NOT IN ('fetched','discovered','noindex')) AS failed, SUM(duplicate_of IS NOT NULL) AS dups, "
+            f"MIN(discovered_at) AS first_seen, MAX(last_visited) AS last_visit, AVG(rank) AS avg_rank, "
+            f"SUM(url LIKE 'https://%') AS https, SUM(published IS NOT NULL) AS dated, MAX(published) AS newest "
+            f"FROM resources WHERE {where}", (source, source))
+        if not row or not row["pages"]:
+            return None
+        langs = {r[0] or "unknown": r[1] for r in self.db.query(
+            f"SELECT lang, COUNT(*) FROM resources WHERE {where} AND status='fetched' GROUP BY lang "
+            f"ORDER BY COUNT(*) DESC LIMIT 10", (source, source))}
+        hosts = [r[0] for r in self.db.query(
+            f"SELECT DISTINCT domain FROM resources WHERE {where} ORDER BY domain LIMIT 50", (source, source))]
+        top = [{"id": r["id"], "title": r["title"] or r["url"], "url": r["url"], "rank": round(r["rank"], 4)}
+               for r in self.db.query(
+                   f"SELECT id, title, url, rank FROM resources WHERE {where} AND status='fetched' AND "
+                   f"duplicate_of IS NULL ORDER BY rank DESC LIMIT 10", (source, source))]
+        n = row["pages"]
+        return {"source_id": source, "hosts": hosts, "pages": n, "searchable": row["searchable"] or 0,
+                "failed": row["failed"] or 0, "duplicates": row["dups"] or 0, "first_seen": row["first_seen"],
+                "last_visit": row["last_visit"], "avg_rank": round(row["avg_rank"] or 0.0, 4),
+                "https_share": round((row["https"] or 0) / n, 3), "dated_pages": row["dated"] or 0,
+                "newest_published": row["newest"], "languages": langs, "top_pages": top}
+
+    def search_stats(self) -> dict:
+        """How search is doing: index size, freshness and the measured speed of recent searches."""
+        now = self.clock()
+        idx = self.db.query_one(
+            "SELECT COUNT(*) AS n, SUM(published IS NOT NULL) AS dated, SUM(published >= ?) AS year, "
+            "SUM(last_visited >= ?) AS week FROM resources WHERE status='fetched' AND duplicate_of IS NULL",
+            (now - 365 * 86400, now - 7 * 86400))
+        recent = self.db.query("SELECT elapsed_ms, cached, result_count FROM search_history ORDER BY id DESC "
+                               "LIMIT 200")
+        times = sorted(r["elapsed_ms"] for r in recent)
+        n = idx["n"] or 0
+        return {"searchable": n, "dated_pages": idx["dated"] or 0, "published_last_year": idx["year"] or 0,
+                "checked_last_week": idx["week"] or 0,
+                "vectors": self.db.query_one("SELECT COUNT(*) FROM vectors")[0],
+                "searches": self.db.query_one("SELECT COUNT(*) FROM search_history")[0],
+                "recent_searches": len(recent),
+                "median_ms": round(times[len(times) // 2], 2) if times else None,
+                "p95_ms": round(times[min(len(times) - 1, int(0.95 * len(times)))], 2) if times else None,
+                "cached_share": round(sum(1 for r in recent if r["cached"]) / len(recent), 3) if recent else None,
+                "empty_share": round(sum(1 for r in recent if not r["result_count"]) / len(recent), 3)
+                if recent else None}
+
+    def crawl_stats(self) -> dict:
+        """How crawling is doing: queue, revisits due, failures and the last runs."""
+        runs = [{"id": r["id"], "started_at": r["started_at"], "finished_at": r["finished_at"],
+                 "status": r["status"], "topic": r["topic"], "stats": json.loads(r["stats"] or "{}")}
+                for r in self.db.query("SELECT id, started_at, finished_at, status, topic, stats FROM crawl_runs "
+                                       "ORDER BY id DESC LIMIT 5")]
+        week = self.clock() - 7 * 86400
+        visits = self.db.query_one("SELECT COUNT(*) AS n, SUM(outcome NOT IN ('new','changed','unchanged','duplicate','not_modified','noindex')) AS bad "
+                                   "FROM visits WHERE at >= ?", (week,))
+        counts = {r[0]: r[1] for r in self.db.query("SELECT status, COUNT(*) FROM resources GROUP BY status")}
+        return {"pages": sum(counts.values()), "by_status": counts, "queued": self.frontier_size(),
+                "due_for_revisit": self.db.query_one("SELECT COUNT(*) FROM resources WHERE next_visit <= ?",
+                                                     (self.clock(),))[0],
+                "visits_last_week": visits["n"] or 0, "failed_visits_last_week": visits["bad"] or 0,
+                "crawls": self.db.query_one("SELECT COUNT(*) FROM crawl_runs")[0], "recent_runs": runs}
+
 
 def _node(row) -> dict:
     out = dict(row)
     out["trust"] = json.loads(out.get("trust") or "{}")
+    if "meta" in out:
+        out["meta"] = json.loads(out.get("meta") or "{}")
     if out.get("simhash") is not None:
         out["simhash"] = to_unsigned(out["simhash"])
     for key in ("band0", "band1", "band2", "band3"):

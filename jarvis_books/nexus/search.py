@@ -21,6 +21,25 @@ log = logging.getLogger(__name__)
 _TOKEN = re.compile(r'(-?)(?:(site|type):(\S+)|"([^"]+)"|(\S+))')
 _WORD = re.compile(r"\w+", re.UNICODE)
 RRF_K = 60
+FRESH_HALF_LIFE_DAYS = 180.0
+_RECENT = re.compile(r"\b(latest|newest|recent|recently|today|tonight|yesterday|this (?:week|month|year)|news|"
+                     r"breaking|current|currently|now|update[sd]?|new)\b", re.I)
+
+
+def wants_recent(text: str, now: Optional[float] = None) -> bool:
+    """Query intent: does the search ask for recent things? Words like "latest" or "news", or this or last year."""
+    if _RECENT.search(text or ""):
+        return True
+    year = time.gmtime(now if now is not None else time.time()).tm_year
+    return any(int(y) >= year - 1 for y in re.findall(r"\b(20\d\d)\b", text or ""))
+
+
+def freshness(published: Optional[float], now: float) -> float:
+    """1.0 for a page published now, halving every FRESH_HALF_LIFE_DAYS; 0 when the page has no date."""
+    if not published:
+        return 0.0
+    age_days = max(0.0, (now - published) / 86400)
+    return 0.5 ** (age_days / FRESH_HALF_LIFE_DAYS)
 
 
 @dataclass(frozen=True)
@@ -37,10 +56,13 @@ class RankWeights:
     link_rank: float = 0.5
     title_hits: float = 0.4
     relevance: float = 0.2
+    freshness: float = 0.1  # recently published pages, for every search
+    fresh_intent: float = 1.0  # extra freshness when the search asks for recent things ("latest", "news", a year)
 
     LIMITS = {"title_col": (0.5, 30.0), "description_col": (0.0, 20.0), "text_col": (0.1, 10.0),
               "url_col": (0.0, 20.0), "words": (0.1, 3.0), "meaning": (0.0, 3.0), "rrf_k": (1.0, 200.0),
-              "link_rank": (0.0, 3.0), "title_hits": (0.0, 3.0), "relevance": (0.0, 3.0)}
+              "link_rank": (0.0, 3.0), "title_hits": (0.0, 3.0), "relevance": (0.0, 3.0),
+              "freshness": (0.0, 3.0), "fresh_intent": (0.0, 5.0)}
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.LIMITS}
@@ -148,13 +170,22 @@ class SearchEngine:
 
     # ---- the search
     def search(self, raw: str, max_results: int = 10, site: Optional[str] = None,
-               resource_type: Optional[str] = None, use_cache: bool = True, record: bool = True) -> dict:
+               resource_type: Optional[str] = None, use_cache: bool = True, record: bool = True, *,
+               offset: int = 0, lang: Optional[str] = None, after: Optional[float] = None,
+               before: Optional[float] = None, author: Optional[str] = None) -> dict:
+        """`offset` pages through results; `lang` (e.g. "en" also matches "en-us"), `after`/`before` (Unix time of
+        publication; undated pages are left out when either is given) and `author` (part of the name) filter."""
         started = time.perf_counter()
         q = parse_query(raw)
         site = (site or q.site or "").lower().lstrip(".") or None
         kind = (resource_type or q.resource_type or "").lower() or None
         max_results = max(1, min(int(max_results), 100))
+        offset = max(0, min(int(offset), 10_000))
+        lang = (lang or "").strip().lower() or None
+        author = (author or "").strip().lower() or None
         filters = {"site": site, "type": kind, "max_results": max_results}
+        extra = {"offset": offset, "lang": lang, "after": after, "before": before, "author": author}
+        filters.update({k: v for k, v in extra.items() if v})
         w = self.weights
         key = hashlib.sha256(json.dumps([raw.strip().lower(), filters, w.to_dict()], sort_keys=True)
                              .encode()).hexdigest()
@@ -175,9 +206,13 @@ class SearchEngine:
             for pos, rid in enumerate(r for r in ranked if r not in banned):
                 scores[rid] = scores.get(rid, 0.0) + weight / (w.rrf_k + pos + 1)
         boost = ParsedQuery(q.terms + [fix.split(" -> ")[1] for fix in fixes], q.phrases)
-        results = self._assemble(scores, boost, site, kind, max_results, set(lexical))
+        recent = wants_recent(raw)
+        ranked = self._assemble(scores, boost, site, kind, offset + max_results + 1, set(lexical),
+                                lang=lang, after=after, before=before, author=author, recent=recent)
+        results = ranked[offset:offset + max_results]
         out = {"query": raw, "expanded": expr, "spelling": fixes, "results": results,
-               "matched": len(scores), "semantic": bool(semantic)}
+               "matched": len(scores), "semantic": bool(semantic), "offset": offset,
+               "more": len(ranked) > offset + max_results, "recent_intent": recent}
         elapsed = (time.perf_counter() - started) * 1000
         if record:  # self-improvement's test questions aren't the author's searches
             self.store.cache(key, out)
@@ -216,16 +251,20 @@ class SearchEngine:
         return [int(ids[i]) for i in order if sims[i] >= floor]
 
     def _assemble(self, scores: dict[int, float], q: ParsedQuery, site: Optional[str], kind: Optional[str],
-                  max_results: int, lexical: set[int]) -> list[dict]:
+                  max_results: int, lexical: set[int], *, lang: Optional[str] = None,
+                  after: Optional[float] = None, before: Optional[float] = None, author: Optional[str] = None,
+                  recent: bool = False) -> list[dict]:
         if not scores:
             return []
         ids = list(scores)
         marks = ",".join("?" * len(ids))
         rows = {r["id"]: r for r in self.store.db.query(
             f"SELECT id, url, final_url, domain, site, title, description, substr(text, 1, 6000) AS text, "
-            f"resource_type, rank, relevance, content_hash, simhash, last_visited, discovered_at, last_changed "
+            f"resource_type, rank, relevance, content_hash, simhash, last_visited, discovered_at, last_changed, "
+            f"published, author, lang "
             f"FROM resources WHERE id IN ({marks}) AND status='fetched' AND duplicate_of IS NULL", tuple(ids))}
         words = q.terms + [w for p in q.phrases for w in p.split()]
+        now = self.store.clock()
         ranked = []
         for rid, base in scores.items():
             row = rows.get(rid)
@@ -235,11 +274,20 @@ class SearchEngine:
                 continue
             if kind and row["resource_type"] != kind and not (kind == "page" and row["resource_type"] == "article"):
                 continue
+            if lang and not (row["lang"] == lang or row["lang"].startswith(lang + "-")):
+                continue
+            if (after or before) and not row["published"]:
+                continue
+            if (after and row["published"] < after) or (before and row["published"] > before):
+                continue
+            if author and author not in (row["author"] or "").lower():
+                continue
             title = (row["title"] or "").lower()
             title_hits = sum(1 for w in set(words) if w in title) / max(1, len(set(words)))
             w = self.weights
+            fresh = freshness(row["published"], now) * (w.freshness + (w.fresh_intent if recent else 0.0))
             score = base * (1.0 + w.link_rank * row["rank"] + w.title_hits * title_hits +
-                            w.relevance * row["relevance"])
+                            w.relevance * row["relevance"] + fresh)
             ranked.append((score, row))
         ranked.sort(key=lambda x: -x[0])
         results, hashes, sims = [], set(), []
@@ -260,7 +308,9 @@ class SearchEngine:
             "SELECT r.url, r.title FROM edges e JOIN resources r ON r.id = e.dst WHERE e.src=? AND "
             "r.status='fetched' AND r.duplicate_of IS NULL AND e.rel IN ('link','next','prev') "
             "ORDER BY r.rank DESC LIMIT 3", (row["id"],))
-        return {"title": row["title"] or row["url"], "url": row["final_url"] or row["url"], "domain": row["domain"],
+        return {"id": row["id"], "title": row["title"] or row["url"], "url": row["final_url"] or row["url"],
+                "domain": row["domain"], "source_id": row["site"], "published": row["published"],
+                "author": row["author"], "lang": row["lang"],
                 "description": row["description"], "snippet": snippet(row["text"], words),
                 "type": row["resource_type"], "score": round(score, 6), "rank": round(row["rank"], 4),
                 "match": "words" if lexical else "meaning", "discovered": row["discovered_at"],

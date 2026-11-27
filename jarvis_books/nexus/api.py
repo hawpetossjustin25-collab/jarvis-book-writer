@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import queue
+import re
 import secrets
 import socket
 import struct
@@ -23,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
@@ -337,6 +339,8 @@ class _Handler(BaseHTTPRequestHandler):
         role = self._role()
         if role is None:
             return
+        if path.startswith(SEARCH_API + "/"):
+            return self._json(*search_api(self.nexus.hub, "GET", self.path, role))
         if path == "/v1/events":
             return self._events()
         if path == "/v1/ws":
@@ -346,6 +350,8 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._host_ok():
             return
+        if self.path.split("?")[0].startswith(SEARCH_API + "/"):
+            return self._json(*_error(405, "method_not_allowed", "Search API routes are read-only; use GET"))
         if self.path.split("?")[0] != "/v1/request":
             return self._json(404, {"error": {"code": "not_found", "message": "unknown path"}})
         role = self._role()
@@ -446,6 +452,182 @@ class _Handler(BaseHTTPRequestHandler):
 
 _HTTP = {"invalid_request": 400, "unknown_operation": 400, "unsafe_url": 400, "not_found": 404, "timeout": 504,
          "unavailable": 503, "internal": 500, "unauthorized": 403, "conflict": 409}
+
+
+SEARCH_API = "/api/v1"
+MAX_PER_PAGE = 50
+MAX_PAGE = 200
+_SOURCE_ID = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)*$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+SEARCH_PARAMS = {"q", "page", "per_page", "site", "type", "lang", "after", "before", "author", "cache"}
+
+
+class ApiError(Exception):
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(message)
+        self.status, self.code, self.message = status, code, message
+
+
+def _error(status: int, code: str, message: str, request_id: str = "") -> tuple[int, dict]:
+    body = {"api": "v1", "error": {"code": code, "message": message}}
+    if request_id:
+        body["request_id"] = request_id
+    return status, body
+
+
+def _one(params: dict[str, list[str]], name: str) -> Optional[str]:
+    values = params.get(name)
+    if not values:
+        return None
+    if len(values) > 1:
+        raise ApiError(400, "invalid_request", f"give '{name}' once")
+    return values[0].strip()
+
+
+def _int(params: dict, name: str, default: int, low: int, high: int) -> int:
+    raw = _one(params, name)
+    if raw is None or raw == "":
+        return default
+    if not re.fullmatch(r"\d{1,6}", raw):
+        raise ApiError(400, "invalid_request", f"'{name}' must be a whole number")
+    value = int(raw)
+    if not low <= value <= high:
+        raise ApiError(400, "invalid_request", f"'{name}' must be between {low} and {high}")
+    return value
+
+
+def _day(params: dict, name: str, end: bool = False) -> Optional[float]:
+    from datetime import datetime, timezone
+    raw = _one(params, name)
+    if not raw:
+        return None
+    if not _DATE.match(raw):
+        raise ApiError(400, "invalid_request", f"'{name}' must be a date like 2026-01-31")
+    try:
+        day = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise ApiError(400, "invalid_request", f"'{name}' is not a real date") from None
+    return day.timestamp() + (86400 - 0.001 if end else 0)
+
+
+def _iso(ts: Optional[float]) -> Optional[str]:
+    if not ts:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def _search_payload(params: dict) -> tuple[dict, int, int]:
+    unknown = sorted(set(params) - SEARCH_PARAMS)
+    if unknown:
+        raise ApiError(400, "invalid_request", f"unknown parameter: {', '.join(unknown)}")
+    q = _one(params, "q") or ""
+    if not q:
+        raise ApiError(400, "invalid_request", "'q' (what to search for) is required")
+    if len(q) > 500:
+        raise ApiError(400, "invalid_request", "'q' is longer than 500 characters")
+    page = _int(params, "page", 1, 1, MAX_PAGE)
+    per_page = _int(params, "per_page", 10, 1, MAX_PER_PAGE)
+    payload: dict = {"query": q, "max_results": per_page, "offset": (page - 1) * per_page}
+    site = (_one(params, "site") or "").lower().lstrip(".")
+    if site:
+        if not _SOURCE_ID.match(site):
+            raise ApiError(400, "invalid_request", "'site' must be a host name like example.com")
+        payload["site"] = site
+    for name, limit in (("type", 20), ("lang", 20), ("author", 200)):
+        value = _one(params, name)
+        if value:
+            if len(value) > limit:
+                raise ApiError(400, "invalid_request", f"'{name}' is longer than {limit} characters")
+            payload[name] = value.lower() if name != "author" else value
+    after, before = _day(params, "after"), _day(params, "before", end=True)
+    if after is not None:
+        payload["after"] = after
+    if before is not None:
+        payload["before"] = before
+    if after is not None and before is not None and after > before:
+        raise ApiError(400, "invalid_request", "'after' must not be later than 'before'")
+    cache = _one(params, "cache")
+    if cache not in (None, "", "true", "false", "1", "0"):
+        raise ApiError(400, "invalid_request", "'cache' must be true or false")
+    if cache in ("false", "0"):
+        payload["use_cache"] = False
+    return payload, page, per_page
+
+
+def _result(r: dict) -> dict:
+    """One search hit with its source attribution and freshness signals."""
+    return {"document_id": r.get("id"), "title": r.get("title"), "url": r.get("url"), "snippet": r.get("snippet"),
+            "description": r.get("description"), "type": r.get("type"), "score": r.get("score"),
+            "match": r.get("match"),
+            "source": {"source_id": r.get("source_id"), "domain": r.get("domain"), "link_rank": r.get("rank")},
+            "published": _iso(r.get("published")), "author": r.get("author") or None,
+            "language": r.get("lang") or None,
+            "freshness": {"last_checked": _iso(r.get("last_checked")), "last_changed": _iso(r.get("last_changed")),
+                          "first_seen": _iso(r.get("discovered"))}}
+
+
+def search_api(hub: "NexusHub", method: str, target: str, role: str) -> tuple[int, dict]:
+    """The Search API v1 routes. Each one is a validated NEXUS request to OS1, so it gets the same contract checks,
+    timeouts, history and events as /v1/request; the answer is reshaped for people and programs that search."""
+    if method != "GET":
+        return _error(405, "method_not_allowed", "Search API routes are read-only; use GET")
+    parts = urlsplit(target)
+    path = parts.path.rstrip("/")
+    try:
+        params = parse_qs(parts.query, keep_blank_values=True, max_num_fields=30)
+    except ValueError:
+        return _error(400, "invalid_request", "too many query parameters")
+    try:
+        page = per_page = 0
+        if path == SEARCH_API + "/search":
+            payload, page, per_page = _search_payload(params)
+            operation = "search"
+        elif path in (SEARCH_API + "/search/status", SEARCH_API + "/crawl/status"):
+            if params:
+                raise ApiError(400, "invalid_request", "this route takes no parameters")
+            operation, payload = path.split("/")[-2] + "_status", {}
+        elif path.startswith(SEARCH_API + "/documents/"):
+            raw = unquote(path[len(SEARCH_API + "/documents/"):])
+            if params or not re.fullmatch(r"[1-9]\d{0,17}", raw):
+                raise ApiError(400, "invalid_request", "a document id is a positive whole number")
+            operation, payload = "document", {"id": int(raw)}
+        elif path.startswith(SEARCH_API + "/sources/"):
+            raw = unquote(path[len(SEARCH_API + "/sources/"):]).lower()
+            if params or not _SOURCE_ID.match(raw):
+                raise ApiError(400, "invalid_request", "a source id is a host name like example.com")
+            operation, payload = "source", {"source": raw}
+        else:
+            raise ApiError(404, "not_found", "unknown Search API route")
+    except ApiError as exc:
+        return _error(exc.status, exc.code, exc.message)
+    response = hub.route(NexusRequest("jarvis", "os1", operation, payload), role)
+    if not response.ok:
+        return _error(_HTTP.get(response.error_code, 500), response.error_code or "internal",
+                      response.error_message or "", response.request_id)
+    meta = response.extra
+    body: dict = {"api": "v1", "request_id": response.request_id,
+                  "took_ms": round(response.execution_time_ms, 2)}
+    if operation == "search":
+        body.update({"query": payload["query"], "page": page, "per_page": per_page,
+                     "results": [_result(r) for r in response.results],
+                     "next_page": page + 1 if meta.get("more") and page < MAX_PAGE else None,
+                     "matched": meta.get("matched", 0), "indexed_pages": meta.get("indexed_pages"),
+                     "query_info": {"expanded": meta.get("expanded"), "spelling": meta.get("spelling"),
+                                    "semantic": meta.get("semantic"), "cached": meta.get("cached"),
+                                    "recent_intent": meta.get("recent_intent")}})
+    elif operation == "document":
+        doc = dict(response.results[0])
+        for key in ("discovered_at", "last_visited", "last_modified", "last_changed", "next_visit", "published"):
+            doc[key] = _iso(doc.get(key))
+        body["document"] = {"document_id": doc.pop("id"), **doc}
+    elif operation == "source":
+        src = dict(response.results[0])
+        for key in ("first_seen", "last_visit", "newest_published"):
+            src[key] = _iso(src.get(key))
+        body["source"] = src
+    else:
+        body["status"] = response.results[0]
+    return 200, body
 
 
 def ws_frame(payload: bytes, opcode: int = 1, mask: bool = False) -> bytes:

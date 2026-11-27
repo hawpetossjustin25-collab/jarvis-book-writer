@@ -237,7 +237,7 @@ class Crawler:
         status = "noindex" if page.noindex else "fetched"
         record = PageRecord(final, result.status, page.title, page.description, page.text, page.resource_type,
                             page.lang, digest, sim, result.headers.get("etag"), result.headers.get("last-modified"),
-                            trust, status)
+                            trust, status, page.published, page.author, page.meta)
         before = self.store.resource(rid)
         changed = self.store.record_page(rid, record, duplicate, cfg.revisit_min_s, cfg.revisit_max_s)
         self.store.db.execute("UPDATE resources SET relevance=MAX(relevance, ?) WHERE id=?",

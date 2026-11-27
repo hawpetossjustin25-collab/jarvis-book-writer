@@ -48,6 +48,30 @@ The tests are `tests/test_nexus_core.py`, `tests/test_nexus_os1.py`, `tests/test
 `tests/test_nexus_os3.py`, `tests/test_nexus_api.py`, `tests/test_nexus_rsi.py` and `tests/test_nexus_tools.py`. They make real
 `httpx` requests to an in-process fake web (`tests/nexus_site.py`), so they run offline.
 
+## Search API v1 (Deep Doc 2)
+
+Read-only routes on the NEXUS API (`127.0.0.1:8770`), each sent as a validated OS1 request through the hub, so
+they share its contract checks, timeouts, events, bearer tokens (any role), local-host check and rate limit:
+
+| Route | Answer |
+|---|---|
+| `GET /api/v1/search?q=...` | ranked hits with `document_id`, snippet, source (`source_id`, domain, link rank), published date, author, language and freshness (first seen, last checked, last changed); `page`/`per_page` (1-200, 1-50) and `next_page` |
+| `GET /api/v1/documents/{document_id}` | one saved page: metadata, text preview, links in and out, recent visits |
+| `GET /api/v1/sources/{source_id}` | one site (e.g. `example.com`): page counts, failures, duplicates, HTTPS share, languages, newest date, top pages |
+| `GET /api/v1/search/status` | index size, dated pages, measured search speed (median, p95), cache and empty-result shares, ranking weights |
+| `GET /api/v1/crawl/status` | pages by status, queue, revisits due, visits and failures in the last week, last 5 crawls |
+
+Search filters: `site`, `type`, `lang` (`en` also matches `en-us`), `after`/`before` (`YYYY-MM-DD`; undated pages
+are left out), `author` (part of the name), `cache=false`. Bad input gets a 400 with
+`{"error": {"code": "invalid_request", "message": ...}}`; unknown ids 404, writes 405, no token 401, too fast 429.
+
+The parser reads publication dates and authors from JSON-LD, meta tags (`article:published_time`, `author`,
+Dublin Core, citation tags), `<time>` and bylines, and feed dates from their newest entry. Impossible dates (before
+1991 or in the future) are dropped. They are stored by migration 5 (`published`, `author`, `meta`). Ranking adds a
+freshness signal (halving every 180 days, zero for undated pages) with two weights, `freshness` and
+`fresh_intent` (used when the query asks for recent things: "latest", "news", this or last year). Both are
+`RankWeights`, so the self-improvement rounds tune them on sealed questions and keep them only when measured better.
+
 ## Collective (Deep Doc 2, phase 1)
 
 Computers you own share work with Jarvis. Everything is in `collective.db` (SQLite, migrations in

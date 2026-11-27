@@ -25,7 +25,16 @@ PAYLOADS = {
         "query": {"type": "string", "minLength": 1, "maxLength": 500},
         "max_results": {"type": "integer", "minimum": 1, "maximum": 100},
         "site": {"type": "string", "maxLength": 253}, "type": {"type": "string", "maxLength": 20},
-        "use_cache": {"type": "boolean"}}},
+        "use_cache": {"type": "boolean"},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 10_000},
+        "lang": {"type": "string", "maxLength": 20}, "author": {"type": "string", "maxLength": 200},
+        "after": {"type": "number"}, "before": {"type": "number"}}},
+    "document": {"type": "object", "required": ["id"], "additionalProperties": False, "properties": {
+        "id": {"type": "integer", "minimum": 1}}},
+    "source": {"type": "object", "required": ["source"], "additionalProperties": False, "properties": {
+        "source": {"type": "string", "minLength": 1, "maxLength": 253}}},
+    "search_status": {"type": "object", "additionalProperties": False, "properties": {}},
+    "crawl_status": {"type": "object", "additionalProperties": False, "properties": {}},
     "crawl": {"type": "object", "additionalProperties": False, "properties": {
         "seeds": {"type": "array", "items": _URL, "maxItems": 50},
         "topic": {"type": "string", "maxLength": 300},
@@ -115,11 +124,52 @@ class OS1:
 
     # ---- operations
     def _op_search(self, p: dict, stop, progress) -> tuple[list, dict]:
+        if p.get("after") and p.get("before") and p["after"] > p["before"]:
+            raise ValueError("'after' must be before 'before'")
         out = self.search_engine.search(p["query"], p.get("max_results", 10), p.get("site"), p.get("type"),
-                                        p.get("use_cache", True))
+                                        p.get("use_cache", True), offset=p.get("offset", 0), lang=p.get("lang"),
+                                        after=p.get("after"), before=p.get("before"), author=p.get("author"))
         return out["results"], {"expanded": out["expanded"], "spelling": out["spelling"], "cached": out["cached"],
                                 "matched": out["matched"], "semantic": out["semantic"],
+                                "offset": out.get("offset", 0), "more": out.get("more", False),
+                                "recent_intent": out.get("recent_intent", False),
                                 "indexed_pages": self.store.stats()["searchable"]}
+
+    def _op_document(self, p: dict, stop, progress) -> tuple[list, dict]:
+        node = self.store.resource(p["id"])
+        if node is None:
+            raise ContractError(f"there is no document {p['id']} in the index", "not_found")
+        return [self._detail(node)], {}
+
+    def _detail(self, node: dict) -> dict:
+        out_n, in_n = self.store.link_counts(node["id"])
+        return {k: v for k, v in node.items() if k != "text"} | {
+            "text_preview": (node.get("text") or "")[:1500], "source_id": node["site"],
+            "outgoing_count": out_n, "incoming_count": in_n,
+            "outgoing": self.store.outgoing(node["id"], 25), "incoming": self.store.incoming(node["id"], 25),
+            "visits": self.store.visits(node["id"], 10)}
+
+    def _op_source(self, p: dict, stop, progress) -> tuple[list, dict]:
+        source = p["source"].strip().lower().lstrip(".")
+        info = self.store.source(source)
+        if info is None:
+            raise ContractError(f"no pages from {source} are in the index", "not_found")
+        return [info], {}
+
+    def _op_search_status(self, p: dict, stop, progress) -> tuple[list, dict]:
+        stats = self.store.search_stats()
+        stats["cache_hits"] = self.search_engine.cache_hits
+        stats["cache_misses"] = self.search_engine.cache_misses
+        stats["meaning_search"] = self.embedder.model if self.embedder else self.backup_embedder.model
+        stats["ranking"] = self.search_engine.weights.to_dict()
+        return [stats], {}
+
+    def _op_crawl_status(self, p: dict, stop, progress) -> tuple[list, dict]:
+        stats = self.store.crawl_stats()
+        stats["crawl_running"] = self._crawl_lock.locked()
+        stats["unfinished_crawl"] = self.store.unfinished_run()
+        stats["settings"] = self.config.to_dict()
+        return [stats], {}
 
     def _op_crawl(self, p: dict, stop, progress) -> tuple[list, dict]:
         if not self._crawl_lock.acquire(blocking=False):
@@ -165,13 +215,7 @@ class OS1:
         node = self.store.by_url(url) if url else None
         if node is None:
             raise ContractError("that page isn't in the index yet", "not_found")
-        out_n, in_n = self.store.link_counts(node["id"])
-        node = {k: v for k, v in node.items() if k != "text"} | {
-            "text_preview": (self.store.resource(node["id"])["text"] or "")[:1500],
-            "outgoing_count": out_n, "incoming_count": in_n,
-            "outgoing": self.store.outgoing(node["id"], 25), "incoming": self.store.incoming(node["id"], 25),
-            "visits": self.store.visits(node["id"], 10)}
-        return [node], {}
+        return [self._detail(self.store.resource(node["id"]))], {}
 
     def _op_status(self, p: dict, stop, progress) -> tuple[list, dict]:
         stats = self.store.stats()
