@@ -1459,7 +1459,9 @@ class MainWindow(QMainWindow):
             return
         self.cast_table.setRowCount(len(cast))
         for row, m in enumerate(cast):
-            self.cast_table.setItem(row, 0, QTableWidgetItem(m["name"] + (" (your pick)" if m["locked"] else "")))
+            name_item = QTableWidgetItem(m["name"] + (" (your pick)" if m["locked"] else ""))
+            name_item.setData(Qt.ItemDataRole.UserRole, m["name"])
+            self.cast_table.setItem(row, 0, name_item)
             if m["name"] == NARRATOR:
                 self.cast_table.setItem(row, 1, QTableWidgetItem("Narrator"))
             else:
@@ -1492,7 +1494,32 @@ class MainWindow(QMainWindow):
         result = self.studio.tools.run("set_voice", {"book": book.title, "character": name, **change})
         if "error" in result:
             self.statusBar().showMessage(result["error"], 6000)
-        QTimer.singleShot(0, self._refresh_cast)
+            return
+        self._update_cast_row(book_id, name)
+
+    def _update_cast_row(self, book_id, name: str) -> None:
+        # Updated in place: rebuilding the table from a combo box's own signal deletes that box mid-signal, which
+        # crashes Qt on Windows.
+        member = self.studio.library.get_cast_member(book_id, name)
+        if member is None:
+            return
+        for row in range(self.cast_table.rowCount()):
+            item = self.cast_table.item(row, 0)
+            if item is None or item.data(Qt.ItemDataRole.UserRole) != name:
+                continue
+            item.setText(name + (" (your pick)" if member["locked"] else ""))
+            for col, key in ((1, None), (2, "voice")):
+                box = self.cast_table.cellWidget(row, col)
+                if not isinstance(box, QComboBox):
+                    continue
+                want = (member["gender"], member["age"]) if key is None else member[key]
+                at = box.findData(want)
+                if at >= 0 and at != box.currentIndex():
+                    box.blockSignals(True)
+                    box.setCurrentIndex(at)
+                    box.blockSignals(False)
+            self.cast_table.setItem(row, 3, QTableWidgetItem(member["edge_voice"].replace("Neural", "")))
+            return
 
     def _cast_voices(self) -> None:
         book_id = self.listen_book.currentData()

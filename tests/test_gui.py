@@ -343,6 +343,14 @@ def test_listen_tab_cast_table_changes_a_voice(window, qapp):
     assert pump(qapp, lambda: studio.library.get_cast_member(book.id, "Mara")["voice"] == "Kore")
     mara = studio.library.get_cast_member(book.id, "Mara")
     assert mara["locked"] and mara["age"] == "child"
+    # the row is updated in place: the combo box that sent the change is never deleted under its own signal
+    assert win.cast_table.cellWidget(1, 2) is voice_box and voice_box.currentData() == "Kore"
+    assert win.cast_table.item(1, 0).text() == "Mara (your pick)"
+    who_box = win.cast_table.cellWidget(1, 1)
+    who_box.setCurrentIndex(who_box.findText("Teen girl"))
+    assert pump(qapp, lambda: studio.library.get_cast_member(book.id, "Mara")["age"] == "teen")
+    assert win.cast_table.cellWidget(1, 1) is who_box and who_box.currentText() == "Teen girl"
+    assert win.cast_table.cellWidget(1, 2) is voice_box
 
 
 class _MicSession:
