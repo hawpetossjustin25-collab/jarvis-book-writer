@@ -415,7 +415,8 @@ def test_studio_answers_on_the_phone_with_the_same_jarvis(tmp_path, monkeypatch)
         assert s.phone_info()["link"] is None and not s.phone.running
         s.set_setting("phone", "1")
         assert s.phone.running and wait_until(lambda: s.tunnel.host == HOST)
-        assert told and f"https://{HOST}/#c=" in told[0]  # the new link is sent on Telegram
+        # the tunnel shows its host just before it reports it, so the Telegram message can land a moment later
+        assert wait_until(lambda: told) and f"https://{HOST}/#c=" in told[0]  # the new link is sent on Telegram
         s._on_phone_url(HOST)  # the same link again (a restarted Jarvis kept it): no repeat message
         assert len(told) == 1
         assert s.tools.phone_device is s.phone.device_link
