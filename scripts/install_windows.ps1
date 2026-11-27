@@ -56,6 +56,12 @@ Push-Location $app
 & $py -c "from jarvis_books.ui.voice_bridge import ensure_wake_model; ensure_wake_model()" 2>&1 | Select-Object -Last 2
 Pop-Location
 
+# The Release Center reads version.json while the tests run, so the commit is recorded before them.
+if ($Commit) {
+    @{ commit = "$Commit".Trim().ToLower(); channel = $Channel; tests = @{ ran = $false; summary = 'tests running' }
+       installed_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() } |
+        ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 (Join-Path $app 'version.json')
+}
 if (-not $SkipTests) {
     Push-Location $app
     $env:QT_QPA_PLATFORM = 'offscreen'

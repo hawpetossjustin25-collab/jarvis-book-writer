@@ -41,3 +41,11 @@ def test_the_installer_holds_the_lock_while_it_replaces_files():
     assert "installing.lock" in text
     assert text.index("installing.lock") < text.index("Remove-Item -Recurse -Force $app")
     assert "finally" in text
+
+
+def test_the_installer_records_the_commit_before_the_tests_read_it():
+    # The Release Center test reads app\version.json while the suite runs, so it must exist first.
+    text = (ROOT / "scripts" / "install_windows.ps1").read_text()
+    first_write = text.index("'version.json'")
+    assert first_write < text.index("-m pytest")
+    assert "tests running" in text[:text.index("-m pytest")]
