@@ -166,6 +166,9 @@ def test_closed_window_stops_timers_and_storage_access(qapp, tmp_path):
     win._load_chapters()
     win._on_started(None)  # a late startup callback must not switch on the wake word (real mic on a laptop)
     assert win.voice.wake is None and not win.wake_box.isChecked()
+    studio.close()
+    win._refresh_cast()  # the delayed cast refresh can fire after storage closed (crashed Qt on Windows)
+    win._update_cast_row("any", "Narrator")
 
 
 def test_war_room_proposals_accept_and_undo_from_the_panel(window, qapp):

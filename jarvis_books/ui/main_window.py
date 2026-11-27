@@ -1448,6 +1448,8 @@ class MainWindow(QMainWindow):
                    ("Older man", "male", "elder"), ("Older woman", "female", "elder"))
 
     def _refresh_cast(self) -> None:
+        if self._closed:  # a late refresh (e.g. the 200 ms one after a cast change) must not touch closed storage
+            return
         book_id = self.listen_book.currentData()
         self.cast_table.setRowCount(0)
         if not book_id or getattr(self.studio, "director", None) is None:
@@ -1498,6 +1500,8 @@ class MainWindow(QMainWindow):
         self._update_cast_row(book_id, name)
 
     def _update_cast_row(self, book_id, name: str) -> None:
+        if self._closed:
+            return
         # Updated in place: rebuilding the table from a combo box's own signal deletes that box mid-signal, which
         # crashes Qt on Windows.
         member = self.studio.library.get_cast_member(book_id, name)
