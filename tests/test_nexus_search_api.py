@@ -261,7 +261,7 @@ def test_routes_need_a_token_are_local_only_read_only_and_rate_limited(nexus, tm
     foreign = httpx.get(f"http://127.0.0.1:{server.port}/api/v1/search?q=solar", trust_env=False, timeout=30,
                         headers={"Authorization": f"Bearer {token}", "Host": "evil.example"})
     assert foreign.status_code == 403
-    tight = NexusServer(hub, tokens, port=0, limit=RateLimit(per_minute=60, burst=2))
+    tight = NexusServer(hub, tokens, port=0, limit=RateLimit(per_minute=60, burst=2, clock=lambda: 0.0))
     assert tight.start()
     try:
         codes = [get(tight, token, "/api/v1/search/status").status_code for _ in range(4)]
