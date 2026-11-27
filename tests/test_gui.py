@@ -7,6 +7,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt6.QtWidgets")
 
+from PyQt6.QtCore import Qt  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from fakes import FakeGemini  # noqa: E402
@@ -54,10 +55,29 @@ def test_tabs_and_library(window, qapp):
     win, studio, book = window
     assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == \
         ["Jarvis", "Chat", "Library", "Write", "Listen", "Settings", "War Room", "Publish",
-         "Workshop", "Planner", "Research", "Game"]
-    assert win.book_list.count() == 1 and win.selected_book_id() == book.id
+         "Workshop", "Planner", "Research", "NEXUS", "Game"]
+    titles = sorted(win.book_list.item(i).text() for i in range(win.book_list.count()))
+    assert len(titles) == 2 and any("Imagination" in t for t in titles)  # Jarvis keeps Justin's game's book
+    rows = [win.book_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(win.book_list.count())]
+    win.book_list.setCurrentRow(rows.index(book.id))
+    qapp.processEvents()
+    assert win.selected_book_id() == book.id
     assert "Glass City" in win.book_info.toPlainText() and "Shatter" in win.book_info.toPlainText()
     assert "Config v" in win.engine_view.toPlainText()
+
+
+def test_nexus_tab_shows_live_records_and_keeps_updating(window, qapp):
+    win, studio, _ = window
+    view = win.nexus_tab.view
+    assert pump(qapp, lambda: "Release Center" in view.toPlainText(), timeout=20)
+    text = view.toPlainText()
+    for heading in ("NEXUS API", "Search (OS1)", "Facts (OS2)", "Tools (OS3)", "Collective", "Self-improvement"):
+        assert heading in text
+    assert "Couldn't read" not in text
+    studio.nexus.store.ensure("https://dash.example/")
+    pump(qapp, lambda: not win.nexus_tab._busy.locked())
+    assert win.nexus_tab.refresh()
+    assert pump(qapp, lambda: "1 pages known" in view.toPlainText(), timeout=20)
 
 
 def test_editor_autosaves_with_revision_history(window, qapp):

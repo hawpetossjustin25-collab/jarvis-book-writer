@@ -45,9 +45,9 @@ TOOL_LEVELS = MappingProxyType({
     "web_index_brief": READ, "web_index_facts": READ, "web_index_conflicts": READ,
     "web_index_improve": SAFE,
     # NEXUS Collective: looking is free; running work, limits and workers need a yes; letting a new computer in is System
-    "collective_status": READ, "collective_task": READ, "collective_run": CHANGE, "collective_limits": CHANGE,
+    "collective_status": READ, "scheduler_status": READ, "scheduler_improve": CHANGE, "collective_task": READ, "collective_run": CHANGE, "collective_limits": CHANGE,
     "collective_worker": CHANGE, "collective_join_code": SYSTEM,
-    "model_hub": READ, "model_plan": READ, "model_route": READ, "model_install": OUTSIDE,
+    "model_hub": READ, "model_plan": READ, "hardware_advice": READ, "model_route": READ, "model_install": OUTSIDE,
     "release_center": READ, "release_propose": CHANGE, "release_decide": SYSTEM,
     "phone_link": READ,
     # the author's Android phone: reading is free; texting, calling, tapping and the terminal wait for a yes
@@ -82,6 +82,13 @@ TOOL_LEVELS = MappingProxyType({
     "game_stock_cars": SAFE, "game_trading": READ, "game_open_trading": SAFE, "game_trading_funds": SAFE,
     "game_trading_agents": SAFE, "game_bidder": READ, "game_hire_bidder": SAFE, "game_fire_bidder": SAFE,
     "game_learn": SAFE, "game_back_to_game": SAFE,
+    # Imagination only changes its own save, so moves need no yes; starting over does
+    "imagination_status": READ, "imagination_look": READ, "imagination_wand": READ, "imagination_rivals": READ,
+    "imagination_missions": READ, "imagination_map": READ, "imagination_clocks": READ, "imagination_lore": READ,
+    "imagination_story": SAFE, "imagination_go": SAFE, "imagination_take": SAFE, "imagination_use": SAFE,
+    "imagination_combo": SAFE, "imagination_step_through": SAFE, "imagination_wait": SAFE,
+    "imagination_companions": SAFE, "imagination_fight": SAFE, "imagination_search": SAFE,
+    "imagination_forge": SAFE, "imagination_teach_book": SAFE, "imagination_new": CHANGE,
     "close_program": CHANGE, "type_text": CHANGE, "press_keys": CHANGE, "click_screen": CHANGE,
 })
 # Replacing the app's own code always waits for a yes, even in Full control.

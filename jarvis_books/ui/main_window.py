@@ -34,6 +34,7 @@ from jarvis_books.upgrade import describe as describe_upgrade
 from jarvis_books.ui.planner import AlarmCenter, PlannerTab
 from jarvis_books.ui.player import AudiobookPlayer
 from jarvis_books.ui.game import GameTab
+from jarvis_books.ui.nexus_tab import NexusTab
 from jarvis_books.ui.research import ResearchTab
 from jarvis_books.ui.voice_bridge import VoiceBridge
 from jarvis_books.ui.workers import Bridge, run_async, wait_for_tasks
@@ -138,6 +139,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.planner_tab, "Planner")
         self.research_tab = ResearchTab(self.studio)
         self.tabs.addTab(self.research_tab, "Research")
+        self.nexus_tab = NexusTab(self.studio)
+        self.tabs.addTab(self.nexus_tab, "NEXUS")
         self.game_tab = GameTab(self.studio, announce=self._game_news)
         self.tabs.addTab(self.game_tab, "Game")
         self.alarms = AlarmCenter(studio.planner, self, studio.home / "alarm.wav", tell_jarvis=self._alarm_to_jarvis)
@@ -2117,6 +2120,7 @@ class MainWindow(QMainWindow):
         self.workshop.shutdown()
         self.planner_tab.shutdown()
         self.research_tab.shutdown()
+        self.nexus_tab.shutdown()
         self.game_tab.shutdown()
         self.alarms.shutdown()
         wait_for_tasks()

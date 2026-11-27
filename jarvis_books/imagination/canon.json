@@ -1,0 +1,6072 @@
+{
+	"agents": [
+		{
+			"abilities": [],
+			"character": "protector",
+			"faction": "allies",
+			"home": "hearth",
+			"id": "noah",
+			"location": "hearth",
+			"name": "Noah",
+			"personality": {
+				"aggression": 0.45,
+				"ambition": 0.5,
+				"caution": 0.7,
+				"curiosity": 0.35,
+				"greed": 0.5,
+				"loyalty": 0.95,
+				"patience": 0.5
+			},
+			"relationships": {
+				"player": 0.8
+			},
+			"role": "companion",
+			"skills": {
+				"combat": 0.8,
+				"defense": 0.8,
+				"planning": 0.5,
+				"search": 0.4,
+				"stealth": 0.35,
+				"tracking": 0.55
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "investigator",
+			"faction": "allies",
+			"home": "hearth",
+			"id": "angelic",
+			"location": "hearth",
+			"name": "Angelic",
+			"personality": {
+				"aggression": 0.25,
+				"ambition": 0.5,
+				"caution": 0.45,
+				"curiosity": 0.95,
+				"greed": 0.5,
+				"loyalty": 0.8,
+				"patience": 0.5
+			},
+			"relationships": {
+				"player": 0.8
+			},
+			"role": "companion",
+			"skills": {
+				"combat": 0.45,
+				"defense": 0.45,
+				"planning": 0.6,
+				"search": 0.85,
+				"stealth": 0.6,
+				"tracking": 0.65
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "rescuer",
+			"faction": "allies",
+			"home": "_offstage",
+			"id": "rescuer",
+			"location": "_offstage",
+			"name": "Uncle Dominic",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 1.0,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "rescuer",
+			"skills": {
+				"combat": 0.85,
+				"defense": 0.75,
+				"planning": 0.5,
+				"search": 0.5,
+				"stealth": 0.7,
+				"tracking": 0.5
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "strategist",
+			"faction": "rivals",
+			"home": "watchtower",
+			"id": "vex",
+			"location": "watchtower",
+			"name": "Vex",
+			"personality": {
+				"aggression": 0.45,
+				"ambition": 0.5,
+				"caution": 0.7,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.7,
+				"patience": 0.5,
+				"vengeance": 0.4
+			},
+			"relationships": {},
+			"role": "rival",
+			"skills": {
+				"combat": 0.5,
+				"defense": 0.55,
+				"planning": 0.9,
+				"search": 0.5,
+				"stealth": 0.55,
+				"tracking": 0.6
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "hunter",
+			"faction": "rivals",
+			"home": "old_quarry",
+			"id": "kestrel",
+			"location": "old_quarry",
+			"name": "Kestrel",
+			"personality": {
+				"aggression": 0.75,
+				"ambition": 0.5,
+				"caution": 0.35,
+				"curiosity": 0.4,
+				"greed": 0.4,
+				"loyalty": 0.6,
+				"patience": 0.5,
+				"vengeance": 0.8
+			},
+			"relationships": {},
+			"role": "rival",
+			"skills": {
+				"combat": 0.7,
+				"defense": 0.5,
+				"planning": 0.4,
+				"search": 0.5,
+				"stealth": 0.65,
+				"tracking": 0.9
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "collector",
+			"faction": "rivals",
+			"home": "harbour",
+			"id": "magpie",
+			"location": "harbour",
+			"name": "Magpie",
+			"personality": {
+				"aggression": 0.3,
+				"ambition": 0.5,
+				"caution": 0.6,
+				"curiosity": 0.85,
+				"greed": 0.9,
+				"loyalty": 0.45,
+				"patience": 0.5,
+				"vengeance": 0.3
+			},
+			"relationships": {},
+			"role": "rival",
+			"skills": {
+				"combat": 0.4,
+				"defense": 0.45,
+				"planning": 0.5,
+				"search": 0.9,
+				"stealth": 0.8,
+				"tracking": 0.55
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"diving"
+			],
+			"character": "destroyer",
+			"faction": "rivals",
+			"home": "wreck_field",
+			"id": "grist",
+			"location": "wreck_field",
+			"name": "Grist",
+			"personality": {
+				"aggression": 0.95,
+				"ambition": 0.5,
+				"caution": 0.2,
+				"curiosity": 0.3,
+				"greed": 0.4,
+				"loyalty": 0.65,
+				"patience": 0.5,
+				"vengeance": 0.6
+			},
+			"relationships": {},
+			"role": "rival",
+			"skills": {
+				"combat": 0.9,
+				"defense": 0.75,
+				"planning": 0.3,
+				"search": 0.3,
+				"stealth": 0.25,
+				"tracking": 0.5
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"whirlpool",
+				"area_attack",
+				"knockback"
+			],
+			"character": "abyssal_leviathan",
+			"faction": "creature:leviathans",
+			"home": "abyss_trench",
+			"id": "abyssal_leviathan",
+			"location": "abyss_trench",
+			"name": "Abyssal Leviathan",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 1.0,
+				"defense": 0.25
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"pack_hunt"
+			],
+			"character": "brinehound",
+			"faction": "creature:deep_packs",
+			"home": "kelp_forest",
+			"id": "brinehound",
+			"location": "kelp_forest",
+			"name": "Brinehound",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.45,
+				"defense": 0.1
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"shell_guard",
+				"clock_skip"
+			],
+			"character": "clockwork_crab",
+			"faction": "creature:clockwork",
+			"home": "clockwork_deeps",
+			"id": "clockwork_crab",
+			"location": "clockwork_deeps",
+			"name": "Clockwork Crab",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.5,
+				"defense": 0.35
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"stone_skin",
+				"knockback"
+			],
+			"character": "hollow_sentinel",
+			"faction": "creature:stoneborn",
+			"home": "watchtower",
+			"id": "hollow_sentinel",
+			"location": "watchtower",
+			"name": "Hollow Sentinel",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.75,
+				"defense": 0.3
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"grapple"
+			],
+			"character": "kelp_strangler",
+			"faction": "creature:deep_packs",
+			"home": "shattered_ward",
+			"id": "kelp_strangler",
+			"location": "shattered_ward",
+			"name": "Kelp Strangler",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.5,
+				"defense": 0.1
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"ambush",
+				"glow_lure"
+			],
+			"character": "lantern_eel",
+			"faction": "creature:glowfen",
+			"home": "glow_basin",
+			"id": "lantern_eel",
+			"location": "glow_basin",
+			"name": "Lantern Eel",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.6,
+				"defense": 0.1
+			},
+			"territory": []
+		},
+		{
+			"abilities": [],
+			"character": "marsh_wisp",
+			"faction": "creature:wisps",
+			"home": "estate_woods",
+			"id": "marsh_wisp",
+			"location": "estate_woods",
+			"name": "Marsh Wisp",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.3,
+				"defense": 0.1
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"echo_step",
+				"shriek"
+			],
+			"character": "tidewraith",
+			"faction": "creature:echoes",
+			"home": "portal_plaza",
+			"id": "tidewraith",
+			"location": "portal_plaza",
+			"name": "Tidewraith",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.7,
+				"defense": 0.1
+			},
+			"territory": []
+		},
+		{
+			"abilities": [
+				"pack_hunt"
+			],
+			"character": "brinehound_2",
+			"faction": "creature:deep_packs",
+			"home": "kelp_forest",
+			"id": "brinehound_2",
+			"location": "kelp_forest",
+			"name": "Brinehound",
+			"personality": {
+				"aggression": 0.5,
+				"ambition": 0.5,
+				"caution": 0.5,
+				"curiosity": 0.5,
+				"greed": 0.5,
+				"loyalty": 0.5,
+				"patience": 0.5
+			},
+			"relationships": {},
+			"role": "creature",
+			"skills": {
+				"combat": 0.45,
+				"defense": 0.1
+			},
+			"territory": []
+		}
+	],
+	"cave_regions": [
+		[
+			"cave_mouth",
+			"The Cliff Mouth",
+			3,
+			[
+				60.0,
+				-20.0,
+				300.0
+			],
+			-8.0,
+			[
+				"caves"
+			],
+			false
+		],
+		[
+			"descending_galleries",
+			"The Descending Galleries",
+			5,
+			[
+				320.0,
+				-40.0,
+				120.0
+			],
+			-12.0,
+			[
+				"caves",
+				"deep_caves"
+			],
+			false
+		],
+		[
+			"crystal_catacombs",
+			"The Crystal Catacombs",
+			4,
+			[
+				640.0,
+				-100.0,
+				60.0
+			],
+			-6.0,
+			[
+				"hidden",
+				"ruins"
+			],
+			false
+		],
+		[
+			"glowroot_forest",
+			"The Glowroot Forest",
+			4,
+			[
+				960.0,
+				-110.0,
+				-140.0
+			],
+			-4.0,
+			[
+				"woods"
+			],
+			false
+		],
+		[
+			"sunken_caverns",
+			"The Sunken Caverns",
+			3,
+			[
+				880.0,
+				-70.0,
+				280.0
+			],
+			-8.0,
+			[
+				"caves"
+			],
+			true
+		],
+		[
+			"hollowmere",
+			"Old Hollowmere",
+			5,
+			[
+				600.0,
+				-150.0,
+				-300.0
+			],
+			-3.0,
+			[
+				"city_homes",
+				"city_market",
+				"city_hall"
+			],
+			false
+		],
+		[
+			"whispering_depths",
+			"The Whispering Depths",
+			4,
+			[
+				240.0,
+				-190.0,
+				-380.0
+			],
+			-10.0,
+			[
+				"deep_caves"
+			],
+			false
+		],
+		[
+			"black_vault",
+			"The Black Vault",
+			3,
+			[
+				-140.0,
+				-240.0,
+				-300.0
+			],
+			-10.0,
+			[
+				"ruins"
+			],
+			false
+		],
+		[
+			"emberdeep",
+			"Emberdeep",
+			4,
+			[
+				960.0,
+				-170.0,
+				-520.0
+			],
+			-2.0,
+			[
+				"city_homes",
+				"city_forge",
+				"city_market"
+			],
+			false
+		],
+		[
+			"threshold_halls",
+			"The Threshold Halls",
+			3,
+			[
+				520.0,
+				-270.0,
+				-620.0
+			],
+			-8.0,
+			[
+				"ruins",
+				"hidden"
+			],
+			false
+		]
+	],
+	"cave_rifts": [
+		[
+			"cliffside_rift",
+			"Cliffside Rift",
+			"cliff_path",
+			"cave_mouth",
+			"cliff_clock",
+			"Cliffside Clock"
+		],
+		[
+			"drowned_rift",
+			"Drowned Rift",
+			"drowned_caves",
+			"sunken_caverns",
+			"grotto_clock",
+			"Grotto Clock"
+		]
+	],
+	"creatures": [
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 26.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"whirlpool",
+				"area_attack",
+				"knockback"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "boss",
+			"creature_faction": "leviathans",
+			"creature_id": "abyssal_leviathan",
+			"creature_name": "Abyssal Leviathan",
+			"creature_type": "leviathan",
+			"curiosity_level": 0.4,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.95,
+			"defeat_mode": "sealing",
+			"defense_rating": 0.25,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": false,
+			"intelligence_level": 0.4,
+			"lair": "abyss_trench",
+			"lore_description": "The oldest thing in the Whispering Trenches.",
+			"maximum_health": 900.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1000000000.0,
+			"origin_region": "",
+			"persistence_level": 0.8,
+			"phases": [
+				{
+					"at": 0.66,
+					"attack_mult": 1.3,
+					"name": "Enraged"
+				},
+				{
+					"at": 0.33,
+					"attack_mult": 1.6,
+					"name": "Desperate"
+				}
+			],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 4,
+			"regeneration": 3.0,
+			"retreat_threshold": 0.12,
+			"senses": [
+				"sight",
+				"hearing",
+				"current"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.8,
+			"swimming_navigation": true,
+			"territoriality": 0.5,
+			"threat_rating": 1.0
+		},
+		{
+			"aggression_level": 0.7,
+			"attack_cooldown": 6.0,
+			"attack_power": 9.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"pack_hunt"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "beast",
+			"creature_faction": "deep_packs",
+			"creature_id": "brinehound",
+			"creature_name": "Brinehound",
+			"creature_type": "sea_beast",
+			"curiosity_level": 0.4,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.4,
+			"defeat_mode": "death",
+			"defense_rating": 0.1,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": false,
+			"intelligence_level": 0.4,
+			"lair": "kelp_forest",
+			"lore_description": "Grey sea dogs that hunt the shallows by scent.",
+			"maximum_health": 120.0,
+			"maximum_population": 3,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.6,
+			"phases": [],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 4,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"hearing",
+				"scent"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": true,
+			"territoriality": 0.5,
+			"threat_rating": 0.4
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 10.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"shell_guard",
+				"clock_skip"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": true,
+			"creature_class": "beast",
+			"creature_faction": "clockwork",
+			"creature_id": "clockwork_crab",
+			"creature_name": "Clockwork Crab",
+			"creature_type": "clockwork",
+			"curiosity_level": 0.4,
+			"damage_resistances": {
+				"key": 1.5,
+				"physical": 0.6
+			},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.6,
+			"defeat_mode": "death",
+			"defense_rating": 0.35,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": true,
+			"intelligence_level": 0.4,
+			"lair": "clockwork_deeps",
+			"lore_description": "Brass legs, a ticking heart and a shell that turns blades.",
+			"maximum_health": 140.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.5,
+			"phases": [],
+			"portal_travel_capability": true,
+			"preferred_targets": [],
+			"pursuit_limit": 4,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"hearing"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": true,
+			"territoriality": 0.5,
+			"threat_rating": 0.6
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 15.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"stone_skin",
+				"knockback"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "beast",
+			"creature_faction": "stoneborn",
+			"creature_id": "hollow_sentinel",
+			"creature_name": "Hollow Sentinel",
+			"creature_type": "construct",
+			"curiosity_level": 0.4,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.6,
+			"defeat_mode": "sealing",
+			"defense_rating": 0.3,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": true,
+			"intelligence_level": 0.4,
+			"lair": "watchtower",
+			"lore_description": "A stone guard who wakes when the watchtower is disturbed.",
+			"maximum_health": 200.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.5,
+			"phases": [],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 2,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"hearing"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.6,
+			"swimming_navigation": false,
+			"territoriality": 0.95,
+			"threat_rating": 0.7
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 10.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"grapple"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "beast",
+			"creature_faction": "deep_packs",
+			"creature_id": "kelp_strangler",
+			"creature_name": "Kelp Strangler",
+			"creature_type": "plant_beast",
+			"curiosity_level": 0.4,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.5,
+			"defeat_mode": "death",
+			"defense_rating": 0.1,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": false,
+			"intelligence_level": 0.4,
+			"lair": "shattered_ward",
+			"lore_description": "A tangle of weed with a grip like rope.",
+			"maximum_health": 150.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.5,
+			"phases": [],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 1,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"hearing"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": true,
+			"territoriality": 0.9,
+			"threat_rating": 0.5
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 12.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"ambush",
+				"glow_lure"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "beast",
+			"creature_faction": "glowfen",
+			"creature_id": "lantern_eel",
+			"creature_name": "Lantern Eel",
+			"creature_type": "sea_beast",
+			"curiosity_level": 0.8,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.6,
+			"defeat_mode": "death",
+			"defense_rating": 0.1,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": false,
+			"intelligence_level": 0.4,
+			"lair": "glow_basin",
+			"lore_description": "Its light draws the curious close enough to bite.",
+			"maximum_health": 90.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.5,
+			"phases": [],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 4,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"magic"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": true,
+			"territoriality": 0.5,
+			"threat_rating": 0.5
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 6.0,
+			"attack_range": 0,
+			"available_abilities": [],
+			"canon_status": "original",
+			"clock_travel_capability": false,
+			"creature_class": "beast",
+			"creature_faction": "wisps",
+			"creature_id": "marsh_wisp",
+			"creature_name": "Marsh Wisp",
+			"creature_type": "spirit",
+			"curiosity_level": 0.9,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.3,
+			"defeat_mode": "banishment",
+			"defense_rating": 0.1,
+			"detection_range": 60.0,
+			"fear_level": 0.6,
+			"flying_navigation": true,
+			"ground_navigation": true,
+			"intelligence_level": 0.4,
+			"lair": "estate_woods",
+			"lore_description": "A flicker in Whisperwood that bites cold.",
+			"maximum_health": 60.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1800.0,
+			"origin_region": "",
+			"persistence_level": 0.5,
+			"phases": [],
+			"portal_travel_capability": false,
+			"preferred_targets": [],
+			"pursuit_limit": 4,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.4,
+			"senses": [
+				"sight",
+				"magic"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": false,
+			"territoriality": 0.5,
+			"threat_rating": 0.2
+		},
+		{
+			"aggression_level": 0.6,
+			"attack_cooldown": 6.0,
+			"attack_power": 14.0,
+			"attack_range": 0,
+			"available_abilities": [
+				"echo_step",
+				"shriek"
+			],
+			"canon_status": "original",
+			"clock_travel_capability": true,
+			"creature_class": "beast",
+			"creature_faction": "echoes",
+			"creature_id": "tidewraith",
+			"creature_name": "Tidewraith",
+			"creature_type": "echo",
+			"curiosity_level": 0.4,
+			"damage_resistances": {},
+			"damage_types": [
+				"creature"
+			],
+			"danger": 0.7,
+			"defeat_mode": "sealing",
+			"defense_rating": 0.1,
+			"detection_range": 60.0,
+			"fear_level": 0.2,
+			"flying_navigation": false,
+			"ground_navigation": true,
+			"intelligence_level": 0.8,
+			"lair": "portal_plaza",
+			"lore_description": "The echo of a drowned watchman, still walking his round between the hours.",
+			"maximum_health": 160.0,
+			"maximum_population": 1,
+			"memory_retention_s": 1000000000.0,
+			"origin_region": "",
+			"persistence_level": 0.9,
+			"phases": [],
+			"portal_travel_capability": true,
+			"preferred_targets": [],
+			"pursuit_limit": 8,
+			"regeneration": 1.0,
+			"retreat_threshold": 0.2,
+			"senses": [
+				"sight",
+				"hearing",
+				"magic"
+			],
+			"source": "game",
+			"species": "",
+			"stagger_resistance": 0.2,
+			"swimming_navigation": true,
+			"territoriality": 0.5,
+			"threat_rating": 0.7
+		}
+	],
+	"eras": [
+		[
+			"gullhaven_1893",
+			"Gullhaven, 1893",
+			"past",
+			9000,
+			[
+				"era"
+			],
+			"town"
+		],
+		[
+			"coralmere_prime",
+			"Pelagoria Before the Flood",
+			"past",
+			20000,
+			[
+				"era"
+			],
+			"city_homes"
+		]
+	],
+	"links": [
+		{
+			"a": "abyss_trench",
+			"b": "coral_gardens",
+			"open": true,
+			"seconds": 138.0
+		},
+		{
+			"a": "abyss_trench",
+			"b": "giant_caves",
+			"open": true,
+			"seconds": 140.0
+		},
+		{
+			"a": "abyss_trench",
+			"b": "glow_basin",
+			"open": true,
+			"seconds": 140.0
+		},
+		{
+			"a": "abyss_trench",
+			"b": "palace",
+			"open": true,
+			"seconds": 113.0
+		},
+		{
+			"a": "abyss_trench",
+			"b": "sealed_city",
+			"open": false,
+			"seconds": 130.0
+		},
+		{
+			"a": "academy",
+			"b": "cemetery",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "academy",
+			"b": "church_row",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "academy",
+			"b": "park",
+			"open": true,
+			"seconds": 61.0
+		},
+		{
+			"a": "ancient_road",
+			"b": "frontier_ruins",
+			"open": true,
+			"seconds": 128.0
+		},
+		{
+			"a": "ancient_road",
+			"b": "sunken_harbor",
+			"open": true,
+			"seconds": 106.0
+		},
+		{
+			"a": "ancient_road",
+			"b": "twilight_village",
+			"open": true,
+			"seconds": 128.0
+		},
+		{
+			"a": "archive",
+			"b": "arena",
+			"open": true,
+			"seconds": 76.0
+		},
+		{
+			"a": "archive",
+			"b": "market",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "archive",
+			"b": "portal_plaza",
+			"open": true,
+			"seconds": 72.0
+		},
+		{
+			"a": "arena",
+			"b": "glow_basin",
+			"open": true,
+			"seconds": 199.0
+		},
+		{
+			"a": "arena",
+			"b": "market",
+			"open": true,
+			"seconds": 82.0
+		},
+		{
+			"a": "arena",
+			"b": "outpost",
+			"open": true,
+			"seconds": 200.0
+		},
+		{
+			"a": "beyond_threshold",
+			"b": "threshold_halls_2",
+			"open": false,
+			"seconds": 82.0
+		},
+		{
+			"a": "black_current",
+			"b": "coral_kingdom",
+			"open": true,
+			"seconds": 132.0
+		},
+		{
+			"a": "black_current",
+			"b": "frontier_ruins",
+			"open": true,
+			"seconds": 152.0
+		},
+		{
+			"a": "black_current",
+			"b": "market",
+			"open": true,
+			"seconds": 138.0
+		},
+		{
+			"a": "black_current",
+			"b": "outpost",
+			"open": true,
+			"seconds": 140.0
+		},
+		{
+			"a": "black_vault_0",
+			"b": "black_vault_1",
+			"open": true,
+			"seconds": 60.0
+		},
+		{
+			"a": "black_vault_0",
+			"b": "whispering_depths_3",
+			"open": false,
+			"seconds": 155.0
+		},
+		{
+			"a": "black_vault_1",
+			"b": "black_vault_2",
+			"open": true,
+			"seconds": 50.0
+		},
+		{
+			"a": "boat_graveyard",
+			"b": "coral_kingdom",
+			"open": true,
+			"seconds": 131.0
+		},
+		{
+			"a": "boat_graveyard",
+			"b": "dune_camp",
+			"open": true,
+			"seconds": 124.0
+		},
+		{
+			"a": "boat_graveyard",
+			"b": "reef_garden",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "boat_graveyard",
+			"b": "tidebreak_shelf",
+			"open": true,
+			"seconds": 141.0
+		},
+		{
+			"a": "boatyard",
+			"b": "dune_camp",
+			"open": true,
+			"seconds": 148.0
+		},
+		{
+			"a": "boatyard",
+			"b": "fish_market",
+			"open": true,
+			"seconds": 48.0
+		},
+		{
+			"a": "boatyard",
+			"b": "harbour",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "boatyard",
+			"b": "lighthouse",
+			"open": true,
+			"seconds": 54.0
+		},
+		{
+			"a": "boatyard",
+			"b": "tidebreak_west",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "cave_mouth_0",
+			"b": "cave_mouth_1",
+			"open": true,
+			"seconds": 62.0
+		},
+		{
+			"a": "cave_mouth_0",
+			"b": "cliff_path",
+			"open": false,
+			"seconds": 51.0
+		},
+		{
+			"a": "cave_mouth_1",
+			"b": "cave_mouth_2",
+			"open": true,
+			"seconds": 53.0
+		},
+		{
+			"a": "cave_mouth_2",
+			"b": "descending_galleries_0",
+			"open": true,
+			"seconds": 52.0
+		},
+		{
+			"a": "cemetery",
+			"b": "mill_street",
+			"open": true,
+			"seconds": 57.0
+		},
+		{
+			"a": "church_row",
+			"b": "market_lane",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "church_row",
+			"b": "mill_street",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "cliff_path",
+			"b": "drowned_caves",
+			"open": true,
+			"seconds": 66.0
+		},
+		{
+			"a": "cliff_path",
+			"b": "family_chapel",
+			"open": true,
+			"seconds": 49.0
+		},
+		{
+			"a": "cliff_path",
+			"b": "hearth",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "cliff_path",
+			"b": "pier",
+			"open": true,
+			"seconds": 66.0
+		},
+		{
+			"a": "clockwork_deeps",
+			"b": "sealed_city",
+			"open": true,
+			"seconds": 113.0
+		},
+		{
+			"a": "clockwork_deeps",
+			"b": "timeless_hollow",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "coral_gardens",
+			"b": "market",
+			"open": true,
+			"seconds": 199.0
+		},
+		{
+			"a": "coral_gardens",
+			"b": "palace",
+			"open": true,
+			"seconds": 80.0
+		},
+		{
+			"a": "coral_gardens",
+			"b": "shattered_ward",
+			"open": true,
+			"seconds": 108.0
+		},
+		{
+			"a": "coral_kingdom",
+			"b": "outpost",
+			"open": true,
+			"seconds": 136.0
+		},
+		{
+			"a": "coral_kingdom",
+			"b": "reef_garden",
+			"open": true,
+			"seconds": 138.0
+		},
+		{
+			"a": "coral_kingdom",
+			"b": "tidebreak_shelf",
+			"open": true,
+			"seconds": 235.0
+		},
+		{
+			"a": "coral_kingdom",
+			"b": "wreck_field",
+			"open": true,
+			"seconds": 141.0
+		},
+		{
+			"a": "coralmere_prime",
+			"b": "portal_plaza",
+			"open": false,
+			"seconds": 20.0
+		},
+		{
+			"a": "crown_plaza",
+			"b": "hidden_below",
+			"open": true,
+			"seconds": 37.0
+		},
+		{
+			"a": "crown_plaza",
+			"b": "lantern_quarter",
+			"open": true,
+			"seconds": 80.0
+		},
+		{
+			"a": "crown_plaza",
+			"b": "market",
+			"open": true,
+			"seconds": 72.0
+		},
+		{
+			"a": "crown_plaza",
+			"b": "portal_plaza",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "crown_plaza",
+			"b": "sea_gate",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "crystal_catacombs_0",
+			"b": "crystal_catacombs_1",
+			"open": true,
+			"seconds": 51.0
+		},
+		{
+			"a": "crystal_catacombs_0",
+			"b": "descending_galleries_4",
+			"open": true,
+			"seconds": 203.0
+		},
+		{
+			"a": "crystal_catacombs_1",
+			"b": "crystal_catacombs_2",
+			"open": true,
+			"seconds": 58.0
+		},
+		{
+			"a": "crystal_catacombs_1",
+			"b": "crystal_catacombs_3",
+			"open": true,
+			"seconds": 92.0
+		},
+		{
+			"a": "crystal_catacombs_2",
+			"b": "crystal_catacombs_3",
+			"open": true,
+			"seconds": 54.0
+		},
+		{
+			"a": "crystal_catacombs_2",
+			"b": "glowroot_forest_0",
+			"open": true,
+			"seconds": 243.0
+		},
+		{
+			"a": "crystal_catacombs_2",
+			"b": "hollowmere_0",
+			"open": true,
+			"seconds": 239.0
+		},
+		{
+			"a": "crystal_catacombs_2",
+			"b": "sunken_caverns_0",
+			"open": true,
+			"seconds": 141.0
+		},
+		{
+			"a": "descending_galleries_0",
+			"b": "descending_galleries_1",
+			"open": true,
+			"seconds": 47.0
+		},
+		{
+			"a": "descending_galleries_1",
+			"b": "descending_galleries_2",
+			"open": true,
+			"seconds": 57.0
+		},
+		{
+			"a": "descending_galleries_1",
+			"b": "descending_galleries_3",
+			"open": true,
+			"seconds": 112.0
+		},
+		{
+			"a": "descending_galleries_2",
+			"b": "descending_galleries_3",
+			"open": true,
+			"seconds": 58.0
+		},
+		{
+			"a": "descending_galleries_3",
+			"b": "descending_galleries_4",
+			"open": true,
+			"seconds": 51.0
+		},
+		{
+			"a": "drowned_caves",
+			"b": "hearth",
+			"open": false,
+			"seconds": 60.0
+		},
+		{
+			"a": "drowned_caves",
+			"b": "pearl_grotto",
+			"open": true,
+			"seconds": 49.0
+		},
+		{
+			"a": "drowned_caves",
+			"b": "sea_gate",
+			"open": false,
+			"seconds": 300.0
+		},
+		{
+			"a": "drowned_caves",
+			"b": "sunken_caverns_0",
+			"open": false,
+			"seconds": 301.0
+		},
+		{
+			"a": "dune_camp",
+			"b": "gull_beach",
+			"open": true,
+			"seconds": 72.0
+		},
+		{
+			"a": "emberdeep_0",
+			"b": "emberdeep_1",
+			"open": true,
+			"seconds": 49.0
+		},
+		{
+			"a": "emberdeep_0",
+			"b": "glowroot_forest_3",
+			"open": true,
+			"seconds": 302.0
+		},
+		{
+			"a": "emberdeep_1",
+			"b": "emberdeep_2",
+			"open": true,
+			"seconds": 55.0
+		},
+		{
+			"a": "emberdeep_1",
+			"b": "emberdeep_3",
+			"open": true,
+			"seconds": 97.0
+		},
+		{
+			"a": "emberdeep_2",
+			"b": "emberdeep_3",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "emberdeep_3",
+			"b": "threshold_halls_0",
+			"open": true,
+			"seconds": 233.0
+		},
+		{
+			"a": "estate_woods",
+			"b": "smugglers_cove",
+			"open": true,
+			"seconds": 173.0
+		},
+		{
+			"a": "estate_woods",
+			"b": "stables",
+			"open": true,
+			"seconds": 58.0
+		},
+		{
+			"a": "family_chapel",
+			"b": "hearth",
+			"open": true,
+			"seconds": 54.0
+		},
+		{
+			"a": "fish_market",
+			"b": "harbour",
+			"open": true,
+			"seconds": 58.0
+		},
+		{
+			"a": "fishers_row",
+			"b": "harbour",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "fishers_row",
+			"b": "hospital",
+			"open": true,
+			"seconds": 68.0
+		},
+		{
+			"a": "fishers_row",
+			"b": "town_hall",
+			"open": true,
+			"seconds": 52.0
+		},
+		{
+			"a": "forge_hall",
+			"b": "lantern_quarter",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "forge_hall",
+			"b": "market",
+			"open": true,
+			"seconds": 165.0
+		},
+		{
+			"a": "forge_hall",
+			"b": "portal_plaza",
+			"open": true,
+			"seconds": 80.0
+		},
+		{
+			"a": "forge_yard",
+			"b": "gardens",
+			"open": true,
+			"seconds": 47.0
+		},
+		{
+			"a": "forge_yard",
+			"b": "rail_station",
+			"open": true,
+			"seconds": 80.0
+		},
+		{
+			"a": "forgotten_gate",
+			"b": "glow_basin",
+			"open": true,
+			"seconds": 138.0
+		},
+		{
+			"a": "forgotten_gate",
+			"b": "hidden_below",
+			"open": true,
+			"seconds": 400.0
+		},
+		{
+			"a": "forgotten_gate",
+			"b": "sealed_city",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "forgotten_gate",
+			"b": "timeless_hollow",
+			"open": true,
+			"seconds": 105.0
+		},
+		{
+			"a": "frontier_ruins",
+			"b": "sea_gate",
+			"open": true,
+			"seconds": 109.0
+		},
+		{
+			"a": "frontier_ruins",
+			"b": "wreck_field",
+			"open": true,
+			"seconds": 148.0
+		},
+		{
+			"a": "gardens",
+			"b": "hearth",
+			"open": true,
+			"seconds": 53.0
+		},
+		{
+			"a": "gardens",
+			"b": "lantern_cottage",
+			"open": true,
+			"seconds": 48.0
+		},
+		{
+			"a": "gardens",
+			"b": "orchard",
+			"open": true,
+			"seconds": 63.0
+		},
+		{
+			"a": "giant_caves",
+			"b": "sealed_city",
+			"open": true,
+			"seconds": 159.0
+		},
+		{
+			"a": "giant_caves",
+			"b": "shattered_ward",
+			"open": true,
+			"seconds": 184.0
+		},
+		{
+			"a": "glowroot_forest_0",
+			"b": "glowroot_forest_1",
+			"open": true,
+			"seconds": 55.0
+		},
+		{
+			"a": "glowroot_forest_1",
+			"b": "glowroot_forest_2",
+			"open": true,
+			"seconds": 49.0
+		},
+		{
+			"a": "glowroot_forest_1",
+			"b": "glowroot_forest_3",
+			"open": true,
+			"seconds": 97.0
+		},
+		{
+			"a": "glowroot_forest_2",
+			"b": "glowroot_forest_3",
+			"open": true,
+			"seconds": 51.0
+		},
+		{
+			"a": "glowroot_forest_3",
+			"b": "hollowmere_0",
+			"open": true,
+			"seconds": 266.0
+		},
+		{
+			"a": "gull_beach",
+			"b": "main_street",
+			"open": true,
+			"seconds": 132.0
+		},
+		{
+			"a": "gull_beach",
+			"b": "pearl_grotto",
+			"open": true,
+			"seconds": 76.0
+		},
+		{
+			"a": "gull_beach",
+			"b": "reef_garden",
+			"open": true,
+			"seconds": 126.0
+		},
+		{
+			"a": "gullhaven_1893",
+			"b": "lighthouse",
+			"open": false,
+			"seconds": 20.0
+		},
+		{
+			"a": "harbour",
+			"b": "library",
+			"open": true,
+			"seconds": 59.0
+		},
+		{
+			"a": "harbour",
+			"b": "shallows",
+			"open": true,
+			"seconds": 376.0
+		},
+		{
+			"a": "hearth",
+			"b": "main_street",
+			"open": true,
+			"seconds": 168.0
+		},
+		{
+			"a": "hearth",
+			"b": "sheds",
+			"open": true,
+			"seconds": 44.0
+		},
+		{
+			"a": "hidden_below",
+			"b": "shattered_ward",
+			"open": true,
+			"seconds": 163.0
+		},
+		{
+			"a": "hollowmere_0",
+			"b": "hollowmere_1",
+			"open": true,
+			"seconds": 52.0
+		},
+		{
+			"a": "hollowmere_1",
+			"b": "hollowmere_2",
+			"open": true,
+			"seconds": 59.0
+		},
+		{
+			"a": "hollowmere_1",
+			"b": "hollowmere_3",
+			"open": true,
+			"seconds": 108.0
+		},
+		{
+			"a": "hollowmere_2",
+			"b": "hollowmere_3",
+			"open": true,
+			"seconds": 49.0
+		},
+		{
+			"a": "hollowmere_3",
+			"b": "hollowmere_4",
+			"open": true,
+			"seconds": 57.0
+		},
+		{
+			"a": "hollowmere_4",
+			"b": "whispering_depths_0",
+			"open": true,
+			"seconds": 69.0
+		},
+		{
+			"a": "hospital",
+			"b": "park",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "kelp_forest",
+			"b": "shallows",
+			"open": true,
+			"seconds": 121.0
+		},
+		{
+			"a": "kelp_forest",
+			"b": "smugglers_cove",
+			"open": true,
+			"seconds": 148.0
+		},
+		{
+			"a": "kelp_forest",
+			"b": "twilight_village",
+			"open": true,
+			"seconds": 110.0
+		},
+		{
+			"a": "lantern_cottage",
+			"b": "main_street",
+			"open": true,
+			"seconds": 84.0
+		},
+		{
+			"a": "lantern_quarter",
+			"b": "shattered_ward",
+			"open": true,
+			"seconds": 98.0
+		},
+		{
+			"a": "lantern_quarter",
+			"b": "sunken_harbor",
+			"open": true,
+			"seconds": 93.0
+		},
+		{
+			"a": "library",
+			"b": "police",
+			"open": true,
+			"seconds": 53.0
+		},
+		{
+			"a": "library",
+			"b": "town_hall",
+			"open": true,
+			"seconds": 36.0
+		},
+		{
+			"a": "lighthouse",
+			"b": "tidebreak_east",
+			"open": true,
+			"seconds": 150.0
+		},
+		{
+			"a": "main_street",
+			"b": "rail_station",
+			"open": true,
+			"seconds": 60.0
+		},
+		{
+			"a": "main_street",
+			"b": "square",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "market_lane",
+			"b": "north_end",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "market_lane",
+			"b": "square",
+			"open": true,
+			"seconds": 52.0
+		},
+		{
+			"a": "mill_street",
+			"b": "north_end",
+			"open": true,
+			"seconds": 56.0
+		},
+		{
+			"a": "millpond",
+			"b": "orchard",
+			"open": true,
+			"seconds": 72.0
+		},
+		{
+			"a": "millpond",
+			"b": "stables",
+			"open": true,
+			"seconds": 98.0
+		},
+		{
+			"a": "millpond",
+			"b": "wynd_farm",
+			"open": true,
+			"seconds": 88.0
+		},
+		{
+			"a": "north_end",
+			"b": "old_quarry",
+			"open": true,
+			"seconds": 82.0
+		},
+		{
+			"a": "old_quarry",
+			"b": "rail_station",
+			"open": true,
+			"seconds": 108.0
+		},
+		{
+			"a": "old_quarry",
+			"b": "watchtower",
+			"open": true,
+			"seconds": 79.0
+		},
+		{
+			"a": "old_quarry",
+			"b": "wynd_farm",
+			"open": true,
+			"seconds": 88.0
+		},
+		{
+			"a": "orchard",
+			"b": "wynd_farm",
+			"open": true,
+			"seconds": 118.0
+		},
+		{
+			"a": "outpost",
+			"b": "tidebreak_shelf",
+			"open": true,
+			"seconds": 262.0
+		},
+		{
+			"a": "palace",
+			"b": "portal_plaza",
+			"open": true,
+			"seconds": 64.0
+		},
+		{
+			"a": "pier",
+			"b": "shallows",
+			"open": true,
+			"seconds": 153.0
+		},
+		{
+			"a": "pier",
+			"b": "smugglers_cove",
+			"open": true,
+			"seconds": 68.0
+		},
+		{
+			"a": "police",
+			"b": "square",
+			"open": true,
+			"seconds": 44.0
+		},
+		{
+			"a": "reef_garden",
+			"b": "shallows",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "ridge_road",
+			"b": "watchtower",
+			"open": true,
+			"seconds": 105.0
+		},
+		{
+			"a": "ridge_road",
+			"b": "wynd_farm",
+			"open": true,
+			"seconds": 82.0
+		},
+		{
+			"a": "sea_gate",
+			"b": "sunken_harbor",
+			"open": true,
+			"seconds": 160.0
+		},
+		{
+			"a": "shallows",
+			"b": "wreck_field",
+			"open": true,
+			"seconds": 120.0
+		},
+		{
+			"a": "shattered_ward",
+			"b": "sunken_harbor",
+			"open": true,
+			"seconds": 104.0
+		},
+		{
+			"a": "sheds",
+			"b": "stables",
+			"open": true,
+			"seconds": 40.0
+		},
+		{
+			"a": "square",
+			"b": "town_hall",
+			"open": true,
+			"seconds": 52.0
+		},
+		{
+			"a": "sunken_caverns_0",
+			"b": "sunken_caverns_1",
+			"open": true,
+			"seconds": 62.0
+		},
+		{
+			"a": "sunken_caverns_1",
+			"b": "sunken_caverns_2",
+			"open": true,
+			"seconds": 62.0
+		},
+		{
+			"a": "threshold_halls_0",
+			"b": "threshold_halls_1",
+			"open": true,
+			"seconds": 59.0
+		},
+		{
+			"a": "threshold_halls_0",
+			"b": "whispering_depths_3",
+			"open": true,
+			"seconds": 292.0
+		},
+		{
+			"a": "threshold_halls_1",
+			"b": "threshold_halls_2",
+			"open": true,
+			"seconds": 57.0
+		},
+		{
+			"a": "tidebreak_east",
+			"b": "tidebreak_west",
+			"open": true,
+			"seconds": 90.0
+		},
+		{
+			"a": "tidebreak_shelf",
+			"b": "tidebreak_west",
+			"open": true,
+			"seconds": 50.0
+		},
+		{
+			"a": "twilight_village",
+			"b": "wreck_field",
+			"open": true,
+			"seconds": 140.0
+		},
+		{
+			"a": "whispering_depths_0",
+			"b": "whispering_depths_1",
+			"open": true,
+			"seconds": 59.0
+		},
+		{
+			"a": "whispering_depths_1",
+			"b": "whispering_depths_2",
+			"open": true,
+			"seconds": 60.0
+		},
+		{
+			"a": "whispering_depths_1",
+			"b": "whispering_depths_3",
+			"open": true,
+			"seconds": 115.0
+		},
+		{
+			"a": "whispering_depths_2",
+			"b": "whispering_depths_3",
+			"open": true,
+			"seconds": 56.0
+		}
+	],
+	"places": [
+		{
+			"id": "_offstage",
+			"name": "Away",
+			"neighbors": [],
+			"region": "_offstage",
+			"tags": []
+		},
+		{
+			"area": 50000.0,
+			"id": "abyss_trench",
+			"kind": "trench",
+			"name": "Whispering Trenches",
+			"neighbors": [
+				"coral_gardens",
+				"giant_caves",
+				"glow_basin",
+				"palace",
+				"sealed_city"
+			],
+			"pos": [
+				100.0,
+				-220.0,
+				2150.0
+			],
+			"region": "abyssal_wilds",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Abyssal Wilds"
+		},
+		{
+			"area": 12000.0,
+			"id": "academy",
+			"kind": "campus",
+			"name": "Saltmarsh Academy",
+			"neighbors": [
+				"cemetery",
+				"church_row",
+				"park"
+			],
+			"pos": [
+				840.0,
+				0.0,
+				-140.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 25000.0,
+			"id": "ancient_road",
+			"kind": "road",
+			"name": "Drowned Road",
+			"neighbors": [
+				"frontier_ruins",
+				"sunken_harbor",
+				"twilight_village"
+			],
+			"pos": [
+				-400.0,
+				-90.0,
+				1200.0
+			],
+			"region": "sunken_frontier",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Sunken Frontier"
+		},
+		{
+			"area": 12000.0,
+			"id": "archive",
+			"kind": "city_hall",
+			"name": "Archive of Tides",
+			"neighbors": [
+				"arena",
+				"market",
+				"portal_plaza"
+			],
+			"pos": [
+				280.0,
+				-140.0,
+				1720.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 18000.0,
+			"id": "arena",
+			"kind": "arena",
+			"name": "Arena of the Abyss",
+			"neighbors": [
+				"archive",
+				"glow_basin",
+				"market",
+				"outpost"
+			],
+			"pos": [
+				460.0,
+				-140.0,
+				1660.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 9000.0,
+			"id": "beyond_threshold",
+			"kind": "hidden",
+			"level": 6,
+			"name": "Beyond the Abyssal Threshold",
+			"neighbors": [
+				"threshold_halls_2"
+			],
+			"pos": [
+				391.98403751824,
+				-326.0,
+				-568.047707917325
+			],
+			"region": "beyond_threshold",
+			"tags": [
+				"cave",
+				"sealed"
+			],
+			"zone": "Beyond the Threshold"
+		},
+		{
+			"area": 35000.0,
+			"id": "black_current",
+			"kind": "current",
+			"name": "The Black Current",
+			"neighbors": [
+				"coral_kingdom",
+				"frontier_ruins",
+				"market",
+				"outpost"
+			],
+			"pos": [
+				300.0,
+				-90.0,
+				1220.0
+			],
+			"region": "sunken_frontier",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Sunken Frontier"
+		},
+		{
+			"area": 6000.0,
+			"id": "black_vault_0",
+			"kind": "ruins",
+			"level": 4,
+			"name": "Weeping Crypt",
+			"neighbors": [
+				"black_vault_1",
+				"whispering_depths_3"
+			],
+			"pos": [
+				-140.0,
+				-240.0,
+				-300.0
+			],
+			"region": "black_vault",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Black Vault"
+		},
+		{
+			"area": 9000.0,
+			"id": "black_vault_1",
+			"kind": "ruins",
+			"level": 5,
+			"name": "Iron Sanctum",
+			"neighbors": [
+				"black_vault_0",
+				"black_vault_2"
+			],
+			"pos": [
+				-73.7699001395434,
+				-250.0,
+				-433.850421959793
+			],
+			"region": "black_vault",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Black Vault"
+		},
+		{
+			"area": 5000.0,
+			"id": "black_vault_2",
+			"kind": "ruins",
+			"level": 5,
+			"name": "Broken Vault",
+			"neighbors": [
+				"black_vault_1"
+			],
+			"pos": [
+				32.3745721323583,
+				-260.0,
+				-370.338068396781
+			],
+			"region": "black_vault",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Black Vault"
+		},
+		{
+			"area": 25000.0,
+			"id": "boat_graveyard",
+			"kind": "wrecks",
+			"name": "Boat Graveyard",
+			"neighbors": [
+				"coral_kingdom",
+				"dune_camp",
+				"reef_garden",
+				"tidebreak_shelf"
+			],
+			"pos": [
+				600.0,
+				-15.0,
+				640.0
+			],
+			"region": "shallow_blue",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Shallow Blue"
+		},
+		{
+			"area": 6000.0,
+			"id": "boatyard",
+			"kind": "docks",
+			"name": "Kettle Boatyard",
+			"neighbors": [
+				"dune_camp",
+				"fish_market",
+				"harbour",
+				"lighthouse",
+				"tidebreak_west"
+			],
+			"pos": [
+				960.0,
+				0.0,
+				240.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 7000.0,
+			"id": "cave_mouth_0",
+			"kind": "caves",
+			"level": 0,
+			"name": "Ember Gallery",
+			"neighbors": [
+				"cave_mouth_1",
+				"cliff_path"
+			],
+			"pos": [
+				126.119851782271,
+				-20.0,
+				151.938364182782
+			],
+			"region": "cave_mouth",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Cliff Mouth"
+		},
+		{
+			"area": 6000.0,
+			"id": "cave_mouth_1",
+			"kind": "caves",
+			"level": 0,
+			"name": "Echoing Shaft",
+			"neighbors": [
+				"cave_mouth_0",
+				"cave_mouth_2"
+			],
+			"pos": [
+				275.642801438796,
+				-28.0,
+				188.448883182112
+			],
+			"region": "cave_mouth",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Cliff Mouth"
+		},
+		{
+			"area": 9000.0,
+			"id": "cave_mouth_2",
+			"kind": "caves",
+			"level": 0,
+			"name": "Glittering Chamber",
+			"neighbors": [
+				"cave_mouth_1",
+				"descending_galleries_0"
+			],
+			"pos": [
+				400.320706839935,
+				-36.0,
+				145.762256763712
+			],
+			"region": "cave_mouth",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Cliff Mouth"
+		},
+		{
+			"area": 6000.0,
+			"id": "cemetery",
+			"kind": "cemetery",
+			"name": "Hillside Cemetery",
+			"neighbors": [
+				"academy",
+				"mill_street"
+			],
+			"pos": [
+				840.0,
+				0.0,
+				-300.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 7000.0,
+			"id": "church_row",
+			"kind": "town",
+			"name": "Church Row",
+			"neighbors": [
+				"academy",
+				"market_lane",
+				"mill_street"
+			],
+			"pos": [
+				700.0,
+				0.0,
+				-130.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 5000.0,
+			"id": "cliff_path",
+			"kind": "path",
+			"name": "Cliff Path",
+			"neighbors": [
+				"cave_mouth_0",
+				"drowned_caves",
+				"family_chapel",
+				"hearth",
+				"pier"
+			],
+			"pos": [
+				0.0,
+				0.0,
+				160.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 30000.0,
+			"id": "clockwork_deeps",
+			"kind": "clockwork",
+			"name": "Clockwork Deeps",
+			"neighbors": [
+				"sealed_city",
+				"timeless_hollow"
+			],
+			"pos": [
+				0.0,
+				-380.0,
+				2720.0
+			],
+			"region": "timeless_deep",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Timeless Deep"
+		},
+		{
+			"area": 15000.0,
+			"id": "coral_gardens",
+			"kind": "reef",
+			"name": "Coral Gardens",
+			"neighbors": [
+				"abyss_trench",
+				"market",
+				"palace",
+				"shattered_ward"
+			],
+			"pos": [
+				-100.0,
+				-140.0,
+				1880.0
+			],
+			"region": "pelagoria",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 45000.0,
+			"id": "coral_kingdom",
+			"kind": "reef",
+			"name": "Coral Kingdom",
+			"neighbors": [
+				"black_current",
+				"boat_graveyard",
+				"outpost",
+				"reef_garden",
+				"tidebreak_shelf",
+				"wreck_field"
+			],
+			"pos": [
+				450.0,
+				-45.0,
+				930.0
+			],
+			"region": "twilight_reefs",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Twilight Reefs"
+		},
+		{
+			"area": 20000.0,
+			"id": "coralmere_prime",
+			"kind": "city_homes",
+			"name": "Pelagoria Before the Flood",
+			"neighbors": [
+				"portal_plaza"
+			],
+			"pos": [
+				1600.0,
+				0.0,
+				1600.0
+			],
+			"region": "past",
+			"tags": [
+				"era"
+			],
+			"underwater": false
+		},
+		{
+			"area": 15000.0,
+			"id": "crown_plaza",
+			"kind": "city_plaza",
+			"name": "Crown Plaza",
+			"neighbors": [
+				"hidden_below",
+				"lantern_quarter",
+				"market",
+				"portal_plaza",
+				"sea_gate"
+			],
+			"pos": [
+				100.0,
+				-140.0,
+				1560.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 6000.0,
+			"id": "crystal_catacombs_0",
+			"kind": "hidden",
+			"level": 2,
+			"name": "Deep Geode",
+			"neighbors": [
+				"crystal_catacombs_1",
+				"descending_galleries_4"
+			],
+			"pos": [
+				640.0,
+				-100.0,
+				60.0
+			],
+			"region": "crystal_catacombs",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Crystal Catacombs"
+		},
+		{
+			"area": 5000.0,
+			"id": "crystal_catacombs_1",
+			"kind": "ruins",
+			"level": 2,
+			"name": "Broken Archway",
+			"neighbors": [
+				"crystal_catacombs_0",
+				"crystal_catacombs_2",
+				"crystal_catacombs_3"
+			],
+			"pos": [
+				632.768277736056,
+				-106.0,
+				188.072540180016
+			],
+			"region": "crystal_catacombs",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Crystal Catacombs"
+		},
+		{
+			"area": 9000.0,
+			"id": "crystal_catacombs_2",
+			"kind": "hidden",
+			"level": 2,
+			"name": "Weeping Prism Vault",
+			"neighbors": [
+				"crystal_catacombs_1",
+				"crystal_catacombs_3",
+				"glowroot_forest_0",
+				"hollowmere_0",
+				"sunken_caverns_0"
+			],
+			"pos": [
+				530.957649125431,
+				-112.0,
+				291.295421030229
+			],
+			"region": "crystal_catacombs",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Crystal Catacombs"
+		},
+		{
+			"area": 7000.0,
+			"id": "crystal_catacombs_3",
+			"kind": "ruins",
+			"level": 2,
+			"name": "Iron Vault",
+			"neighbors": [
+				"crystal_catacombs_1",
+				"crystal_catacombs_2"
+			],
+			"pos": [
+				407.678396733453,
+				-118.0,
+				238.605112558793
+			],
+			"region": "crystal_catacombs",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Crystal Catacombs"
+		},
+		{
+			"area": 6000.0,
+			"id": "descending_galleries_0",
+			"kind": "caves",
+			"level": 0,
+			"name": "Cold Grotto",
+			"neighbors": [
+				"cave_mouth_2",
+				"descending_galleries_1"
+			],
+			"pos": [
+				515.397027556846,
+				-40.0,
+				207.478211316468
+			],
+			"region": "descending_galleries",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Descending Galleries"
+		},
+		{
+			"area": 8000.0,
+			"id": "descending_galleries_1",
+			"kind": "deep_caves",
+			"level": 1,
+			"name": "Narrow Pit",
+			"neighbors": [
+				"descending_galleries_0",
+				"descending_galleries_2",
+				"descending_galleries_3"
+			],
+			"pos": [
+				626.874577154164,
+				-52.0,
+				238.526475186903
+			],
+			"region": "descending_galleries",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Descending Galleries"
+		},
+		{
+			"area": 6000.0,
+			"id": "descending_galleries_2",
+			"kind": "caves",
+			"level": 1,
+			"name": "Moss Shaft",
+			"neighbors": [
+				"descending_galleries_1",
+				"descending_galleries_3"
+			],
+			"pos": [
+				746.610553303591,
+				-64.0,
+				313.357797781808
+			],
+			"region": "descending_galleries",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Descending Galleries"
+		},
+		{
+			"area": 9000.0,
+			"id": "descending_galleries_3",
+			"kind": "deep_caves",
+			"level": 1,
+			"name": "Vaulted Pit",
+			"neighbors": [
+				"descending_galleries_1",
+				"descending_galleries_2",
+				"descending_galleries_4"
+			],
+			"pos": [
+				821.013660225283,
+				-76.0,
+				438.617027129625
+			],
+			"region": "descending_galleries",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Descending Galleries"
+		},
+		{
+			"area": 5000.0,
+			"id": "descending_galleries_4",
+			"kind": "caves",
+			"level": 1,
+			"name": "Hollow Shaft",
+			"neighbors": [
+				"crystal_catacombs_0",
+				"descending_galleries_3"
+			],
+			"pos": [
+				765.341092843326,
+				-88.0,
+				551.481426170864
+			],
+			"region": "descending_galleries",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Descending Galleries"
+		},
+		{
+			"area": 8000.0,
+			"id": "drowned_caves",
+			"kind": "caves",
+			"name": "Drowned Caves",
+			"neighbors": [
+				"cliff_path",
+				"hearth",
+				"pearl_grotto",
+				"sea_gate",
+				"sunken_caverns_0"
+			],
+			"pos": [
+				130.0,
+				0.0,
+				260.0
+			],
+			"region": "coast",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 5000.0,
+			"id": "dune_camp",
+			"kind": "camp",
+			"name": "Dune Camp",
+			"neighbors": [
+				"boat_graveyard",
+				"boatyard",
+				"gull_beach"
+			],
+			"pos": [
+				600.0,
+				0.0,
+				330.0
+			],
+			"region": "coast",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 5000.0,
+			"id": "emberdeep_0",
+			"kind": "city_homes",
+			"level": 3,
+			"name": "Iron Terrace",
+			"neighbors": [
+				"emberdeep_1",
+				"glowroot_forest_3"
+			],
+			"pos": [
+				960.0,
+				-170.0,
+				-520.0
+			],
+			"region": "emberdeep",
+			"tags": [
+				"cave"
+			],
+			"zone": "Emberdeep"
+		},
+		{
+			"area": 6000.0,
+			"id": "emberdeep_1",
+			"kind": "city_forge",
+			"level": 3,
+			"name": "Iron Foundry",
+			"neighbors": [
+				"emberdeep_0",
+				"emberdeep_2",
+				"emberdeep_3"
+			],
+			"pos": [
+				954.842938789674,
+				-172.0,
+				-643.095847547904
+			],
+			"region": "emberdeep",
+			"tags": [
+				"cave"
+			],
+			"zone": "Emberdeep"
+		},
+		{
+			"area": 7000.0,
+			"id": "emberdeep_2",
+			"kind": "city_market",
+			"level": 3,
+			"name": "Broken Market",
+			"neighbors": [
+				"emberdeep_1",
+				"emberdeep_3"
+			],
+			"pos": [
+				932.630849607467,
+				-174.0,
+				-779.480680413386
+			],
+			"region": "emberdeep",
+			"tags": [
+				"cave"
+			],
+			"zone": "Emberdeep"
+		},
+		{
+			"area": 5000.0,
+			"id": "emberdeep_3",
+			"kind": "city_homes",
+			"level": 3,
+			"name": "Narrow Row",
+			"neighbors": [
+				"emberdeep_1",
+				"emberdeep_2",
+				"threshold_halls_0"
+			],
+			"pos": [
+				1037.50717902632,
+				-176.0,
+				-871.365006610115
+			],
+			"region": "emberdeep",
+			"tags": [
+				"cave"
+			],
+			"zone": "Emberdeep"
+		},
+		{
+			"area": 14000.0,
+			"id": "estate_woods",
+			"kind": "woods",
+			"name": "Whisperwood",
+			"neighbors": [
+				"smugglers_cove",
+				"stables"
+			],
+			"pos": [
+				-250.0,
+				0.0,
+				-150.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 1500.0,
+			"id": "family_chapel",
+			"kind": "chapel",
+			"name": "Alloway Chapel",
+			"neighbors": [
+				"cliff_path",
+				"hearth"
+			],
+			"pos": [
+				-100.0,
+				0.0,
+				90.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 4000.0,
+			"id": "fish_market",
+			"kind": "market",
+			"name": "Fish Market",
+			"neighbors": [
+				"boatyard",
+				"harbour"
+			],
+			"pos": [
+				960.0,
+				0.0,
+				120.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 8000.0,
+			"id": "fishers_row",
+			"kind": "town",
+			"name": "Fishers' Row",
+			"neighbors": [
+				"harbour",
+				"hospital",
+				"town_hall"
+			],
+			"pos": [
+				820.0,
+				0.0,
+				0.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 12000.0,
+			"id": "forge_hall",
+			"kind": "city_forge",
+			"name": "Forge of Whispers",
+			"neighbors": [
+				"lantern_quarter",
+				"market",
+				"portal_plaza"
+			],
+			"pos": [
+				-100.0,
+				-140.0,
+				1720.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 2500.0,
+			"id": "forge_yard",
+			"kind": "yard",
+			"name": "Forge Yard",
+			"neighbors": [
+				"gardens",
+				"rail_station"
+			],
+			"pos": [
+				240.0,
+				0.0,
+				-60.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 12000.0,
+			"id": "forgotten_gate",
+			"kind": "heart",
+			"name": "Forgotten Gate",
+			"neighbors": [
+				"glow_basin",
+				"hidden_below",
+				"sealed_city",
+				"timeless_hollow"
+			],
+			"pos": [
+				300.0,
+				-300.0,
+				2450.0
+			],
+			"region": "forgotten_depths",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Forgotten Depths"
+		},
+		{
+			"area": 40000.0,
+			"id": "frontier_ruins",
+			"kind": "ruins",
+			"name": "Sunken Kingdom Ruins",
+			"neighbors": [
+				"ancient_road",
+				"black_current",
+				"sea_gate",
+				"wreck_field"
+			],
+			"pos": [
+				-80.0,
+				-90.0,
+				1220.0
+			],
+			"region": "sunken_frontier",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Sunken Frontier"
+		},
+		{
+			"area": 12000.0,
+			"id": "gardens",
+			"kind": "garden",
+			"name": "Alloway Gardens",
+			"neighbors": [
+				"forge_yard",
+				"hearth",
+				"lantern_cottage",
+				"orchard"
+			],
+			"pos": [
+				130.0,
+				0.0,
+				-20.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 35000.0,
+			"id": "giant_caves",
+			"kind": "deep_caves",
+			"name": "Leviathan Caves",
+			"neighbors": [
+				"abyss_trench",
+				"sealed_city",
+				"shattered_ward"
+			],
+			"pos": [
+				-250.0,
+				-220.0,
+				2150.0
+			],
+			"region": "abyssal_wilds",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Abyssal Wilds"
+		},
+		{
+			"area": 30000.0,
+			"id": "glow_basin",
+			"kind": "kelp",
+			"name": "Glowfen Basin",
+			"neighbors": [
+				"abyss_trench",
+				"arena",
+				"forgotten_gate"
+			],
+			"pos": [
+				450.0,
+				-220.0,
+				2150.0
+			],
+			"region": "abyssal_wilds",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Abyssal Wilds"
+		},
+		{
+			"area": 9000.0,
+			"id": "glowroot_forest_0",
+			"kind": "woods",
+			"level": 2,
+			"name": "Dripstone Root Hall",
+			"neighbors": [
+				"crystal_catacombs_2",
+				"glowroot_forest_1"
+			],
+			"pos": [
+				960.0,
+				-110.0,
+				-140.0
+			],
+			"region": "glowroot_forest",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Glowroot Forest"
+		},
+		{
+			"area": 8000.0,
+			"id": "glowroot_forest_1",
+			"kind": "woods",
+			"level": 2,
+			"name": "Salt Glade",
+			"neighbors": [
+				"glowroot_forest_0",
+				"glowroot_forest_2",
+				"glowroot_forest_3"
+			],
+			"pos": [
+				1004.39552085879,
+				-114.0,
+				-10.7017968264415
+			],
+			"region": "glowroot_forest",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Glowroot Forest"
+		},
+		{
+			"area": 5000.0,
+			"id": "glowroot_forest_2",
+			"kind": "woods",
+			"level": 2,
+			"name": "Dripstone Thicket",
+			"neighbors": [
+				"glowroot_forest_1",
+				"glowroot_forest_3"
+			],
+			"pos": [
+				1024.35389295685,
+				-118.0,
+				109.604521720631
+			],
+			"region": "glowroot_forest",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Glowroot Forest"
+		},
+		{
+			"area": 8000.0,
+			"id": "glowroot_forest_3",
+			"kind": "woods",
+			"level": 2,
+			"name": "Rootbound Mushroom Grove",
+			"neighbors": [
+				"emberdeep_0",
+				"glowroot_forest_1",
+				"glowroot_forest_2",
+				"hollowmere_0"
+			],
+			"pos": [
+				995.949603625369,
+				-122.0,
+				232.701572909711
+			],
+			"region": "glowroot_forest",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Glowroot Forest"
+		},
+		{
+			"area": 12000.0,
+			"id": "gull_beach",
+			"kind": "beach",
+			"name": "Gull Beach",
+			"neighbors": [
+				"dune_camp",
+				"main_street",
+				"pearl_grotto",
+				"reef_garden"
+			],
+			"pos": [
+				420.0,
+				0.0,
+				330.0
+			],
+			"region": "coast",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 9000.0,
+			"id": "gullhaven_1893",
+			"kind": "town",
+			"name": "Gullhaven, 1893",
+			"neighbors": [
+				"lighthouse"
+			],
+			"pos": [
+				1600.0,
+				0.0,
+				0.0
+			],
+			"region": "past",
+			"tags": [
+				"era"
+			],
+			"underwater": false
+		},
+		{
+			"area": 16000.0,
+			"id": "harbour",
+			"kind": "docks",
+			"name": "Gullhaven Harbour",
+			"neighbors": [
+				"boatyard",
+				"fish_market",
+				"fishers_row",
+				"library",
+				"shallows"
+			],
+			"pos": [
+				820.0,
+				0.0,
+				160.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 6000.0,
+			"id": "hearth",
+			"kind": "manor",
+			"name": "Hearthstone House",
+			"neighbors": [
+				"cliff_path",
+				"drowned_caves",
+				"family_chapel",
+				"gardens",
+				"main_street",
+				"sheds"
+			],
+			"pos": [
+				0.0,
+				0.0,
+				0.0
+			],
+			"region": "estate",
+			"tags": [
+				"home"
+			],
+			"underwater": false
+		},
+		{
+			"area": 15000.0,
+			"id": "hidden_below",
+			"kind": "hidden",
+			"name": "The Hidden Below",
+			"neighbors": [
+				"crown_plaza",
+				"forgotten_gate",
+				"shattered_ward"
+			],
+			"pos": [
+				100.0,
+				-185.0,
+				1640.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 6000.0,
+			"id": "hollowmere_0",
+			"kind": "city_homes",
+			"level": 3,
+			"name": "High Terrace",
+			"neighbors": [
+				"crystal_catacombs_2",
+				"glowroot_forest_3",
+				"hollowmere_1"
+			],
+			"pos": [
+				600.0,
+				-150.0,
+				-300.0
+			],
+			"region": "hollowmere",
+			"tags": [
+				"cave"
+			],
+			"zone": "Old Hollowmere"
+		},
+		{
+			"area": 9000.0,
+			"id": "hollowmere_1",
+			"kind": "city_market",
+			"level": 3,
+			"name": "Echoing Bazaar",
+			"neighbors": [
+				"hollowmere_0",
+				"hollowmere_2",
+				"hollowmere_3"
+			],
+			"pos": [
+				558.727873324792,
+				-153.0,
+				-422.960926678812
+			],
+			"region": "hollowmere",
+			"tags": [
+				"cave"
+			],
+			"zone": "Old Hollowmere"
+		},
+		{
+			"area": 8000.0,
+			"id": "hollowmere_2",
+			"kind": "city_hall",
+			"level": 3,
+			"name": "Moss Guildhall",
+			"neighbors": [
+				"hollowmere_1",
+				"hollowmere_3"
+			],
+			"pos": [
+				411.296953137496,
+				-156.0,
+				-409.254183623923
+			],
+			"region": "hollowmere",
+			"tags": [
+				"cave"
+			],
+			"zone": "Old Hollowmere"
+		},
+		{
+			"area": 7000.0,
+			"id": "hollowmere_3",
+			"kind": "city_homes",
+			"level": 3,
+			"name": "Low Row",
+			"neighbors": [
+				"hollowmere_1",
+				"hollowmere_2",
+				"hollowmere_4"
+			],
+			"pos": [
+				292.310025606697,
+				-159.0,
+				-381.193015866917
+			],
+			"region": "hollowmere",
+			"tags": [
+				"cave"
+			],
+			"zone": "Old Hollowmere"
+		},
+		{
+			"area": 8000.0,
+			"id": "hollowmere_4",
+			"kind": "city_market",
+			"level": 3,
+			"name": "Echoing Market",
+			"neighbors": [
+				"hollowmere_3",
+				"whispering_depths_0"
+			],
+			"pos": [
+				169.064917177851,
+				-162.0,
+				-452.088020169354
+			],
+			"region": "hollowmere",
+			"tags": [
+				"cave"
+			],
+			"zone": "Old Hollowmere"
+		},
+		{
+			"area": 3500.0,
+			"id": "hospital",
+			"kind": "civic",
+			"name": "Gullhaven Infirmary",
+			"neighbors": [
+				"fishers_row",
+				"park"
+			],
+			"pos": [
+				980.0,
+				0.0,
+				-60.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 40000.0,
+			"id": "kelp_forest",
+			"kind": "kelp",
+			"name": "Kelp Forest",
+			"neighbors": [
+				"shallows",
+				"smugglers_cove",
+				"twilight_village"
+			],
+			"pos": [
+				-300.0,
+				-15.0,
+				650.0
+			],
+			"region": "shallow_blue",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Shallow Blue"
+		},
+		{
+			"area": 1500.0,
+			"id": "lantern_cottage",
+			"kind": "cottage",
+			"name": "Lantern Cottage",
+			"neighbors": [
+				"gardens",
+				"main_street"
+			],
+			"pos": [
+				220.0,
+				0.0,
+				60.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 25000.0,
+			"id": "lantern_quarter",
+			"kind": "city_homes",
+			"name": "Lantern Quarter",
+			"neighbors": [
+				"crown_plaza",
+				"forge_hall",
+				"shattered_ward",
+				"sunken_harbor"
+			],
+			"pos": [
+				-100.0,
+				-140.0,
+				1560.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 2500.0,
+			"id": "library",
+			"kind": "civic",
+			"name": "Gullhaven Library",
+			"neighbors": [
+				"harbour",
+				"police",
+				"town_hall"
+			],
+			"pos": [
+				690.0,
+				0.0,
+				90.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 2000.0,
+			"id": "lighthouse",
+			"kind": "tower",
+			"name": "Gull Point Lighthouse",
+			"neighbors": [
+				"boatyard",
+				"gullhaven_1893",
+				"tidebreak_east"
+			],
+			"pos": [
+				1080.0,
+				0.0,
+				300.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 9000.0,
+			"id": "main_street",
+			"kind": "town",
+			"name": "Gullhaven Main Street",
+			"neighbors": [
+				"gull_beach",
+				"hearth",
+				"lantern_cottage",
+				"rail_station",
+				"square"
+			],
+			"pos": [
+				420.0,
+				0.0,
+				0.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 20000.0,
+			"id": "market",
+			"kind": "city_market",
+			"name": "Tidemark Bazaar",
+			"neighbors": [
+				"archive",
+				"arena",
+				"black_current",
+				"coral_gardens",
+				"crown_plaza",
+				"forge_hall"
+			],
+			"pos": [
+				280.0,
+				-140.0,
+				1560.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 7000.0,
+			"id": "market_lane",
+			"kind": "town",
+			"name": "Market Lane",
+			"neighbors": [
+				"church_row",
+				"north_end",
+				"square"
+			],
+			"pos": [
+				560.0,
+				0.0,
+				-130.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 7000.0,
+			"id": "mill_street",
+			"kind": "town",
+			"name": "Mill Street",
+			"neighbors": [
+				"cemetery",
+				"church_row",
+				"north_end"
+			],
+			"pos": [
+				700.0,
+				0.0,
+				-270.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 6000.0,
+			"id": "millpond",
+			"kind": "park",
+			"name": "Millpond",
+			"neighbors": [
+				"orchard",
+				"stables",
+				"wynd_farm"
+			],
+			"pos": [
+				0.0,
+				0.0,
+				-330.0
+			],
+			"region": "hills",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 9000.0,
+			"id": "north_end",
+			"kind": "town",
+			"name": "North End",
+			"neighbors": [
+				"market_lane",
+				"mill_street",
+				"old_quarry"
+			],
+			"pos": [
+				560.0,
+				0.0,
+				-270.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 16000.0,
+			"id": "old_quarry",
+			"kind": "quarry",
+			"name": "Old Quarry",
+			"neighbors": [
+				"north_end",
+				"rail_station",
+				"watchtower",
+				"wynd_farm"
+			],
+			"pos": [
+				420.0,
+				0.0,
+				-420.0
+			],
+			"region": "hills",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 9000.0,
+			"id": "orchard",
+			"kind": "farm",
+			"name": "Alloway Orchard",
+			"neighbors": [
+				"gardens",
+				"millpond",
+				"wynd_farm"
+			],
+			"pos": [
+				60.0,
+				0.0,
+				-160.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 15000.0,
+			"id": "outpost",
+			"kind": "village",
+			"name": "Saltglass Outpost",
+			"neighbors": [
+				"arena",
+				"black_current",
+				"coral_kingdom",
+				"tidebreak_shelf"
+			],
+			"pos": [
+				650.0,
+				-90.0,
+				1200.0
+			],
+			"region": "sunken_frontier",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Sunken Frontier"
+		},
+		{
+			"area": 20000.0,
+			"id": "palace",
+			"kind": "palace",
+			"name": "Royal Depths",
+			"neighbors": [
+				"abyss_trench",
+				"coral_gardens",
+				"portal_plaza"
+			],
+			"pos": [
+				100.0,
+				-140.0,
+				1880.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 8000.0,
+			"id": "park",
+			"kind": "park",
+			"name": "Seawall Park",
+			"neighbors": [
+				"academy",
+				"hospital"
+			],
+			"pos": [
+				980.0,
+				0.0,
+				-200.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 2000.0,
+			"id": "pearl_grotto",
+			"kind": "caves",
+			"name": "Pearl Grotto",
+			"neighbors": [
+				"drowned_caves",
+				"gull_beach"
+			],
+			"pos": [
+				230.0,
+				0.0,
+				330.0
+			],
+			"region": "coast",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 2000.0,
+			"id": "pier",
+			"kind": "pier",
+			"name": "Alloway Pier",
+			"neighbors": [
+				"cliff_path",
+				"shallows",
+				"smugglers_cove"
+			],
+			"pos": [
+				-130.0,
+				0.0,
+				260.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 1500.0,
+			"id": "police",
+			"kind": "civic",
+			"name": "Constable's Station",
+			"neighbors": [
+				"library",
+				"square"
+			],
+			"pos": [
+				560.0,
+				0.0,
+				110.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 12000.0,
+			"id": "portal_plaza",
+			"kind": "heart",
+			"name": "Heart of the Deep",
+			"neighbors": [
+				"archive",
+				"coralmere_prime",
+				"crown_plaza",
+				"forge_hall",
+				"palace"
+			],
+			"pos": [
+				100.0,
+				-140.0,
+				1720.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"landmark"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 5000.0,
+			"id": "rail_station",
+			"kind": "station",
+			"name": "Gullhaven Station",
+			"neighbors": [
+				"forge_yard",
+				"main_street",
+				"old_quarry"
+			],
+			"pos": [
+				420.0,
+				0.0,
+				-150.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 30000.0,
+			"id": "reef_garden",
+			"kind": "reef",
+			"name": "Sunlit Reef",
+			"neighbors": [
+				"boat_graveyard",
+				"coral_kingdom",
+				"gull_beach",
+				"shallows"
+			],
+			"pos": [
+				300.0,
+				-15.0,
+				620.0
+			],
+			"region": "shallow_blue",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Shallow Blue"
+		},
+		{
+			"area": 6000.0,
+			"id": "ridge_road",
+			"kind": "path",
+			"name": "Ridge Road",
+			"neighbors": [
+				"watchtower",
+				"wynd_farm"
+			],
+			"pos": [
+				300.0,
+				0.0,
+				-600.0
+			],
+			"region": "hills",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 10000.0,
+			"id": "sea_gate",
+			"kind": "city_gate",
+			"name": "Pelagoria Sea Gate",
+			"neighbors": [
+				"crown_plaza",
+				"drowned_caves",
+				"frontier_ruins",
+				"sunken_harbor"
+			],
+			"pos": [
+				100.0,
+				-140.0,
+				1420.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 30000.0,
+			"id": "sealed_city",
+			"kind": "ruins",
+			"name": "Sealed City of Oru",
+			"neighbors": [
+				"abyss_trench",
+				"clockwork_deeps",
+				"forgotten_gate",
+				"giant_caves"
+			],
+			"pos": [
+				0.0,
+				-300.0,
+				2450.0
+			],
+			"region": "forgotten_depths",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Forgotten Depths"
+		},
+		{
+			"area": 30000.0,
+			"id": "shallows",
+			"kind": "reef",
+			"name": "The Shallows",
+			"neighbors": [
+				"harbour",
+				"kelp_forest",
+				"pier",
+				"reef_garden",
+				"wreck_field"
+			],
+			"pos": [
+				0.0,
+				-15.0,
+				620.0
+			],
+			"region": "shallow_blue",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Shallow Blue"
+		},
+		{
+			"area": 22000.0,
+			"id": "shattered_ward",
+			"kind": "ruins",
+			"name": "Shattered Ward",
+			"neighbors": [
+				"coral_gardens",
+				"giant_caves",
+				"hidden_below",
+				"lantern_quarter",
+				"sunken_harbor"
+			],
+			"pos": [
+				-300.0,
+				-140.0,
+				1700.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 2000.0,
+			"id": "sheds",
+			"kind": "yard",
+			"name": "Garden Sheds",
+			"neighbors": [
+				"hearth",
+				"stables"
+			],
+			"pos": [
+				-110.0,
+				0.0,
+				-10.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 4000.0,
+			"id": "smugglers_cove",
+			"kind": "cove",
+			"name": "Smuggler's Cove",
+			"neighbors": [
+				"estate_woods",
+				"kelp_forest",
+				"pier"
+			],
+			"pos": [
+				-300.0,
+				0.0,
+				280.0
+			],
+			"region": "coast",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 8000.0,
+			"id": "square",
+			"kind": "plaza",
+			"name": "Gullhaven Square",
+			"neighbors": [
+				"main_street",
+				"market_lane",
+				"police",
+				"town_hall"
+			],
+			"pos": [
+				560.0,
+				0.0,
+				0.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 3000.0,
+			"id": "stables",
+			"kind": "yard",
+			"name": "Old Stables",
+			"neighbors": [
+				"estate_woods",
+				"millpond",
+				"sheds"
+			],
+			"pos": [
+				-110.0,
+				0.0,
+				-110.0
+			],
+			"region": "estate",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 6000.0,
+			"id": "sunken_caverns_0",
+			"kind": "caves",
+			"level": 1,
+			"name": "Hollow Ledge",
+			"neighbors": [
+				"crystal_catacombs_2",
+				"drowned_caves",
+				"sunken_caverns_1"
+			],
+			"pos": [
+				880.0,
+				-70.0,
+				280.0
+			],
+			"region": "sunken_caverns",
+			"tags": [
+				"cave"
+			],
+			"underwater": true,
+			"zone": "The Sunken Caverns"
+		},
+		{
+			"area": 8000.0,
+			"id": "sunken_caverns_1",
+			"kind": "caves",
+			"level": 1,
+			"name": "Dripstone Grotto",
+			"neighbors": [
+				"sunken_caverns_0",
+				"sunken_caverns_2"
+			],
+			"pos": [
+				820.068790309345,
+				-78.0,
+				136.44140080284
+			],
+			"region": "sunken_caverns",
+			"tags": [
+				"cave"
+			],
+			"underwater": true,
+			"zone": "The Sunken Caverns"
+		},
+		{
+			"area": 5000.0,
+			"id": "sunken_caverns_2",
+			"kind": "caves",
+			"level": 1,
+			"name": "High Grotto",
+			"neighbors": [
+				"sunken_caverns_1"
+			],
+			"pos": [
+				768.622094322206,
+				-86.0,
+				-8.42422844609092
+			],
+			"region": "sunken_caverns",
+			"tags": [
+				"cave"
+			],
+			"underwater": true,
+			"zone": "The Sunken Caverns"
+		},
+		{
+			"area": 18000.0,
+			"id": "sunken_harbor",
+			"kind": "city_harbor",
+			"name": "Sunken Harbor",
+			"neighbors": [
+				"ancient_road",
+				"lantern_quarter",
+				"sea_gate",
+				"shattered_ward"
+			],
+			"pos": [
+				-300.0,
+				-140.0,
+				1440.0
+			],
+			"region": "pelagoria",
+			"tags": [
+				"district"
+			],
+			"underwater": true,
+			"zone": "The Sunken Kingdom"
+		},
+		{
+			"area": 7000.0,
+			"id": "threshold_halls_0",
+			"kind": "ruins",
+			"level": 5,
+			"name": "Narrow Crypt",
+			"neighbors": [
+				"emberdeep_3",
+				"threshold_halls_1",
+				"whispering_depths_3"
+			],
+			"pos": [
+				520.0,
+				-270.0,
+				-620.0
+			],
+			"region": "threshold_halls",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Threshold Halls"
+		},
+		{
+			"area": 5000.0,
+			"id": "threshold_halls_1",
+			"kind": "hidden",
+			"level": 5,
+			"name": "Moss Prism Vault",
+			"neighbors": [
+				"threshold_halls_0",
+				"threshold_halls_2"
+			],
+			"pos": [
+				422.252575962792,
+				-278.0,
+				-508.201718270902
+			],
+			"region": "threshold_halls",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Threshold Halls"
+		},
+		{
+			"area": 7000.0,
+			"id": "threshold_halls_2",
+			"kind": "ruins",
+			"level": 5,
+			"name": "Hollow Vault",
+			"neighbors": [
+				"beyond_threshold",
+				"threshold_halls_1"
+			],
+			"pos": [
+				391.98403751824,
+				-286.0,
+				-368.047707917325
+			],
+			"region": "threshold_halls",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Threshold Halls"
+		},
+		{
+			"area": 9000.0,
+			"id": "tidebreak_east",
+			"kind": "island",
+			"name": "East Tidebreak Island",
+			"neighbors": [
+				"lighthouse",
+				"tidebreak_west"
+			],
+			"pos": [
+				1100.0,
+				0.0,
+				520.0
+			],
+			"region": "islands",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 25000.0,
+			"id": "tidebreak_shelf",
+			"kind": "reef",
+			"name": "Tidebreak Shelf",
+			"neighbors": [
+				"boat_graveyard",
+				"coral_kingdom",
+				"outpost",
+				"tidebreak_west"
+			],
+			"pos": [
+				950.0,
+				-45.0,
+				620.0
+			],
+			"region": "twilight_reefs",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Twilight Reefs"
+		},
+		{
+			"area": 7000.0,
+			"id": "tidebreak_west",
+			"kind": "island",
+			"name": "West Tidebreak Island",
+			"neighbors": [
+				"boatyard",
+				"tidebreak_east",
+				"tidebreak_shelf"
+			],
+			"pos": [
+				850.0,
+				0.0,
+				560.0
+			],
+			"region": "islands",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 20000.0,
+			"id": "timeless_hollow",
+			"kind": "deep_caves",
+			"name": "Timeless Hollow",
+			"neighbors": [
+				"clockwork_deeps",
+				"forgotten_gate"
+			],
+			"pos": [
+				300.0,
+				-380.0,
+				2700.0
+			],
+			"region": "timeless_deep",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Timeless Deep"
+		},
+		{
+			"area": 3000.0,
+			"id": "town_hall",
+			"kind": "civic",
+			"name": "Gullhaven Town Hall",
+			"neighbors": [
+				"fishers_row",
+				"library",
+				"square"
+			],
+			"pos": [
+				690.0,
+				0.0,
+				0.0
+			],
+			"region": "gullhaven",
+			"tags": [],
+			"underwater": false
+		},
+		{
+			"area": 20000.0,
+			"id": "twilight_village",
+			"kind": "village",
+			"name": "Glimmer Village",
+			"neighbors": [
+				"ancient_road",
+				"kelp_forest",
+				"wreck_field"
+			],
+			"pos": [
+				-250.0,
+				-45.0,
+				920.0
+			],
+			"region": "twilight_reefs",
+			"tags": [],
+			"underwater": true,
+			"zone": "The Twilight Reefs"
+		},
+		{
+			"area": 3000.0,
+			"id": "watchtower",
+			"kind": "tower",
+			"name": "Ruined Watchtower",
+			"neighbors": [
+				"old_quarry",
+				"ridge_road"
+			],
+			"pos": [
+				560.0,
+				0.0,
+				-560.0
+			],
+			"region": "hills",
+			"tags": [
+				"base_site"
+			],
+			"underwater": false
+		},
+		{
+			"area": 5000.0,
+			"id": "whispering_depths_0",
+			"kind": "deep_caves",
+			"level": 3,
+			"name": "Silent Pit",
+			"neighbors": [
+				"hollowmere_4",
+				"whispering_depths_1"
+			],
+			"pos": [
+				156.545615965147,
+				-190.0,
+				-282.001421787088
+			],
+			"region": "whispering_depths",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Whispering Depths"
+		},
+		{
+			"area": 8000.0,
+			"id": "whispering_depths_1",
+			"kind": "deep_caves",
+			"level": 4,
+			"name": "Dripstone Chasm",
+			"neighbors": [
+				"whispering_depths_0",
+				"whispering_depths_2",
+				"whispering_depths_3"
+			],
+			"pos": [
+				10.1954778983009,
+				-200.0,
+				-277.54511606474
+			],
+			"region": "whispering_depths",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Whispering Depths"
+		},
+		{
+			"area": 9000.0,
+			"id": "whispering_depths_2",
+			"kind": "deep_caves",
+			"level": 4,
+			"name": "High Chasm",
+			"neighbors": [
+				"whispering_depths_1",
+				"whispering_depths_3"
+			],
+			"pos": [
+				62.3556347678021,
+				-210.0,
+				-138.526973207206
+			],
+			"region": "whispering_depths",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Whispering Depths"
+		},
+		{
+			"area": 9000.0,
+			"id": "whispering_depths_3",
+			"kind": "deep_caves",
+			"level": 4,
+			"name": "Echoing Chasm",
+			"neighbors": [
+				"black_vault_0",
+				"threshold_halls_0",
+				"whispering_depths_1",
+				"whispering_depths_2"
+			],
+			"pos": [
+				120.084607253776,
+				-220.0,
+				-12.3410152232969
+			],
+			"region": "whispering_depths",
+			"tags": [
+				"cave"
+			],
+			"zone": "The Whispering Depths"
+		},
+		{
+			"area": 35000.0,
+			"id": "wreck_field",
+			"kind": "wrecks",
+			"name": "Wreck Field",
+			"neighbors": [
+				"coral_kingdom",
+				"frontier_ruins",
+				"shallows",
+				"twilight_village"
+			],
+			"pos": [
+				100.0,
+				-45.0,
+				900.0
+			],
+			"region": "twilight_reefs",
+			"tags": [
+				"base_site"
+			],
+			"underwater": true,
+			"zone": "The Twilight Reefs"
+		},
+		{
+			"area": 14000.0,
+			"id": "wynd_farm",
+			"kind": "farm",
+			"name": "Wynd Farm",
+			"neighbors": [
+				"millpond",
+				"old_quarry",
+				"orchard",
+				"ridge_road"
+			],
+			"pos": [
+				200.0,
+				0.0,
+				-420.0
+			],
+			"region": "hills",
+			"tags": [],
+			"underwater": false
+		}
+	],
+	"player_place": "hearth",
+	"quest_defs": {
+		"order": [
+			"breath_of_the_deep",
+			"forgemasters_secret",
+			"the_hour_gate",
+			"rivals_in_the_deep"
+		],
+		"quests": {
+			"breath_of_the_deep": {
+				"after": [],
+				"done": false,
+				"dynamic": false,
+				"reward": {
+					"pearl_shell": 1
+				},
+				"step": 0,
+				"steps": [
+					{
+						"arg": "pearl_grotto",
+						"kind": "reach",
+						"text": "Find the Pearl Grotto inside the Drowned Caves"
+					},
+					{
+						"arg": "pearl",
+						"kind": "hold",
+						"text": "Take the Abyssal Breath Spellstone"
+					},
+					{
+						"arg": "sea_gate",
+						"kind": "reach",
+						"text": "Swim to the Pelagoria Sea Gate"
+					}
+				],
+				"title": "The Breath of the Deep"
+			},
+			"forgemasters_secret": {
+				"after": [
+					"breath_of_the_deep"
+				],
+				"done": false,
+				"dynamic": false,
+				"reward": {
+					"blank": 1
+				},
+				"step": 0,
+				"steps": [
+					{
+						"arg": "anchor",
+						"kind": "learn",
+						"text": "Read the Forgemaster's Tablet in the Archive of Tides"
+					},
+					{
+						"arg": "schooner",
+						"kind": "salvage",
+						"text": "Salvage key metal from the Sunken Schooner"
+					},
+					{
+						"arg": "anchor",
+						"kind": "forge",
+						"text": "Forge the Anchor Spellstone in the Forge of Whispers"
+					}
+				],
+				"title": "The Forgemaster's Secret"
+			},
+			"rivals_in_the_deep": {
+				"after": [
+					"breath_of_the_deep"
+				],
+				"done": false,
+				"dynamic": false,
+				"reward": {},
+				"step": 0,
+				"steps": [
+					{
+						"arg": "palace",
+						"kind": "control",
+						"text": "Take control of the Royal Depths"
+					}
+				],
+				"title": "Rivals in the Deep"
+			},
+			"the_hour_gate": {
+				"after": [
+					"forgemasters_secret"
+				],
+				"done": false,
+				"dynamic": false,
+				"reward": {
+					"blank": 1
+				},
+				"step": 0,
+				"steps": [
+					{
+						"arg": "portal_plaza",
+						"kind": "reach",
+						"text": "Wait at the Heart of the Deep for the Drowned Bell Clock to chime"
+					},
+					{
+						"arg": "hour_gate",
+						"kind": "portal",
+						"text": "Step through the Hour Gate"
+					},
+					{
+						"arg": "clockwork",
+						"kind": "learn",
+						"text": "Learn the clockwork recipe from Pelagoria before the flood"
+					}
+				],
+				"title": "The Hour Gate"
+			}
+		}
+	},
+	"recipes": {
+		"anchor": {
+			"blank": 1,
+			"pearl_shell": 1
+		},
+		"beacon": {
+			"abyss_glass": 1,
+			"blank": 1
+		},
+		"clockwork": {
+			"blank": 2,
+			"pearl_shell": 1
+		},
+		"magnet": {
+			"blank": 1
+		}
+	},
+	"schema": 1,
+	"sealed_links": [
+		[
+			"hearth",
+			"drowned_caves",
+			60
+		],
+		[
+			"drowned_caves",
+			"sea_gate",
+			300
+		]
+	],
+	"seed": 1,
+	"spellstones": [
+		{
+			"cooldown_s": 180.0,
+			"duration_s": 60.0,
+			"id": "anchor",
+			"name": "Anchor Spellstone",
+			"power": "Roots you in place so you can't be knocked down",
+			"registry": {},
+			"targets": [
+				"self"
+			],
+			"where": ""
+		},
+		{
+			"cooldown_s": 300.0,
+			"duration_s": 120.0,
+			"id": "beacon",
+			"name": "Beacon Spellstone",
+			"power": "Marks your spot so companions and the rescuer come first",
+			"registry": {},
+			"targets": [
+				"self"
+			],
+			"where": ""
+		},
+		{
+			"cooldown_s": 240.0,
+			"duration_s": 0.0,
+			"id": "bell",
+			"name": "Bell Spellstone",
+			"power": "Rings an alarm that scatters nearby rivals",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "bell",
+				"keeper": "",
+				"location": "palace",
+				"name": "Bell Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "palace"
+		},
+		{
+			"cooldown_s": 240.0,
+			"duration_s": 0.0,
+			"id": "burrow",
+			"name": "Burrow Spellstone",
+			"power": "Digs a tunnel through earth or rock",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "burrow",
+				"keeper": "",
+				"location": "old_quarry",
+				"name": "Burrow Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:earth_wall"
+			],
+			"where": "old_quarry"
+		},
+		{
+			"cooldown_s": 5.0,
+			"duration_s": 0.0,
+			"id": "cipher",
+			"name": "Cipher Spellstone",
+			"power": "Reads any code or old writing",
+			"registry": {
+				"bound": "",
+				"hidden": false,
+				"history": [],
+				"holder": "",
+				"id": "cipher",
+				"keeper": "",
+				"location": "lantern_cottage",
+				"name": "Cipher Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:inscription"
+			],
+			"where": "lantern_cottage"
+		},
+		{
+			"cooldown_s": 600.0,
+			"duration_s": 300.0,
+			"id": "clockwork",
+			"name": "Clockwork Spellstone",
+			"power": "Builds a small clockwork helper",
+			"registry": {},
+			"targets": [
+				"object:workbench"
+			],
+			"where": ""
+		},
+		{
+			"cooldown_s": 60.0,
+			"duration_s": 0.0,
+			"id": "compass",
+			"name": "Compass Spellstone",
+			"power": "Points to the nearest unclaimed spellstone",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "compass",
+				"keeper": "",
+				"location": "lighthouse",
+				"name": "Compass Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"self"
+			],
+			"where": "lighthouse"
+		},
+		{
+			"cooldown_s": 20.0,
+			"duration_s": 0.0,
+			"id": "ember",
+			"name": "Ember Spellstone",
+			"power": "Shows the glowing footprints of anyone who passed in the last hour",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "ember",
+				"keeper": "",
+				"location": "gardens",
+				"name": "Ember Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place",
+				"place:adjacent"
+			],
+			"where": "gardens"
+		},
+		{
+			"cooldown_s": 180.0,
+			"duration_s": 90.0,
+			"id": "fog",
+			"name": "Fog Spellstone",
+			"power": "Fills an area with fog for sneaking",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "fog",
+				"keeper": "",
+				"location": "kelp_forest",
+				"name": "Fog Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "kelp_forest"
+		},
+		{
+			"cooldown_s": 180.0,
+			"duration_s": 120.0,
+			"id": "frost",
+			"name": "Frost Spellstone",
+			"power": "Freezes water into bridges",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "frost",
+				"keeper": "",
+				"location": "harbour",
+				"name": "Frost Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:water"
+			],
+			"where": "harbour"
+		},
+		{
+			"cooldown_s": 45.0,
+			"duration_s": 0.0,
+			"id": "gale",
+			"name": "Gale Spellstone",
+			"power": "A gust of wind that knocks enemies back",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "gale",
+				"keeper": "",
+				"location": "cliff_path",
+				"name": "Gale Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"agent:hostile"
+			],
+			"where": "cliff_path"
+		},
+		{
+			"cooldown_s": 90.0,
+			"duration_s": 60.0,
+			"id": "glass",
+			"name": "Glass Spellstone",
+			"power": "Makes walls see-through for a minute",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "glass",
+				"keeper": "",
+				"location": "archive",
+				"name": "Glass Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place",
+				"place:adjacent"
+			],
+			"where": "archive"
+		},
+		{
+			"cooldown_s": 90.0,
+			"duration_s": 60.0,
+			"id": "hush",
+			"name": "Hush Spellstone",
+			"power": "Silences an area so rivals can't hear you",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "hush",
+				"keeper": "",
+				"location": "academy",
+				"name": "Hush Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "academy"
+		},
+		{
+			"cooldown_s": 30.0,
+			"duration_s": 0.0,
+			"id": "lantern",
+			"name": "Lantern Spellstone",
+			"power": "Reveals hidden doors and sealed locks",
+			"registry": {
+				"bound": "",
+				"hidden": false,
+				"history": [],
+				"holder": "",
+				"id": "lantern",
+				"keeper": "",
+				"location": "hearth",
+				"name": "Lantern Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "hearth"
+		},
+		{
+			"cooldown_s": 10.0,
+			"duration_s": 0.0,
+			"id": "ledger",
+			"name": "Ledger Spellstone",
+			"power": "Shows everyone who has held an object",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "ledger",
+				"keeper": "",
+				"location": "academy",
+				"name": "Ledger Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"key"
+			],
+			"where": "academy"
+		},
+		{
+			"cooldown_s": 60.0,
+			"duration_s": 0.0,
+			"id": "lure",
+			"name": "Lure Spellstone",
+			"power": "Makes a fake noise that pulls rivals away",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "lure",
+				"keeper": "",
+				"location": "main_street",
+				"name": "Lure Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place:adjacent"
+			],
+			"where": "main_street"
+		},
+		{
+			"cooldown_s": 120.0,
+			"duration_s": 0.0,
+			"id": "magnet",
+			"name": "Magnet Spellstone",
+			"power": "Pulls metal things to you, even a spellstone a rival dropped",
+			"registry": {},
+			"targets": [
+				"place",
+				"place:adjacent"
+			],
+			"where": ""
+		},
+		{
+			"cooldown_s": 10.0,
+			"duration_s": 0.0,
+			"id": "map",
+			"name": "Map Spellstone",
+			"power": "Draws a map of the building you're in",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "map",
+				"keeper": "",
+				"location": "square",
+				"name": "Map Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "square"
+		},
+		{
+			"cooldown_s": 120.0,
+			"duration_s": 300.0,
+			"id": "pearl",
+			"name": "Abyssal Breath Spellstone",
+			"power": "Lets you and everyone with you breathe underwater",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "pearl",
+				"keeper": "",
+				"location": "pearl_grotto",
+				"name": "Abyssal Breath Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"self"
+			],
+			"where": "pearl_grotto"
+		},
+		{
+			"cooldown_s": 90.0,
+			"duration_s": 120.0,
+			"id": "pelagic",
+			"name": "Pelagic Flight Spellstone",
+			"power": "Lets you fly through the water at great speed",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "pelagic",
+				"keeper": "",
+				"location": "sunken_harbor",
+				"name": "Pelagic Flight Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"self"
+			],
+			"where": "sunken_harbor"
+		},
+		{
+			"cooldown_s": 120.0,
+			"duration_s": 0.0,
+			"id": "rust",
+			"name": "Rust Spellstone",
+			"power": "Rots metal locks and rival base defences",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "rust",
+				"keeper": "",
+				"location": "old_quarry",
+				"name": "Rust Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:metal_lock",
+				"place"
+			],
+			"where": "old_quarry"
+		},
+		{
+			"cooldown_s": 60.0,
+			"duration_s": 120.0,
+			"id": "spark",
+			"name": "Spark Spellstone",
+			"power": "Powers old machines and doors",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "spark",
+				"keeper": "",
+				"location": "sheds",
+				"name": "Spark Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:machine"
+			],
+			"where": "sheds"
+		},
+		{
+			"cooldown_s": 30.0,
+			"duration_s": 0.0,
+			"id": "tide",
+			"name": "Tide Spellstone",
+			"power": "Raises or lowers water to open flooded paths",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "tide",
+				"keeper": "",
+				"location": "drowned_caves",
+				"name": "Tide Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:water_gate"
+			],
+			"where": "drowned_caves"
+		},
+		{
+			"cooldown_s": 60.0,
+			"duration_s": 45.0,
+			"id": "tilt",
+			"name": "Tilt Spellstone",
+			"power": "Tips a room's gravity so you can walk on walls",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "tilt",
+				"keeper": "",
+				"location": "hearth",
+				"name": "Tilt Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:room"
+			],
+			"where": "hearth"
+		},
+		{
+			"cooldown_s": 20.0,
+			"duration_s": 0.0,
+			"id": "ward",
+			"name": "Ward Spellstone",
+			"power": "Seals a door so only family can open it",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "ward",
+				"keeper": "",
+				"location": "lantern_cottage",
+				"name": "Ward Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"object:door"
+			],
+			"where": "lantern_cottage"
+		},
+		{
+			"cooldown_s": 300.0,
+			"duration_s": 180.0,
+			"id": "weathervane",
+			"name": "Weathervane Spellstone",
+			"power": "Changes the weather over a region",
+			"registry": {
+				"bound": "",
+				"hidden": true,
+				"history": [],
+				"holder": "",
+				"id": "weathervane",
+				"keeper": "",
+				"location": "watchtower",
+				"name": "Weathervane Spellstone",
+				"protected": "",
+				"value": 5
+			},
+			"targets": [
+				"place"
+			],
+			"where": "watchtower"
+		}
+	],
+	"system_names": [
+		"squad",
+		"rival_council",
+		"rescue",
+		"clocks",
+		"straight_mod",
+		"key_world",
+		"key_powers",
+		"underwater",
+		"creatures",
+		"key_forge",
+		"time_portals",
+		"quests",
+		"activities",
+		"consequences",
+		"discovery",
+		"dark_rsi",
+		"wands",
+		"deep_cave"
+	],
+	"systems": {
+		"activities": {
+			"clues": {},
+			"found": {},
+			"revealed": [],
+			"solved": {}
+		},
+		"clocks": {
+			"clocks": {
+				"academy_clock": {
+					"chimes": 0,
+					"id": "academy_clock",
+					"name": "Academy Clock",
+					"next_at": 283.517110347748,
+					"place": "academy"
+				},
+				"cliff_clock": {
+					"chimes": 0,
+					"id": "cliff_clock",
+					"name": "Cliffside Clock",
+					"next_at": 352.133989334106,
+					"place": "cliff_path"
+				},
+				"drowned_bell": {
+					"chimes": 0,
+					"id": "drowned_bell",
+					"name": "Drowned Bell Clock",
+					"next_at": 259.117421507835,
+					"place": "portal_plaza"
+				},
+				"grotto_clock": {
+					"chimes": 0,
+					"id": "grotto_clock",
+					"name": "Grotto Clock",
+					"next_at": 331.165981292725,
+					"place": "drowned_caves"
+				},
+				"harbour_clock": {
+					"chimes": 0,
+					"id": "harbour_clock",
+					"name": "Harbour Clock",
+					"next_at": 350.333628058434,
+					"place": "square"
+				}
+			},
+			"history": []
+		},
+		"consequences": {
+			"flags": {},
+			"next": 1,
+			"records": []
+		},
+		"creatures": {
+			"creatures": {
+				"abyssal_leviathan": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.125,
+						"current_health": 900.0,
+						"damage_resistance": {},
+						"defeat_mode": "sealing",
+						"defeat_state": "",
+						"entity_id": "abyssal_leviathan",
+						"maximum_health": 900.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.8,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "abyss_trench",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "abyssal_leviathan",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"brinehound": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 120.0,
+						"damage_resistance": {},
+						"defeat_mode": "death",
+						"defeat_state": "",
+						"entity_id": "brinehound",
+						"maximum_health": 120.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "kelp_forest",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "brinehound",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"brinehound_2": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 120.0,
+						"damage_resistance": {},
+						"defeat_mode": "death",
+						"defeat_state": "",
+						"entity_id": "brinehound_2",
+						"maximum_health": 120.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "kelp_forest",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "brinehound",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"clockwork_crab": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.175,
+						"current_health": 140.0,
+						"damage_resistance": {
+							"key": 1.5,
+							"physical": 0.6
+						},
+						"defeat_mode": "death",
+						"defeat_state": "",
+						"entity_id": "clockwork_crab",
+						"maximum_health": 140.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "clockwork_deeps",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "clockwork_crab",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"hollow_sentinel": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.15,
+						"current_health": 200.0,
+						"damage_resistance": {},
+						"defeat_mode": "sealing",
+						"defeat_state": "",
+						"entity_id": "hollow_sentinel",
+						"maximum_health": 200.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.6,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "watchtower",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "hollow_sentinel",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"kelp_strangler": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 150.0,
+						"damage_resistance": {},
+						"defeat_mode": "death",
+						"defeat_state": "",
+						"entity_id": "kelp_strangler",
+						"maximum_health": 150.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "shattered_ward",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "kelp_strangler",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"lantern_eel": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 90.0,
+						"damage_resistance": {},
+						"defeat_mode": "death",
+						"defeat_state": "",
+						"entity_id": "lantern_eel",
+						"maximum_health": 90.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "glow_basin",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "lantern_eel",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"marsh_wisp": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 60.0,
+						"damage_resistance": {},
+						"defeat_mode": "banishment",
+						"defeat_state": "",
+						"entity_id": "marsh_wisp",
+						"maximum_health": 60.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "estate_woods",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "marsh_wisp",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				},
+				"tidewraith": {
+					"disturbed": -1000000000.0,
+					"encounter": "",
+					"grudges": {},
+					"health": {
+						"armor": 0.05,
+						"current_health": 160.0,
+						"damage_resistance": {},
+						"defeat_mode": "sealing",
+						"defeat_state": "",
+						"entity_id": "tidewraith",
+						"maximum_health": 160.0,
+						"recovery_state": "normal",
+						"seen": [],
+						"stagger_resistance": 0.2,
+						"stagger_value": 0.0,
+						"status_effects": {},
+						"temporary_shields": 0.0
+					},
+					"lair": "portal_plaza",
+					"last_seen": {},
+					"mode": "DORMANT",
+					"next_attack": 0.0,
+					"phase": 0,
+					"profile": "tidewraith",
+					"search_left": 0,
+					"searched": [],
+					"since": 0.0,
+					"target": ""
+				}
+			},
+			"enabled": true,
+			"encounters": [],
+			"last_end": -1000000000.0,
+			"mod_history": [],
+			"mod_profiles": {},
+			"next_activate": 0.0,
+			"next_encounter": 1,
+			"player_prev": "",
+			"truces": {}
+		},
+		"deep_cave": {
+			"link_kinds": {
+				"black_vault_0|black_vault_1": "rope bridge",
+				"black_vault_1|black_vault_2": "stair",
+				"cave_mouth_0|cave_mouth_1": "tunnel",
+				"cave_mouth_1|cave_mouth_2": "tunnel",
+				"cave_mouth_2|descending_galleries_0": "tunnel",
+				"cliff_path|cave_mouth_0": "rift",
+				"crystal_catacombs_0|crystal_catacombs_1": "tunnel",
+				"crystal_catacombs_1|crystal_catacombs_2": "tunnel",
+				"crystal_catacombs_1|crystal_catacombs_3": "stair",
+				"crystal_catacombs_2|crystal_catacombs_3": "tunnel",
+				"crystal_catacombs_2|glowroot_forest_0": "tunnel",
+				"crystal_catacombs_2|hollowmere_0": "climb",
+				"crystal_catacombs_2|sunken_caverns_0": "flooded passage",
+				"descending_galleries_0|descending_galleries_1": "rope bridge",
+				"descending_galleries_1|descending_galleries_2": "stair",
+				"descending_galleries_1|descending_galleries_3": "stair",
+				"descending_galleries_2|descending_galleries_3": "stair",
+				"descending_galleries_3|descending_galleries_4": "rope bridge",
+				"descending_galleries_4|crystal_catacombs_0": "stair",
+				"drowned_caves|sunken_caverns_0": "rift",
+				"emberdeep_0|emberdeep_1": "tunnel",
+				"emberdeep_1|emberdeep_2": "tunnel",
+				"emberdeep_1|emberdeep_3": "tunnel",
+				"emberdeep_2|emberdeep_3": "tunnel",
+				"emberdeep_3|threshold_halls_0": "lift",
+				"glowroot_forest_0|glowroot_forest_1": "tunnel",
+				"glowroot_forest_1|glowroot_forest_2": "tunnel",
+				"glowroot_forest_1|glowroot_forest_3": "tunnel",
+				"glowroot_forest_2|glowroot_forest_3": "tunnel",
+				"glowroot_forest_3|emberdeep_0": "lift",
+				"glowroot_forest_3|hollowmere_0": "lift",
+				"hollowmere_0|hollowmere_1": "tunnel",
+				"hollowmere_1|hollowmere_2": "tunnel",
+				"hollowmere_1|hollowmere_3": "tunnel",
+				"hollowmere_2|hollowmere_3": "tunnel",
+				"hollowmere_3|hollowmere_4": "tunnel",
+				"hollowmere_4|whispering_depths_0": "lift",
+				"sunken_caverns_0|sunken_caverns_1": "flooded passage",
+				"sunken_caverns_1|sunken_caverns_2": "flooded passage",
+				"threshold_halls_0|threshold_halls_1": "tunnel",
+				"threshold_halls_1|threshold_halls_2": "tunnel",
+				"threshold_halls_2|beyond_threshold": "climb",
+				"whispering_depths_0|whispering_depths_1": "stair",
+				"whispering_depths_1|whispering_depths_2": "rope bridge",
+				"whispering_depths_1|whispering_depths_3": "stair",
+				"whispering_depths_2|whispering_depths_3": "stair",
+				"whispering_depths_3|black_vault_0": "stair",
+				"whispering_depths_3|threshold_halls_0": "climb"
+			},
+			"threshold_open": false,
+			"vault_open": false
+		},
+		"key_forge": {
+			"forged": [],
+			"known": {},
+			"materials": {}
+		},
+		"key_world": {
+			"effects": {},
+			"footprints": [],
+			"objects": {
+				"bench": {
+					"hidden": false,
+					"id": "bench",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Workbench",
+					"place": "forge_yard",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "workbench"
+				},
+				"diving_bell": {
+					"hidden": false,
+					"id": "diving_bell",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Old Diving Bell",
+					"place": "harbour",
+					"requires": "",
+					"state": {
+						"gives": {
+							"blank": 1
+						}
+					},
+					"text": "",
+					"type": "salvage"
+				},
+				"forge": {
+					"hidden": false,
+					"id": "forge",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Pelagoria Spellstone Forge",
+					"place": "forge_hall",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "key_forge"
+				},
+				"forge_tablet": {
+					"hidden": false,
+					"id": "forge_tablet",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Forgemaster's Tablet",
+					"place": "archive",
+					"requires": "",
+					"state": {
+						"recipe": "anchor"
+					},
+					"text": "One blank, one pearl shell, and the anchor holds.",
+					"type": "inscription"
+				},
+				"front_door": {
+					"hidden": false,
+					"id": "front_door",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Front Door",
+					"place": "hearth",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "door"
+				},
+				"grotto_verse": {
+					"hidden": false,
+					"id": "grotto_verse",
+					"key": "pearl",
+					"links": [],
+					"material": "",
+					"name": "Verse on the Grotto Wall",
+					"place": "drowned_caves",
+					"requires": "",
+					"state": {},
+					"text": "Where the cave runs dry, the abyssal key keeps the breath of the deep.",
+					"type": "inscription"
+				},
+				"net": {
+					"hidden": false,
+					"id": "net",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Tangled Net",
+					"place": "kelp_forest",
+					"requires": "",
+					"state": {
+						"gives": {
+							"pearl_shell": 2
+						}
+					},
+					"text": "",
+					"type": "salvage"
+				},
+				"parlour": {
+					"hidden": false,
+					"id": "parlour",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Parlour",
+					"place": "hearth",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "room"
+				},
+				"prime_tablet": {
+					"hidden": false,
+					"id": "prime_tablet",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Clockmaker's Plate",
+					"place": "coralmere_prime",
+					"requires": "",
+					"state": {
+						"recipe": "clockwork"
+					},
+					"text": "Two blanks and a shell, wound true, make a friend of brass.",
+					"type": "inscription"
+				},
+				"schooner": {
+					"hidden": false,
+					"id": "schooner",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Sunken Schooner",
+					"place": "wreck_field",
+					"requires": "",
+					"state": {
+						"gives": {
+							"blank": 2
+						}
+					},
+					"text": "",
+					"type": "salvage"
+				},
+				"sea_winch": {
+					"hidden": false,
+					"id": "sea_winch",
+					"key": "",
+					"links": [
+						"drowned_caves",
+						"sea_gate"
+					],
+					"material": "",
+					"name": "Sea Gate Winch",
+					"place": "drowned_caves",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "machine"
+				},
+				"ships_log": {
+					"hidden": false,
+					"id": "ships_log",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Harbourmaster's Log",
+					"place": "gullhaven_1893",
+					"requires": "",
+					"state": {
+						"recipe": "magnet"
+					},
+					"text": "A single blank, drawn north, pulls every lost key home.",
+					"type": "inscription"
+				},
+				"sluice": {
+					"hidden": false,
+					"id": "sluice",
+					"key": "",
+					"links": [
+						"hearth",
+						"drowned_caves"
+					],
+					"material": "",
+					"name": "Cellar Sluice Gate",
+					"place": "hearth",
+					"requires": "",
+					"state": {},
+					"text": "",
+					"type": "water_gate"
+				},
+				"throne_words": {
+					"hidden": false,
+					"id": "throne_words",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Words on the Throne",
+					"place": "palace",
+					"requires": "",
+					"state": {
+						"recipe": "beacon"
+					},
+					"text": "Glass of the abyss on a blank: a light for all who are lost.",
+					"type": "inscription"
+				},
+				"trench_chest": {
+					"hidden": false,
+					"id": "trench_chest",
+					"key": "",
+					"links": [],
+					"material": "",
+					"name": "Trench Chest",
+					"place": "abyss_trench",
+					"requires": "",
+					"state": {
+						"gives": {
+							"abyss_glass": 1,
+							"blank": 1
+						}
+					},
+					"text": "",
+					"type": "salvage"
+				}
+			},
+			"weather": {}
+		},
+		"quests": {
+			"dynamic": {},
+			"order": [
+				"breath_of_the_deep",
+				"forgemasters_secret",
+				"the_hour_gate",
+				"rivals_in_the_deep"
+			],
+			"progress": {
+				"breath_of_the_deep": {
+					"done": false,
+					"step": 0
+				},
+				"forgemasters_secret": {
+					"done": false,
+					"step": 0
+				},
+				"rivals_in_the_deep": {
+					"done": false,
+					"step": 0
+				},
+				"the_hour_gate": {
+					"done": false,
+					"step": 0
+				}
+			}
+		},
+		"time_portals": {
+			"portals": {
+				"cliffside_rift": {
+					"clock": "cliff_clock",
+					"era_place": "cave_mouth_0",
+					"name": "Cliffside Rift",
+					"open_until": -1.0,
+					"place": "cliff_path"
+				},
+				"drowned_rift": {
+					"clock": "grotto_clock",
+					"era_place": "sunken_caverns_0",
+					"name": "Drowned Rift",
+					"open_until": -1.0,
+					"place": "drowned_caves"
+				},
+				"hour_gate": {
+					"clock": "drowned_bell",
+					"era_place": "coralmere_prime",
+					"name": "Hour Gate",
+					"open_until": -1.0,
+					"place": "portal_plaza"
+				},
+				"old_town_arch": {
+					"clock": "harbour_clock",
+					"era_place": "gullhaven_1893",
+					"name": "Old Town Arch",
+					"open_until": -1.0,
+					"place": "lighthouse"
+				}
+			}
+		},
+		"underwater": {
+			"air": {}
+		},
+		"wands": {
+			"wands": {
+				"deep_cave_wand": {
+					"abilities": {},
+					"holder": "",
+					"owner": "player"
+				},
+				"deep_sea_wand": {
+					"abilities": {},
+					"holder": "",
+					"owner": "player2"
+				},
+				"sky_wand": {
+					"abilities": {},
+					"holder": "",
+					"owner": "player3"
+				}
+			}
+		}
+	},
+	"threshold": {
+		"discover": [
+			"crystal_catacombs_0",
+			"hollowmere_0"
+		],
+		"keys": [
+			"lantern",
+			"cipher"
+		],
+		"quest": "the_descent"
+	},
+	"title": "Imagination",
+	"wand_combos": [
+		[
+			"fog",
+			"hush",
+			"vanish",
+			"Vanish",
+			"Fog and silence at once: rivals can neither see nor hear you"
+		],
+		[
+			"lantern",
+			"glass",
+			"true_sight",
+			"True Sight",
+			"Reveals hidden doors and sees through the walls around you"
+		],
+		[
+			"frost",
+			"gale",
+			"blizzard",
+			"Blizzard",
+			"Freezes the water and blasts enemies back in one cast"
+		],
+		[
+			"ember",
+			"compass",
+			"hunters_eye",
+			"Hunter's Eye",
+			"Shows fresh footprints and points to the nearest spellstone"
+		],
+		[
+			"bell",
+			"lure",
+			"false_alarm",
+			"False Alarm",
+			"Scatters nearby rivals and draws them away next door"
+		]
+	],
+	"wands": {
+		"deep_cave_wand": {
+			"name": "Deep Cave Wand",
+			"owner": "player",
+			"place": "black_vault_2"
+		},
+		"deep_sea_wand": {
+			"name": "Deep Sea Wand",
+			"owner": "player2",
+			"place": "timeless_hollow"
+		},
+		"sky_wand": {
+			"name": "Sky Wand",
+			"owner": "player3",
+			"place": ""
+		}
+	},
+	"zones": {
+		"abyssal_wilds": [
+			"The Abyssal Wilds",
+			-220.0
+		],
+		"forgotten_depths": [
+			"The Forgotten Depths",
+			-300.0
+		],
+		"pelagoria": [
+			"The Sunken Kingdom",
+			-140.0
+		],
+		"shallow_blue": [
+			"The Shallow Blue",
+			-15.0
+		],
+		"sunken_frontier": [
+			"The Sunken Frontier",
+			-90.0
+		],
+		"timeless_deep": [
+			"The Timeless Deep",
+			-380.0
+		],
+		"twilight_reefs": [
+			"The Twilight Reefs",
+			-45.0
+		]
+	}
+}

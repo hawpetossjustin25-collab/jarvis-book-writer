@@ -404,6 +404,10 @@ web_index_improve | make your web index search better
 web_index_improve | run [a|] self[-| ]improvement [round|] on [the|your] web index
 web_index_improve | [undo|roll back] the last [search|web index] improvement | {"undo": true}
 # ---- NEXUS Collective
+scheduler_status | how [good|well] is the [scheduler|task scheduler] [doing|]
+scheduler_status | show the scheduler [tuning|self-improvement] [history|]
+scheduler_improve | [improve|tune] the [scheduler|task scheduler] | {"action": "improve"}
+scheduler_improve | [undo|roll back] the last scheduler change | {"action": "rollback"}
 collective_status | [show|how is] the collective
 collective_status | which computers are sharing work [with you|]
 collective_status | [is|are] [my|the] worker[s|] [healthy|running|busy]
@@ -428,6 +432,10 @@ collective_join_code | let another [computer|pc] of mine join the collective
 model_hub | [which|what] [ai|local|] models [do you have|are installed]
 model_hub | [show|open] the model hub
 model_hub | how fast [are|is] [my|the] local model[s|]
+hardware_advice | [can|could] i upgrade [this|my] [laptop|computer]
+hardware_advice | [what|which] upgrades [would help|can i do] [for|on] [this|my] [laptop|computer]
+hardware_advice | can i [add|use] an external [gpu|graphics card]
+hardware_advice | how much [ram|memory] can [this|my] [laptop|computer] take
 model_plan | will qwen3 4b fit in memory | {"model": "qwen3:4b-instruct-2507-q4_K_M"}
 model_plan | how much memory does qwen3 need [with|for] {context:big} tokens | {"model": "qwen3:4b-instruct-2507-q4_K_M"}
 model_plan | [plan|check] the memory for the small backup model | {"model": "hf.co/LiquidAI/LFM3-1.7B-GGUF:Q4_K_M"}
@@ -455,3 +463,36 @@ release_decide | reject improvement {improvement_id:big} because {reason:query} 
 release_decide | [defer|postpone] improvement {improvement_id:big} because {reason:query} | {"action": "defer"}
 release_decide | move improvement {improvement_id:big} to [release|cycle] 1.1 because {reason:query} | {"action": "move", "cycle": "1.1"}
 release_decide | [open|start] the next [four month|release] cycle | {"action": "open_cycle"}
+# ---- Imagination (Justin's game, played by voice)
+imagination_status | [where are we|how am i doing|what's my status] in imagination
+imagination_status | let's play imagination
+imagination_new | start a new game of imagination
+imagination_new | start imagination over and skip the intro | {"skip_intro": true}
+imagination_story | [i'll|let me|i want to|] {action:istory}
+imagination_look | look around [here|]
+imagination_look | what do i see [here|around me]
+imagination_go | [go|walk|travel|swim] to {place:iplace}
+imagination_go | take me to {place:iplace}
+imagination_go | run back the way we came | {"place": "back"}
+imagination_take | pick up the {thing:stone} [spellstone|stone|]
+imagination_take | [grab|take|claim] the wand | {"thing": "wand"}
+imagination_use | use the {spellstone:stone} [spellstone|stone|power|]
+imagination_use | use my {spellstone:stone} [power|]
+imagination_combo | cast the {combo:icombo} combo
+imagination_combo | do the {combo:icombo} [combo|spell] with my wand
+imagination_wand | what's in my wand
+imagination_wand | [show me|tell me about] my wand
+imagination_step_through | step through the [portal|rift|gate]
+imagination_wait | wait {minutes:minutes} minutes for the clock
+imagination_companions | tell {companion:friend} to {order:forder}
+imagination_companions | where are noah and angelic
+imagination_rivals | where are the rivals [right now|]
+imagination_fight | fight [it|the creature|the monster|them]
+imagination_search | search [this place|around here] for salvage
+imagination_forge | forge the {spellstone:fstone} [spellstone|stone|]
+imagination_missions | what are my missions [in imagination|]
+imagination_map | show me my map of imagination
+imagination_clocks | when do the clocks chime [next|]
+imagination_lore | tell me about {topic:itopic} in imagination
+imagination_teach_book | give the book writer everything about imagination
+imagination_teach_book | teach the imagination book all the game details

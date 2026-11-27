@@ -39,6 +39,9 @@ from jarvis_books.memory.longterm import JarvisMemory
 from jarvis_books.paths import data_dir, mirror_dir
 from jarvis_books.game import Game
 from jarvis_books.game.trading import TradingClock
+from jarvis_books.imagination import ImaginationGame
+from jarvis_books.imagination.bible import teach as teach_imagination
+from jarvis_books.imagination.engine import ImaginationError
 from jarvis_books.planner import Planner, ReminderClock
 from jarvis_books.publish.service import Publisher
 from jarvis_books.nexus.api import NexusHub, NexusServer, TokenBook, systems_for
@@ -216,6 +219,8 @@ class Studio:
         self.game = Game(self.home / "game" / "atlanta.json")
         self.tools.game = self.war_tools.game = self.game
         self.trading_clock = TradingClock(self.game)
+        self.imagination = self._load_imagination(self.home / "game" / "imagination.json")
+        self.tools.imagination = self.war_tools.imagination = self.imagination
         self.ready = threading.Event()
         self._closing = threading.Event()
         self.start_error: Optional[str] = None
@@ -257,6 +262,16 @@ class Studio:
             self._start_worker() if str(value) != "0" else self.nexus_collective.stop_local_worker()
 
     # ---- lifecycle -------------------------------------------------------------------
+    @staticmethod
+    def _load_imagination(path: Path) -> ImaginationGame:
+        """Load the Imagination save; a damaged save is kept aside and a new game starts."""
+        try:
+            return ImaginationGame(path)
+        except ImaginationError:
+            log.exception("Imagination save unreadable; keeping it as .damaged and starting over")
+            path.replace(path.with_suffix(".damaged"))
+            return ImaginationGame(path)
+
     def start(self, probe: bool = True) -> None:
         """Slow startup work (model discovery and probes). Run it off the UI thread."""
         self.mirror.start()
@@ -266,6 +281,10 @@ class Studio:
             self.capacity.enforce()
         except Exception:
             log.exception("storage maintenance failed")
+        try:
+            teach_imagination(self.library, self.imagination.c)  # the Book Writer knows the whole game
+        except Exception:
+            log.exception("teaching the Imagination canon failed")
         if self.engine is None:
             self.start_error = "No Gemini API key is set. Add it in Settings."
         else:

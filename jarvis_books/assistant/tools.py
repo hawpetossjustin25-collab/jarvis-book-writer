@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional
 
 from jarvis_books.assistant.permissions import ASKING_NOTE, PermissionGate
 from jarvis_books.assistant.game_tools import GAME_DECLARATIONS, GAME_WORDS, GameTools
+from jarvis_books.assistant.imagination_tools import IMAGINATION_DECLARATIONS, IMAGINATION_WORDS, ImaginationTools
 from jarvis_books.assistant.desktop_tools import DESKTOP_DECLARATIONS, DESKTOP_WORDS, DesktopTools
 from jarvis_books.assistant.planner_tools import PLANNER_DECLARATIONS, PLANNER_WORDS, PlannerTools
 from jarvis_books.assistant.nexus_tools import NEXUS_DECLARATIONS, NEXUS_WORDS, NexusTools
@@ -332,7 +333,7 @@ DECLARATIONS = [
           {"book": BOOK, "character": S}, ["character"]),
 ]
 
-DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + NEXUS_DECLARATIONS + PHONE_DECLARATIONS + PHONE_DEVICE_DECLARATIONS
+DECLARATIONS += COMPUTER_DECLARATIONS + PLANNER_DECLARATIONS + DESKTOP_DECLARATIONS + RESEARCH_DECLARATIONS + GAME_DECLARATIONS + IMAGINATION_DECLARATIONS + NEXUS_DECLARATIONS + PHONE_DECLARATIONS + PHONE_DEVICE_DECLARATIONS
 _BY_NAME = {d["name"]: d for d in DECLARATIONS}
 
 
@@ -344,7 +345,7 @@ def _check(decl: Optional[dict], name: str, args: dict) -> str:
     return "invalid arguments: " + "; ".join(errors) if errors else ""
 
 
-class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, PhoneTools, PhoneDeviceTools):
+class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, ImaginationTools, NexusTools, PhoneTools, PhoneDeviceTools):
     def __init__(self, library: Library, writer: BookWriter, index: StoryIndex, jobs: JobManager,
                  gate: Optional[PermissionGate] = None, undo: Optional[list] = None):
         self.library = library
@@ -464,6 +465,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, 
             **{d["name"]: PHONE_WORDS for d in PHONE_DECLARATIONS},
             **{d["name"]: PHONE_DEVICE_WORDS for d in PHONE_DEVICE_DECLARATIONS},
             **{d["name"]: GAME_WORDS for d in GAME_DECLARATIONS},
+            **{d["name"]: IMAGINATION_WORDS for d in IMAGINATION_DECLARATIONS},
         }
         if self.war_session_id is not None:  # in the War Room every War Room tool is always available
             core = core + ["war_briefing", "find_gaps", "propose_idea", "list_proposals", "decide_proposal",
@@ -554,7 +556,7 @@ class ToolBox(PlannerTools, DesktopTools, ResearchTools, GameTools, NexusTools, 
         desk = self._describe_desktop(name, args)
         if desk:
             return desk
-        game = self.describe_game(name, args)
+        game = self.describe_game(name, args) or self.describe_imagination(name, args)
         if game:
             return game
         planned = self.describe_planner(name, args)

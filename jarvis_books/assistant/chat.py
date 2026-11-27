@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from jarvis_books.assistant.game_tools import asks_for_game_move
+from jarvis_books.assistant.imagination_tools import asks_for_imagination_move
 from jarvis_books.assistant.permissions import READ, level_of, outcome_note
 from jarvis_books.assistant.tools import ToolBox
 from jarvis_books.llm.history import steady_count
@@ -125,8 +126,10 @@ class Assistant:
                                                    temperature=0.7, purpose="chat"))
             if not resp.function_calls:
                 reply = resp.text.strip()
-                if not called and not checked and getattr(self.tools, "game", None) is not None \
-                        and asks_for_game_move(text):
+                if not called and not checked and (
+                        (getattr(self.tools, "game", None) is not None and asks_for_game_move(text))
+                        or (getattr(self.tools, "imagination", None) is not None
+                            and asks_for_imagination_move(text))):
                     checked = True  # a game move with no tool call didn't happen: ask once more
                     log.info("game move answered without a tool call by %s; asking again", resp.model)
                     contents.append({"role": "model", "parts": [{"text": reply or "(no answer)"}]})
