@@ -88,6 +88,12 @@ CREATE TABLE events (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, subject TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}',
     at REAL NOT NULL);
 CREATE INDEX events_kind ON events(kind, id);
+""", 2: """
+ALTER TABLE decisions ADD COLUMN features TEXT NOT NULL DEFAULT '{}';
+CREATE TABLE scheduler_versions (
+    id INTEGER PRIMARY KEY, weights TEXT NOT NULL, status TEXT NOT NULL, train REAL, sealed REAL,
+    baseline_train REAL, baseline_sealed REAL, cases INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL);
 """}
 
 
@@ -120,12 +126,23 @@ class ScoreWeights:
     def to_dict(self) -> dict:
         return dict(self.__dict__)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "ScoreWeights":
+        return cls(**{k: float(v) for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def score(self, f: dict) -> float:
+        """One worker's score from its recorded features (see Scheduler.features)."""
+        return (self.compatibility * 1.0 + self.throughput * f["throughput"] + self.memory * f["memory"]
+                + self.network * f["network"] + self.reliability * f["reliability"] - self.load * f["load"]
+                - self.cost * f["cost"] + (self.local_bonus if f["local"] else 0.0))
+
 
 @dataclass
 class Placement:
     chosen: Optional[str]
     scores: dict = field(default_factory=dict)
     rejected: dict = field(default_factory=dict)
+    features: dict = field(default_factory=dict)
 
 
 class Scheduler:
@@ -178,24 +195,24 @@ class Scheduler:
         speeds = [s["avg_s"] for s in stats.values() if s["avg_s"]]
         fastest = min(speeds) if speeds else None
         max_mem = max(w["memory_gb"] for w in eligible) or 1.0
-        wt = self.weights
-        scores = {}
+        features = {}
         for w in eligible:
             s = stats[w["id"]]
-            throughput = (fastest / s["avg_s"]) if fastest and s["avg_s"] else 0.5  # unmeasured: middle
-            reliability = (s["done"] + 1) / (s["done"] + s["failed"] + 2)  # Laplace: new workers start at 0.5
             lat = (w["profile"].get("network") or {}).get("latency_ms")
-            network = 1.0 if w["local"] else (1.0 / (1.0 + (lat or 200) / 100.0))
             limits = ContributionLimits.from_dict(w["limits"])
             load = self.c.running_on(w["id"]) / max(1, limits.max_tasks)
             cpu = (w["telemetry"].get("cpu_percent") or 0) / 100.0
-            cost = (s["avg_s"] / (s["avg_s"] + 60.0)) if s["avg_s"] else 0.5
-            score = (wt.compatibility * 1.0 + wt.throughput * throughput + wt.memory * (w["memory_gb"] / max_mem)
-                     + wt.network * network + wt.reliability * reliability
-                     - wt.load * max(load, cpu) - wt.cost * cost + (wt.local_bonus if w["local"] else 0.0))
-            scores[w["id"]] = round(score, 4)
+            features[w["id"]] = {
+                "throughput": (fastest / s["avg_s"]) if fastest and s["avg_s"] else 0.5,  # unmeasured: middle
+                "reliability": (s["done"] + 1) / (s["done"] + s["failed"] + 2),  # Laplace: new workers start at 0.5
+                "memory": w["memory_gb"] / max_mem,
+                "network": 1.0 if w["local"] else (1.0 / (1.0 + (lat or 200) / 100.0)),
+                "load": max(load, cpu),
+                "cost": (s["avg_s"] / (s["avg_s"] + 60.0)) if s["avg_s"] else 0.5,
+                "local": bool(w["local"])}
+        scores = {wid: round(self.weights.score(f), 4) for wid, f in features.items()}
         chosen = max(scores, key=lambda k: (scores[k], k))
-        return Placement(chosen, scores, rejected)
+        return Placement(chosen, scores, rejected, features)
 
 
 class Coordinator:
@@ -203,6 +220,9 @@ class Coordinator:
                  weights: Optional[ScoreWeights] = None):
         self.db = Database(Path(home) / "collective.db", migrations=MIGRATIONS)
         self.clock, self.software = clock, software
+        if weights is None:
+            row = self.db.query_one("SELECT weights FROM scheduler_versions WHERE status='kept' ORDER BY id DESC")
+            weights = ScoreWeights.from_dict(json.loads(row["weights"])) if row else None
         self.scheduler = Scheduler(self, weights)
         self._lock = threading.RLock()
         self.recover()
@@ -445,8 +465,9 @@ class Coordinator:
                     continue
                 choice = self.scheduler.place(t, now)
                 with self.db.transaction() as conn:
-                    conn.execute("INSERT INTO decisions(task_id, chosen, scores, rejected, at) VALUES (?,?,?,?,?)",
-                                 (t["id"], choice.chosen, _j(choice.scores), _j(choice.rejected), now))
+                    conn.execute("INSERT INTO decisions(task_id, chosen, scores, rejected, at, features) "
+                                 "VALUES (?,?,?,?,?,?)", (t["id"], choice.chosen, _j(choice.scores),
+                                                          _j(choice.rejected), now, _j(choice.features)))
                     conn.execute("DELETE FROM decisions WHERE id < (SELECT COALESCE(MAX(id),0) - 5000 FROM decisions)")
                     if choice.chosen is None:
                         continue

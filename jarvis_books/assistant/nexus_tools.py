@@ -70,6 +70,13 @@ NEXUS_DECLARATIONS = [
     _decl("collective_status", "NEXUS Collective: the computers sharing work with Jarvis (this laptop is one), "
           "whether each is healthy, paused or busy, what hardware and AI runtimes each really has, the task queue "
           "(queued, running, done, failed) and why this computer is waiting if it is."),
+    _decl("scheduler_status", "NEXUS Collective scheduler self-improvement: its current scoring weights, how many "
+          "real placements it can learn from, how often it picked a slower computer than the best (regret, 1.0 is "
+          "perfect), and every tuning try with the reason it was kept or rejected."),
+    _decl("scheduler_improve", "NEXUS Collective scheduler self-improvement: action=improve tries new scoring "
+          "weights on past placements and keeps them only if they pick measurably faster, more reliable computers "
+          "on sealed placements too; action=rollback undoes the last kept change.",
+          {"action": {"type": "STRING", "enum": ["improve", "rollback"]}}, ["action"]),
     _decl("collective_task", "NEXUS Collective: one task's state, result, error and which computers tried it.",
           {"task_id": S}, ["task_id"]),
     _decl("collective_run", "NEXUS Collective: run a job on the best available computer in the Collective. "
@@ -106,6 +113,9 @@ NEXUS_DECLARATIONS = [
           {"context": I, "capability": {"type": "STRING", "enum": ["completion", "embedding", "tools", "vision"]},
            "prefer": {"type": "STRING", "enum": ["quality", "speed"]},
            "min_tokens_per_second": {"type": "NUMBER"}}),
+    _decl("hardware_advice", "NEXUS hardware advice: what this computer has, what can and can't be upgraded "
+          "(memory, processor, graphics, external graphics, storage, more computers), its real expansion ports, "
+          "and which models more memory would let fit, with the evidence for each answer. Never invents speed-ups."),
     _decl("model_install", "NEXUS Model Hub: download a model through Ollama (e.g. qwen3:1.7b), after checking "
           "disk space and that it can fit in memory, then test its first answer and measure its speed.",
           {"model": S, "context": {"type": "INTEGER", "description": "context it must fit with (default 4096)"}},
@@ -133,8 +143,10 @@ NEXUS_DECLARATIONS = [
 ]
 GROUPS = ("collective_", "model_", "release_")
 NEXUS_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if not d["name"].startswith(GROUPS))
-COLLECTIVE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("collective_"))
-MODEL_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("model_"))
+COLLECTIVE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS
+                         if d["name"].startswith(("collective_", "scheduler_")))
+MODEL_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS
+                    if d["name"].startswith("model_") or d["name"] == "hardware_advice")
 RELEASE_TOOLS = tuple(d["name"] for d in NEXUS_DECLARATIONS if d["name"].startswith("release_"))
 NEXUS_WORDS = ("index", "crawl", "nexus", "os1", "os2", "spider", "map the site", "map of the web", "explore",
                "observ", "recheck", "changed pages", "fact", "verif", "confirm", "true", "contradict", "conflict",
@@ -395,6 +407,14 @@ class NexusTools:
                 out["why_waiting"] = why[-1]["rejected"]
         return out
 
+    def _t_scheduler_status(self) -> dict:
+        return self._coll("scheduler", {"action": "status"}).extra
+
+    def _t_scheduler_improve(self, action: str = "improve") -> dict:
+        if action not in ("improve", "rollback"):
+            raise ValueError("action is improve or rollback")
+        return self._coll("scheduler", {"action": action}).extra
+
     def _t_collective_limits(self, worker_id: str = "", **limits) -> dict:
         wid = worker_id or self._my_worker()
         if not limits:
@@ -436,6 +456,14 @@ class NexusTools:
 
     def _t_model_install(self, model: str, context: int = 4096) -> dict:
         return self._hub().install(model.strip(), int(context))
+
+    def _t_hardware_advice(self, context: int = 4096) -> dict:
+        from jarvis_books.nexus.hardware import advise, scan_this_computer
+        hub = self._hub()
+        models = hub.sync()
+        shapes = [hub.shape(m["name"]) for m in models if m.get("installed")]
+        profile, expansion = scan_this_computer(hub.home)
+        return advise(profile, expansion, models, shapes, int(context))
 
     # ---- NEXUS Release Center
     def _rc(self):

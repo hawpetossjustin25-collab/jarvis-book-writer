@@ -151,7 +151,7 @@ def test_jarvis_model_tools_read_freely_and_installs_wait_for_a_yes(tmp_path):
     from jarvis_books.assistant.nexus_tools import MODEL_TOOLS, NexusTools
     from jarvis_books.assistant.permissions import NEEDS_YES, OUTSIDE, TOOL_LEVELS
     from jarvis_books.errors import NotFound
-    assert set(MODEL_TOOLS) == {"model_hub", "model_plan", "model_route", "model_install"}
+    assert set(MODEL_TOOLS) == {"model_hub", "model_plan", "model_route", "model_install", "hardware_advice"}
     assert TOOL_LEVELS["model_install"] == OUTSIDE
     assert not any(TOOL_LEVELS[t] in NEEDS_YES for t in MODEL_TOOLS if t != "model_install")
     tools = NexusTools()

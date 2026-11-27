@@ -46,6 +46,9 @@ PAYLOADS = {
     "limits": _obj({"worker_id": WID, "limits": LIMITS}, ("worker_id", "limits")),
     "set_status": _obj({"worker_id": WID, "status": {"enum": ["active", "paused", "revoked"]}},
                        ("worker_id", "status")),
+    "scheduler": _obj({"action": {"enum": ["status", "improve", "rollback"]},
+                       "candidates": {"type": "integer", "minimum": 1, "maximum": 200},
+                       "seed": {"type": "integer"}}, ("action",)),
     # worker protocol
     "enroll": _obj({"code": {"type": "string", "minLength": 8, "maxLength": 40},
                     "name": {"type": "string", "minLength": 1, "maxLength": 80}, "profile": {"type": "object"},
@@ -67,7 +70,7 @@ PAYLOADS = {
 }
 READS = {"status", "workers", "worker", "tasks", "task", "decisions", "events"}
 WORKER_OPS = {"enroll", "heartbeat", "claim", "start", "complete", "fail", "refresh"}
-OWNER_ONLY = {"join_code", "limits", "set_status"}
+OWNER_ONLY = {"join_code", "limits", "set_status", "scheduler"}
 
 
 class CollectiveOS:
@@ -238,6 +241,17 @@ class CollectiveOS:
 
     def _op_decisions(self, p):
         return self.coordinator.decisions(p["task_id"]), {}
+
+    def _op_scheduler(self, p):
+        from jarvis_books.nexus.sched_tune import SchedulerTuner
+        tuner = SchedulerTuner(self.coordinator)
+        if p["action"] == "improve":
+            with self.coordinator._lock:
+                return [], tuner.improve(p.get("candidates", 12), p.get("seed"))
+        if p["action"] == "rollback":
+            with self.coordinator._lock:
+                return [], tuner.rollback()
+        return [], tuner.status()
 
     def _op_events(self, p):
         return self.coordinator.events(p.get("after_id", 0), p.get("kind"), p.get("limit", 100)), {}

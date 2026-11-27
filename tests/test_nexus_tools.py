@@ -37,7 +37,8 @@ def tools(library, make_engine, tmp_path):
 
 def test_levels_never_need_a_yes_for_read_only_web_indexing():
     assert set(NEXUS_TOOLS) <= set(TOOL_LEVELS)
-    assert not any(TOOL_LEVELS[t] in NEEDS_YES for t in NEXUS_TOOLS)
+    # changing the Collective's scheduling weights is the one NEXUS tool that waits for a yes
+    assert [t for t in NEXUS_TOOLS if TOOL_LEVELS[t] in NEEDS_YES] == ["scheduler_improve"]
     assert TOOL_LEVELS["web_index_search"] == "read" and TOOL_LEVELS["web_index_explore"] == "safe"
 
 

@@ -124,3 +124,31 @@ Jarvis tools: `collective_status`, `collective_task` (read), `collective_run`, `
   self-improvement round.
 - Jarvis tools: `release_center` (read), `release_propose` (Change) and `release_decide` (approve, reject, defer,
   move, open a cycle, record a rollback; always asks Justin, even with Full control on).
+
+## Live dashboard (Deep Doc 2, phase 4)
+
+`dashboard.py` builds one snapshot from the running systems (NEXUS API, OS1 search and crawl, OS2 facts, OS3 tools,
+Collective, Model Hub, RSI, Release Center) and renders it as HTML; `ui/nexus_tab.py` shows it in the **NEXUS** tab
+and refreshes it every 10 seconds on a background thread. A section that fails shows its error and the others still
+show. Values that were never measured say "not measured" or "not tested"; nothing is filled in.
+
+## Hardware advice (Deep Doc 2, phase 5)
+
+`hardware.py`: `ExpansionProbe` reads the chassis type, memory modules and slots, the firmware's memory maximum,
+Thunderbolt/USB4 controllers, disks and PCIe slots (Windows CIM; Linux sysfs where readable). `advise()` turns that
+plus the Collective profile into "can", "cannot" and "unknown" items, each with the evidence. Rules: soldered mobile
+processors (U/Y/H series) and LPDDR memory can't be upgraded; no external graphics without a Thunderbolt/USB4
+controller; no internal graphics card in a laptop; memory up to the firmware's reported maximum. Expected gains are
+only DeepRAM's arithmetic (which installed models would newly fit) and Model Hub's measured speeds. Jarvis tool:
+`hardware_advice` (read).
+
+## Scheduler self-improvement (Deep Doc 2, phase 6)
+
+Every placement now stores each eligible worker's features (throughput, reliability, memory, network, load, cost,
+local) in `decisions.features` (collective migration 2). `sched_tune.SchedulerTuner` replays placements where two
+or more eligible computers have measured results: regret = chosen computer's cost / best computer's cost, cost =
+average seconds x (1 + 2 x failure rate). Placements are split by task-id hash, 80% train and 20% sealed. A random
+candidate weighting is kept only if it is at least 1% better on training and no worse on sealed placements; it needs
+20 cases (4 sealed). Every try is saved in `scheduler_versions` with its reason; kept weights load on restart and
+`rollback` returns to the version before. Collective operation `scheduler` (owner only); Jarvis tools
+`scheduler_status` (read) and `scheduler_improve` (asks first).
